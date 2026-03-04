@@ -4,105 +4,58 @@ Use Oxide to quickly build your Rust AI application, with a unified interface to
 
 [中文文档 (README_CN.md)](./README_CN.md)
 
-## Highlights
+Oxide is a provider-agnostic Rust toolkit for AI apps and agents.
+Recommended path: run first, understand layers second, then unlock advanced control.
 
-- Unified API across OpenAI, Anthropic, Google, and OpenAI-compatible endpoints
-- model selectors: `openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)`
-- Built-in tool loop runtime with `max_steps` guard
-- Dynamic planning hooks: `prepare_call` and `prepare_step`
-- Full lifecycle hooks for tool loops: `on_start`, `on_step_start`, `on_tool_call_start`, `on_tool_call_finish`, `on_step_finish`, `on_finish`, and `stop_when`
-- `Agent` facade for reusable model + tools + instructions workflows
+## Start Here
 
-## Provider Model
+- [1) Get Running First](#1-get-running-first)
+- [2) Understand the Layers](#2-understand-the-layers)
+- [3) Explore Advanced Capabilities](#3-explore-advanced-capabilities)
+- [Open Source](#open-source)
 
-One `AiClient` binds to exactly one provider configuration.
+## 1) Get Running First
 
-If you need multiple providers, create multiple clients.
-
-## Supported Providers
-
-| Provider kind     | Register API                                                                           | Model selector                         |
-| ----------------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
-| OpenAI GPT        | `.with_openai(api_key, base_url)`                                                      | `openai("gpt-4o-mini")`                |
-| Anthropic Claude  | `.with_anthropic(api_key, base_url, api_version)`                                      | `anthropic("claude-3-5-haiku-latest")` |
-| Google Gemini     | `.with_google(api_key, base_url)`                                                      | `google("gemini-2.0-flash")`           |
-| OpenAI-compatible | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")`   |
-
-## Installation
+### Installation
 
 ```toml
 [dependencies]
 oxide = { path = "." }
-# or a crate version after publish:
+# or after publishing to crates.io:
 # oxide = "x.y.z"
 ```
 
-## Quick Start (3 Examples)
+### Environment Variables (DeepSeek example)
 
-### 1) One-shot call (DeepSeek)
+```bash
+export DEEPSEEK_API_KEY="your_api_key"
+export DEEPSEEK_BASE_URL="https://api.deepseek.com"   # optional
+export DEEPSEEK_MODEL="deepseek-chat"                  # optional
+```
+
+### First Successful Call (2 minutes)
 
 ```rust
 use oxide::{AiClient, openai_compatible};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url =
-        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-
     let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
+        .with_openai_compatible(
+            std::env::var("DEEPSEEK_BASE_URL")
+                .unwrap_or_else(|_| "https://api.deepseek.com".to_string()),
+            Some(std::env::var("DEEPSEEK_API_KEY")?),
+        )
         .build()?;
 
-    let resp = client
-        .generate_prompt(openai_compatible("deepseek-chat")?, "Explain Rust ownership in 3 bullets.")
-        .await?;
-
-    println!("{}", resp.output_text);
-    Ok(())
-}
-```
-
-### 2) Loop + tool calling (Agent + step hook)
-
-```rust
-use oxide::{tool, Agent, AiClient, RunToolsStep, openai_compatible};
-use serde_json::json;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url =
-        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
-        .build()?;
-
-    let weather = tool("get_weather")
-        .description("Get weather by city")
-        .input_schema(json!({
-            "type": "object",
-            "properties": { "city": { "type": "string" } },
-            "required": ["city"]
-        }))
-        .execute(|args| async move {
-            let city = args.get("city").and_then(|v| v.as_str()).unwrap_or("unknown");
-            Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
-        });
-
-    let agent = Agent::builder(client)
-        .model(openai_compatible("deepseek-chat")?)
-        .instructions("You can call tools before answering.")
-        .tool(weather)
-        .max_steps(4)
-        .on_step_finish(|step: &RunToolsStep| {
-            println!("step={} tool_calls={}", step.step, step.tool_calls.len());
-        })
-        .build()?;
-
-    let out = agent
-        .generate_prompt("What's the weather in Shanghai? Use tools if needed.")
+    let out = client
+        .generate_prompt(
+            openai_compatible(
+                std::env::var("DEEPSEEK_MODEL")
+                    .unwrap_or_else(|_| "deepseek-chat".to_string()),
+            )?,
+            "Explain Rust ownership in 3 bullets.",
+        )
         .await?;
 
     println!("{}", out.output_text);
@@ -110,70 +63,87 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 3) DeepSeek with two client setup styles
+### Examples Learning Path
+
+| Stage | Command | What you learn |
+| --- | --- | --- |
+| 1 | `cargo run --example basic_generate` | Minimal one-shot generation |
+| 2 | `cargo run --example basic_stream` | Streaming output handling |
+| 3 | `cargo run --example agent_minimal` | First agent + one tool |
+| 4 | `cargo run --example tools_max_steps` | Multi-step tool loop and guardrails |
+| 5 | `cargo run --example prepare_hooks` | Dynamic per-call and per-step control |
+| 6 | `cargo run --example openai_compatible_custom` | Custom headers/query/path for compatible providers |
+
+More examples: [examples/README.md](./examples/README.md)
+
+## 2) Understand the Layers
+
+### Unified Provider Architecture
+
+- One `AiClient` binds to one provider configuration.
+- One `ModelRef` (`openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)`) selects a model per call.
+- If your app needs multiple providers, create multiple clients.
+
+### Provider Registration + Model Selection
+
+| Provider kind | Register API | Model selector |
+| --- | --- | --- |
+| OpenAI GPT | `.with_openai(api_key, base_url)` | `openai("gpt-4o-mini")` |
+| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)` | `anthropic("claude-3-5-haiku-latest")` |
+| Google Gemini | `.with_google(api_key, base_url)` | `google("gemini-2.0-flash")` |
+| OpenAI-compatible | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")` |
+
+### Layer Map
+
+| Layer | Responsibility | Core APIs |
+| --- | --- | --- |
+| Provider binding | Configure transport, retries, and provider adapter | `AiClient::builder()` |
+| Model selection | Keep provider/model identity explicit | `openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)` |
+| Generation | One-shot + streaming text | `generate_prompt`, `stream_prompt`, `generate_text`, `stream_text` |
+| Tool runtime | Multi-step reasoning + tool execution loop | `run_tools`, `tool(...)`, `max_steps`, `stop_when` |
+| Agent facade | Reusable workflow (model + instructions + tools + hooks) | `Agent::builder(...).generate_prompt(...)` |
+
+## 3) Explore Advanced Capabilities
+
+### Agent + Tool Loop
 
 ```rust
-use oxide::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
+use oxide::{Agent, openai_compatible, tool};
+use serde_json::json;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url =
-        std::env::var("DEEPSEEK_BASE_URL").unwrap_or_else(|_| "https://api.deepseek.com".to_string());
-
-    let simple_client = AiClient::builder()
-        .with_openai_compatible(base_url.clone(), Some(api_key.clone()))
-        .build()?;
-
-    let mut settings = OpenAiCompatibleAdapterSettings::new(base_url);
-    settings.api_key = Some(api_key);
-
-    let settings_client = AiClient::builder()
-        .with_openai_compatible_settings(settings)
-        .build()?;
-
-    let _ = simple_client
-        .generate_prompt(openai_compatible("deepseek-chat")?, "hello")
-        .await?;
-    let _ = settings_client
-        .generate_prompt(openai_compatible("deepseek-chat")?, "hello again")
-        .await?;
-
-    Ok(())
-}
-```
-
-## Model Selection (AI SDK style)
-
-Use provider helpers instead of manual model-id strings:
-
-- `openai("gpt-4o-mini")`
-- `anthropic("claude-3-5-haiku-latest")`
-- `google("gemini-2.0-flash")`
-- `openai_compatible("deepseek-chat")`
-
-## Dynamic Step Control (AI SDK style)
-
-`Agent` supports:
-
-- `prepare_call`: adjust model/messages/tools/sampling before one run starts
-- `prepare_step`: adjust model/messages/tools/sampling before each step
-
-```rust
-use oxide::{
-    Agent, AgentCallPlan, Message, RunToolsPrepareStep, RunToolsPreparedStep,
-    openai_compatible,
-};
+let weather = tool("get_weather")
+    .description("Get weather by city")
+    .input_schema(json!({
+        "type": "object",
+        "properties": { "city": { "type": "string" } },
+        "required": ["city"]
+    }))
+    .execute(|args| async move {
+        Ok(json!({ "city": args["city"], "temp_c": 23, "condition": "sunny" }))
+    });
 
 let agent = Agent::builder(client)
     .model(openai_compatible("deepseek-chat")?)
-    .prepare_call(|plan: &AgentCallPlan| {
+    .instructions("You can call tools before answering.")
+    .tool(weather)
+    .max_steps(4)
+    .build()?;
+```
+
+### Dynamic Planning Hooks
+
+- `prepare_call`: adjust the call plan once before a run starts.
+- `prepare_step`: adjust model/messages/tools before each step.
+
+```rust
+let agent = Agent::builder(client)
+    .prepare_call(|plan| {
         let mut next = plan.clone();
         next.temperature = Some(0.2);
         next
     })
-    .prepare_step(|event: &RunToolsPrepareStep| {
-        let mut next = RunToolsPreparedStep {
+    .prepare_step(|event| {
+        let mut next = oxide::RunToolsPreparedStep {
             model: event.model.clone(),
             messages: event.messages.clone(),
             tools: event.tools.clone(),
@@ -181,29 +151,38 @@ let agent = Agent::builder(client)
             max_output_tokens: event.max_output_tokens,
             stop_sequences: event.stop_sequences.clone(),
         };
-        next.messages.push(Message::system_text(format!("step={}", event.step)));
+        next.messages
+            .push(oxide::Message::system_text(format!("step={}", event.step)));
         next
     })
     .build()?;
 ```
 
-## Runnable Examples
+### Full Lifecycle Callbacks
+
+`on_start`, `on_step_start`, `on_tool_call_start`, `on_tool_call_finish`, `on_step_finish`, `on_finish`, `stop_when`
+
+### OpenAI-Compatible Advanced Settings
+
+Need custom headers/query/path? Use `OpenAiCompatibleAdapterSettings`.
 
 ```bash
-cargo run --example basic_generate
-cargo run --example basic_stream
-cargo run --example agent_minimal
-cargo run --example tools_max_steps
-cargo run --example provider_selection_demo
-cargo run --example google_generate
 cargo run --example openai_compatible_custom
-cargo run --example mini_claude_code
-cargo run --example prepare_hooks
 ```
 
-More scenario notes: [examples/README.md](./examples/README.md)
+### Axum SSE Integration
 
-## Development
+```bash
+cargo check --features axum
+```
+
+## Open Source
+
+### Contributing
+
+Issues and PRs are welcome. For behavior changes, include tests.
+
+### Local Development Checks
 
 ```bash
 cargo fmt
@@ -215,10 +194,9 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 ```
 
-## Contributing
+### Governance
 
-Issues and PRs are welcome. Please include tests for behavior changes.
-
-## License
-
-See repository license files.
+- [MIT License](./LICENSE)
+- [Contributing Guide](./CONTRIBUTING.md)
+- [Code of Conduct](./CODE_OF_CONDUCT.md)
+- [Security Policy](./SECURITY.md)
