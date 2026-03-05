@@ -18,10 +18,18 @@ fi
 # 同步主 Cargo.toml 里对 macros 的依赖版本
 sed -i '' "s/aquaregia-macros = { path = \"aquaregia-macros\", version = \"[^\"]*\" }/aquaregia-macros = { path = \"aquaregia-macros\", version = \"$VERSION\" }/" "$ROOT/Cargo.toml"
 
-# ── 发布 aquaregia-macros ──────────────────────────────────────────────────────
-echo ">>> 发布 aquaregia-macros ..."
-(cd "$MACROS_DIR" && cargo publish --registry crates-io)
-echo ">>> aquaregia-macros 已提交，等待 crates.io 索引同步..."
+# ── 发布 aquaregia-macros（若已存在则跳过）────────────────────────────────────
+MACROS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "User-Agent: aquaregia-publish-script/1.0" \
+  "https://crates.io/api/v1/crates/aquaregia-macros/$VERSION")
+
+if [ "$MACROS_STATUS" = "200" ]; then
+  echo ">>> aquaregia-macros $VERSION 已存在，跳过发布"
+else
+  echo ">>> 发布 aquaregia-macros ..."
+  (cd "$MACROS_DIR" && cargo publish --registry crates-io)
+  echo ">>> aquaregia-macros 已提交，等待 crates.io 索引同步..."
+fi
 
 # ── 轮询 crates.io，等待 macros 版本可见 ──────────────────────────────────────
 POLL_INTERVAL=10
