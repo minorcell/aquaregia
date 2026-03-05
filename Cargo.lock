@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "aquaregia"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "aquaregia-macros",
  "async-stream",
