@@ -1,60 +1,56 @@
 # Aquaregia
 
-使用 Aquaregia 快速构建您的 Rust AI 应用，具有统一的多供应商接口和强大的工具执行能力。
+Aquaregia 是一个 provider-agnostic 的 Rust AI 工具包，用于构建 AI 应用与可调用工具的 Agent。
 
-[English README](./README.md)
+它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），同时支持流式输出和多步工具执行循环。
 
-Aquaregia 是一个面向 Rust 的 provider-agnostic AI 工具包。
-推荐上手路径：先跑起来，再理解分层，最后使用高级控制能力。
+查看 [API 文档](https://docs.rs/aquaregia)、[示例指南](./examples/README.md)，或切换到 [English README](./README.md)。
 
-## 快速入口
+## 安装
 
-- [1）先跑起来](#cn-get-running-first)
-- [2）再理解分层](#cn-understand-layers)
-- [3）再看高级能力](#cn-advanced-capabilities)
-- [开源协作](#cn-open-source)
-
-<a id="cn-get-running-first"></a>
-
-## 1）先跑起来
-
-### 安装
+项目需要 Rust 和 Tokio 异步运行时。
 
 ```bash
 cargo add aquaregia
 ```
 
-### 环境变量（以 DeepSeek 为例）
+默认 feature 包含 `openai` 与 `anthropic`。也可以验证最小/按供应商构建：
 
 ```bash
-export DEEPSEEK_API_KEY="your_api_key"
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"   # 可选
-export DEEPSEEK_MODEL="deepseek-chat"                  # 可选
+cargo check --no-default-features
+cargo check --no-default-features --features openai
+cargo check --no-default-features --features anthropic
 ```
 
-### 首次成功调用（2 分钟）
+## 统一 Provider 架构
+
+一个 `LlmClient` 绑定一个 provider 配置。  
+每次调用可以直接传模型字符串（例如 `"deepseek-chat"`）。
+
+| Provider          | 注册 API                                                                                                | 模型参数                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | --------------------------- |
+| OpenAI            | `LlmClient::openai(api_key)`（可选 `.base_url(...)`）                                                    | `"gpt-4o-mini"`             |
+| Anthropic         | `LlmClient::anthropic(api_key)`（可选 `.base_url(...)`、`.api_version(...)`）                            | `"claude-3-5-haiku-latest"` |
+| Google            | `LlmClient::google(api_key)`（可选 `.base_url(...)`）                                                    | `"gemini-2.0-flash"`        |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings(...)` | `"deepseek-chat"`           |
+
+## Usage
+
+### 文本生成
 
 ```rust
-use aquaregia::{AiClient, openai_compatible};
+use aquaregia::LlmClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = AiClient::builder()
-        .with_openai_compatible(
-            std::env::var("DEEPSEEK_BASE_URL")
-                .unwrap_or_else(|_| "https://api.deepseek.com".to_string()),
-            Some(std::env::var("DEEPSEEK_API_KEY")?),
-        )
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
         .build()?;
 
     let out = client
-        .generate_prompt(
-            openai_compatible(
-                std::env::var("DEEPSEEK_MODEL")
-                    .unwrap_or_else(|_| "deepseek-chat".to_string()),
-            )?,
-            "用 3 个要点解释 Rust 所有权。",
-        )
+        .generate("deepseek-chat", "用 3 个要点解释 Rust 所有权。")
         .await?;
 
     println!("{}", out.output_text);
@@ -62,132 +58,149 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 示例学习路径
+### 流式输出（简洁模式）
 
-| 阶段 | 命令                                           | 你会学到什么                                |
-| ---- | ---------------------------------------------- | ------------------------------------------- |
-| 1    | `cargo run --example basic_generate`           | 最小一次性生成                              |
-| 2    | `cargo run --example basic_stream`             | 流式输出处理                                |
-| 3    | `cargo run --example agent_minimal`            | 第一个 Agent + 单工具                       |
-| 4    | `cargo run --example tools_max_steps`          | 多步工具循环与收敛保护                      |
-| 5    | `cargo run --example prepare_hooks`            | 按调用/按步骤动态控制                       |
-| 6    | `cargo run --example openai_compatible_custom` | OpenAI-compatible 自定义 headers/query/path |
+```rust
+use aquaregia::LlmClient;
+use futures_util::StreamExt;
 
-更多示例： [examples/README.md](./examples/README.md)
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
+        .build()?;
 
-<a id="cn-understand-layers"></a>
+    let mut stream = client
+        .stream_text("deepseek-chat", "写一段简短版本发布说明。")
+        .await?;
 
-## 2）再理解分层
+    while let Some(chunk) = stream.next().await {
+        print!("{}", chunk?);
+    }
+    Ok(())
+}
+```
 
-### 统一 Provider 架构
+如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），请使用 `client.stream_prompt(...)`。
 
-- 一个 `AiClient` 绑定一个 provider 配置。
-- 每次调用通过 `ModelRef`（`openai(...)`、`anthropic(...)`、`google(...)`、`openai_compatible(...)`）选择模型。
-- 同一应用需接入多个 provider 时，创建多个 client。
+### 错误处理
 
-### Provider 注册 + 模型选择
+```rust
+use aquaregia::{AiErrorCode, LlmClient};
 
-| 适配类型         | 注册方法                                                                               | 模型选择                               |
-| ---------------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
-| OpenAI GPT       | `.with_openai(api_key, base_url)`                                                      | `openai("gpt-4o-mini")`                |
-| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)`                                      | `anthropic("claude-3-5-haiku-latest")` |
-| Google Gemini    | `.with_google(api_key, base_url)`                                                      | `google("gemini-2.0-flash")`           |
-| OpenAI 兼容接口  | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")`   |
-
-### 分层地图
-
-| 分层            | 职责                                    | 核心 API                                                                 |
-| --------------- | --------------------------------------- | ------------------------------------------------------------------------ |
-| Provider 绑定层 | 配置传输、重试与 provider adapter       | `AiClient::builder()`                                                    |
-| 模型选择层      | 显式区分 provider/model                 | `openai(...)`、`anthropic(...)`、`google(...)`、`openai_compatible(...)` |
-| 生成层          | 一次性 + 流式文本生成                   | `generate_prompt`、`stream_prompt`、`generate_text`、`stream_text`       |
-| 工具运行时层    | 多步推理 + 工具执行循环                 | `run_tools`、`tool(...)`、`max_steps`、`stop_when`                       |
-| Agent 封装层    | 模型 + 指令 + 工具 + hooks 的复用工作流 | `Agent::builder(...).generate_prompt(...)`                               |
-
-<a id="cn-advanced-capabilities"></a>
-
-## 3）再看高级能力
+match client.generate("deepseek-chat", "hello").await {
+    Ok(out) => println!("{}", out.output_text),
+    Err(err) => match err.code {
+        AiErrorCode::RateLimited => eprintln!("触发限流，请稍后重试"),
+        AiErrorCode::AuthFailed => eprintln!("请检查 API Key"),
+        _ => eprintln!("请求失败: {}", err),
+    },
+}
+```
 
 ### Agent + 工具循环
 
 ```rust
-use aquaregia::{Agent, openai_compatible, tool};
-use serde_json::json;
+use aquaregia::{Agent, LlmClient, tool};
+use serde_json::{Value, json};
 
-let weather = tool("get_weather")
-    .description("Get weather by city")
-    .input_schema(json!({
-        "type": "object",
-        "properties": { "city": { "type": "string" } },
-        "required": ["city"]
-    }))
-    .execute(|args| async move {
-        Ok(json!({ "city": args["city"], "temp_c": 23, "condition": "sunny" }))
-    });
+#[tool(description = "Get weather by city")]
+async fn get_weather(city: String) -> Result<Value, String> {
+    Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+}
 
-let agent = Agent::builder(client)
-    .model(openai_compatible("deepseek-chat")?)
-    .instructions("回答前可以先调用工具。")
-    .tool(weather)
-    .max_steps(4)
-    .build()?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
+        .build()?;
+
+    let agent = Agent::builder(client, "deepseek-chat")
+        .instructions("回答前可以先调用工具。")
+        .tool(get_weather)
+        .max_steps(4)
+        .build()?;
+
+    let out = agent.run("上海天气如何？").await?;
+    println!("{}", out.output_text);
+    Ok(())
+}
 ```
 
-### 动态规划 Hooks
-
-- `prepare_call`：运行开始前，调整调用计划。
-- `prepare_step`：每一步开始前，调整 model/messages/tools。
+### 动态规划（`prepare_call` / `prepare_step`）
 
 ```rust
-let agent = Agent::builder(client)
+use aquaregia::{Agent, LlmClient};
+
+let agent = Agent::builder(client, "deepseek-chat")
+    .max_steps(4)
     .prepare_call(|plan| {
-        let mut next = plan.clone();
-        next.temperature = Some(0.2);
-        next
+        plan.temperature = Some(0.2);
     })
     .prepare_step(|event| {
-        let mut next = aquaregia::RunToolsPreparedStep {
-            model: event.model.clone(),
-            messages: event.messages.clone(),
-            tools: event.tools.clone(),
-            temperature: event.temperature,
-            max_output_tokens: event.max_output_tokens,
-            stop_sequences: event.stop_sequences.clone(),
-        };
-        next.messages
-            .push(aquaregia::Message::system_text(format!("step={}", event.step)));
+        let mut next = event.to_prepared();
+        if event.step >= 2 {
+            next.tools.clear();
+        }
         next
     })
     .build()?;
 ```
 
-### 完整生命周期回调
+### OpenAI-Compatible 高级配置
 
-`on_start`、`on_step_start`、`on_tool_call_start`、`on_tool_call_finish`、`on_step_finish`、`on_finish`、`stop_when`
+```rust
+use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
 
-### OpenAI-Compatible 深度配置
+let settings = OpenAiCompatibleAdapterSettings::new("https://api.deepseek.com")
+    .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+    .header("x-trace-source", "aquaregia")
+    .query_param("source", "sdk");
 
-需要自定义 headers/query/path 时，使用 `OpenAiCompatibleAdapterSettings`。
-
-```bash
-cargo run --example openai_compatible_custom
+let client = LlmClient::openai_compatible_with_settings(settings)
+    .build()?;
 ```
 
-### Axum SSE 集成
+## 破坏性变更迁移说明
 
-```bash
-cargo check --features axum
-```
+- 模型 helper 现在是无错误返回：
+  - `openai("gpt-4o-mini")` 直接返回 `ModelRef<_>`（不再需要 `?`）。
+- 文本调用 API 可直接传模型字符串：
+  - `client.generate("deepseek-chat", "...")`。
+- OpenAI-compatible 快捷构造器现在以 `base_url` 为主参数：
+  - `LlmClient::openai_compatible(base_url).api_key(api_key)`。
+  - 无鉴权端点可使用 `LlmClient::openai_compatible_no_auth(base_url)`。
+- `AgentBuilder::build()` 现在返回 `Result<Agent<_>, AiError>`：
+  - 需要使用 `.build()?`。
+- Agent 执行 API 重命名：
+  - `agent.run("...")` 用于 prompt 输入。
+  - `agent.run_messages(messages)` 用于显式消息列表。
+- `MaxSteps` / `Temperature` / `TopP` newtype 已移除：
+  - 直接使用基础类型（`u8`、`f32`），并在 build/run 阶段统一校验。
+- Tool builder 分为 typed 与 raw 两条路径：
+  - typed：`.execute(|args: MyArgs| async move { ... })`（`Deserialize + JsonSchema`）。
+  - raw：`.raw_schema(json!(...)).execute_raw(|args| async move { ... })`。
+- `prepare_step` 新增 `event.to_prepared()`：
+  - 可安全复制默认 step 配置后再做局部修改。
+- `OpenAiCompatibleAdapterSettings` 字段已私有化：
+  - 通过链式方法配置（`api_key`、`header`、`query_param`、`chat_completions_path`）。
 
-<a id="cn-open-source"></a>
+## 示例
 
-## 开源协作
+| 示例             | 命令                                           | 重点                              |
+| ---------------- | ---------------------------------------------- | --------------------------------- |
+| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                |
+| 基础流式输出     | `cargo run --example basic_stream`             | `StreamEvent` 处理                |
+| 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具         |
+| 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`        |
+| 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`   |
+| Provider 选择    | `cargo run --example provider_selection_demo`  | 快速/高级兼容配置                 |
+| 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings` |
+| 终端代码 Agent   | `cargo run --example mini_claude_code`         | 本地工具 + `run_tools`            |
 
-### 如何贡献
-
-欢迎提 Issue 和 PR。涉及行为变更请附带测试。
-
-### 本地开发检查
+## 本地开发检查
 
 ```bash
 cargo fmt
@@ -199,9 +212,17 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 ```
 
-### 治理文件
+仅在 `ai-sdk/` 子工程开发时运行：
 
-- [MIT 许可证](./LICENSE)
+```bash
+cd ai-sdk && pnpm build && pnpm lint && pnpm type-check
+```
+
+## 贡献与许可
+
+欢迎提交 Issue 和 PR。涉及行为变更时，建议补充集成测试（happy path + 错误映射 + 工具/流式流程）。
+
 - [贡献指南](./CONTRIBUTING.md)
 - [行为准则](./CODE_OF_CONDUCT.md)
 - [安全策略](./SECURITY.md)
+- [MIT 许可证](./LICENSE)

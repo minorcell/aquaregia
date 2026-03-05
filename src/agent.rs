@@ -1,18 +1,18 @@
 use std::sync::Arc;
 
-use crate::client::AiClient;
-use crate::error::{AiError, AiErrorCode};
-use crate::tool::Tool;
+use crate::client::BoundClient;
+use crate::tool::{IntoTool, Tool};
 use crate::types::{
-    FinishCallback, Message, ModelRef, PrepareStepCallback, RunToolsFinish, RunToolsPrepareStep,
-    RunToolsPreparedStep, RunToolsRequest, RunToolsResponse, RunToolsStart, RunToolsStep,
-    RunToolsStepStart, RunToolsToolCallFinish, RunToolsToolCallStart, StartCallback, StepCallback,
-    StepStartCallback, StopWhen, ToolCallFinishCallback, ToolCallStartCallback,
+    FinishCallback, IntoModelRef, Message, ModelRef, PrepareStepCallback, ProviderMarker, RunTools,
+    RunToolsFinish, RunToolsPrepareStep, RunToolsPreparedStep, RunToolsResponse, RunToolsStart,
+    RunToolsStep, RunToolsStepStart, RunToolsToolCallFinish, RunToolsToolCallStart, StartCallback,
+    StepCallback, StepStartCallback, StopWhen, ToolCallFinishCallback, ToolCallStartCallback,
+    ToolErrorPolicy, validate_max_steps, validate_model_ref, validate_sampling,
 };
 
 #[derive(Debug, Clone)]
-pub struct AgentCallPlan {
-    pub model: ModelRef,
+pub struct AgentCallPlan<P: ProviderMarker> {
+    pub model: ModelRef<P>,
     pub messages: Vec<Message>,
     pub tools: Vec<Tool>,
     pub max_steps: Option<u8>,
@@ -22,77 +22,84 @@ pub struct AgentCallPlan {
 }
 
 #[derive(Clone)]
-pub struct PrepareCallCallback {
-    inner: Arc<dyn Fn(&AgentCallPlan) -> AgentCallPlan + Send + Sync>,
+pub struct PrepareCallCallback<P: ProviderMarker> {
+    inner: Arc<dyn Fn(&mut AgentCallPlan<P>) + Send + Sync>,
 }
 
-impl std::fmt::Debug for PrepareCallCallback {
+impl<P: ProviderMarker> std::fmt::Debug for PrepareCallCallback<P> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("PrepareCallCallback(<fn>)")
     }
 }
 
-impl PrepareCallCallback {
+impl<P: ProviderMarker> PrepareCallCallback<P> {
     pub fn new<F>(callback: F) -> Self
     where
-        F: Fn(&AgentCallPlan) -> AgentCallPlan + Send + Sync + 'static,
+        F: Fn(&mut AgentCallPlan<P>) + Send + Sync + 'static,
     {
         Self {
             inner: Arc::new(callback),
         }
     }
 
-    pub fn call(&self, event: &AgentCallPlan) -> AgentCallPlan {
+    pub fn call(&self, event: &mut AgentCallPlan<P>) {
         (self.inner)(event)
     }
 }
 
-pub struct Agent {
-    client: Arc<AiClient>,
-    model: ModelRef,
+pub struct Agent<P: ProviderMarker> {
+    client: Arc<BoundClient<P>>,
+    model: ModelRef<P>,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u8>,
     temperature: Option<f32>,
     max_output_tokens: Option<u32>,
     stop_sequences: Vec<String>,
-    prepare_call: Option<PrepareCallCallback>,
-    prepare_step: Option<PrepareStepCallback>,
-    on_start: Option<StartCallback>,
+    prepare_call: Option<PrepareCallCallback<P>>,
+    prepare_step: Option<PrepareStepCallback<P>>,
+    on_start: Option<StartCallback<P>>,
     on_step_start: Option<StepStartCallback>,
     on_tool_call_start: Option<ToolCallStartCallback>,
     on_tool_call_finish: Option<ToolCallFinishCallback>,
     on_step_finish: Option<StepCallback>,
     on_finish: Option<FinishCallback>,
     stop_when: Option<StopWhen>,
+    tool_error_policy: ToolErrorPolicy,
 }
 
-impl Agent {
-    pub fn builder(client: AiClient) -> AgentBuilder {
-        AgentBuilder::new(Arc::new(client))
+impl<P: ProviderMarker> Agent<P> {
+    pub fn builder(client: BoundClient<P>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
+        AgentBuilder::new(Arc::new(client), model.into_model_ref())
     }
 
-    pub fn builder_with_client(client: Arc<AiClient>) -> AgentBuilder {
-        AgentBuilder::new(client)
+    pub fn builder_with_client(
+        client: Arc<BoundClient<P>>,
+        model: impl IntoModelRef<P>,
+    ) -> AgentBuilder<P> {
+        AgentBuilder::new(client, model.into_model_ref())
     }
 
     pub fn model_id(&self) -> String {
         self.model.id()
     }
 
-    pub async fn generate_prompt(
+    pub async fn run(
         &self,
         prompt: impl Into<String>,
-    ) -> Result<RunToolsResponse, AiError> {
+    ) -> Result<RunToolsResponse, crate::error::AiError> {
         let mut messages = Vec::new();
         if let Some(instructions) = &self.instructions {
             messages.push(Message::system_text(instructions.clone()));
         }
         messages.push(Message::user_text(prompt));
-        self.generate(messages).await
+        self.run_messages(messages).await
     }
 
-    pub async fn generate(&self, messages: Vec<Message>) -> Result<RunToolsResponse, AiError> {
+    pub async fn run_messages(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<RunToolsResponse, crate::error::AiError> {
         let mut call_plan = AgentCallPlan {
             model: self.model.clone(),
             messages,
@@ -103,56 +110,88 @@ impl Agent {
             stop_sequences: self.stop_sequences.clone(),
         };
         if let Some(callback) = &self.prepare_call {
-            call_plan = callback.call(&call_plan);
+            callback.call(&mut call_plan);
         }
 
-        self.client
-            .run_tools(RunToolsRequest {
-                model: call_plan.model,
-                messages: call_plan.messages,
-                tools: call_plan.tools,
-                max_steps: call_plan.max_steps,
-                temperature: call_plan.temperature,
-                max_output_tokens: call_plan.max_output_tokens,
-                stop_sequences: call_plan.stop_sequences,
-                prepare_step: self.prepare_step.clone(),
-                on_start: self.on_start.clone(),
-                on_step_start: self.on_step_start.clone(),
-                on_tool_call_start: self.on_tool_call_start.clone(),
-                on_tool_call_finish: self.on_tool_call_finish.clone(),
-                on_step_finish: self.on_step_finish.clone(),
-                on_finish: self.on_finish.clone(),
-                stop_when: self.stop_when.clone(),
-            })
-            .await
+        let mut request = RunTools::new(call_plan.model)
+            .messages(call_plan.messages)
+            .tools(call_plan.tools)
+            .tool_error_policy(self.tool_error_policy)
+            .stop_sequences(call_plan.stop_sequences);
+
+        if let Some(max_steps) = call_plan.max_steps {
+            request = request.max_steps(max_steps);
+        }
+        if let Some(temperature) = call_plan.temperature {
+            request = request.temperature(temperature);
+        }
+        if let Some(max_output_tokens) = call_plan.max_output_tokens {
+            request = request.max_output_tokens(max_output_tokens);
+        }
+
+        if let Some(prepare_step) = &self.prepare_step {
+            let prepare_step = prepare_step.clone();
+            request = request.prepare_step(move |event| prepare_step.call(event));
+        }
+        if let Some(on_start) = &self.on_start {
+            let on_start = on_start.clone();
+            request = request.on_start(move |event| on_start.call(event));
+        }
+        if let Some(on_step_start) = &self.on_step_start {
+            let on_step_start = on_step_start.clone();
+            request = request.on_step_start(move |event| on_step_start.call(event));
+        }
+        if let Some(on_tool_call_start) = &self.on_tool_call_start {
+            let on_tool_call_start = on_tool_call_start.clone();
+            request = request.on_tool_call_start(move |event| on_tool_call_start.call(event));
+        }
+        if let Some(on_tool_call_finish) = &self.on_tool_call_finish {
+            let on_tool_call_finish = on_tool_call_finish.clone();
+            request = request.on_tool_call_finish(move |event| on_tool_call_finish.call(event));
+        }
+        if let Some(on_step_finish) = &self.on_step_finish {
+            let on_step_finish = on_step_finish.clone();
+            request = request.on_step_finish(move |event| on_step_finish.call(event));
+        }
+        if let Some(on_finish) = &self.on_finish {
+            let on_finish = on_finish.clone();
+            request = request.on_finish(move |event| on_finish.call(event));
+        }
+        if let Some(stop_when) = &self.stop_when {
+            let stop_when = stop_when.clone();
+            request = request.stop_when(move |step| stop_when.should_stop(step));
+        }
+
+        self.client.run_tools(request.build()?).await
     }
 }
 
-pub struct AgentBuilder {
-    client: Arc<AiClient>,
-    model: Option<ModelRef>,
+pub struct AgentBuilder<P: ProviderMarker> {
+    client: Arc<BoundClient<P>>,
+    model: ModelRef<P>,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u8>,
     temperature: Option<f32>,
     max_output_tokens: Option<u32>,
     stop_sequences: Vec<String>,
-    prepare_call: Option<PrepareCallCallback>,
-    prepare_step: Option<PrepareStepCallback>,
-    on_start: Option<StartCallback>,
+    prepare_call: Option<PrepareCallCallback<P>>,
+    prepare_step: Option<PrepareStepCallback<P>>,
+    on_start: Option<StartCallback<P>>,
     on_step_start: Option<StepStartCallback>,
     on_tool_call_start: Option<ToolCallStartCallback>,
     on_tool_call_finish: Option<ToolCallFinishCallback>,
     on_step_finish: Option<StepCallback>,
     on_finish: Option<FinishCallback>,
     stop_when: Option<StopWhen>,
+    tool_error_policy: ToolErrorPolicy,
 }
 
-impl AgentBuilder {
-    fn new(client: Arc<AiClient>) -> Self {
+impl<P: ProviderMarker> AgentBuilder<P> {
+    fn new(client: Arc<BoundClient<P>>, model: ModelRef<P>) -> Self {
         Self {
             client,
-            model: None,
+            model,
             instructions: None,
             tools: Vec::new(),
             max_steps: None,
@@ -168,16 +207,8 @@ impl AgentBuilder {
             on_step_finish: None,
             on_finish: None,
             stop_when: None,
+            tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
         }
-    }
-
-    pub fn model(mut self, model: ModelRef) -> Self {
-        self.model = Some(model);
-        self
-    }
-
-    pub fn model_ref(self, model: ModelRef) -> Self {
-        self.model(model)
     }
 
     pub fn instructions(mut self, instructions: impl Into<String>) -> Self {
@@ -185,23 +216,24 @@ impl AgentBuilder {
         self
     }
 
-    pub fn tool(mut self, tool: Tool) -> Self {
-        self.tools.push(tool);
+    pub fn tool(mut self, tool: impl IntoTool) -> Self {
+        self.tools.push(tool.into_tool());
         self
     }
 
-    pub fn tools(mut self, tools: impl IntoIterator<Item = Tool>) -> Self {
-        self.tools.extend(tools);
+    pub fn tools<I, T>(mut self, tools: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+        T: IntoTool,
+    {
+        self.tools
+            .extend(tools.into_iter().map(IntoTool::into_tool));
         self
     }
 
-    pub fn stop_when_step_count(mut self, max_steps: u8) -> Self {
+    pub fn max_steps(mut self, max_steps: u8) -> Self {
         self.max_steps = Some(max_steps);
         self
-    }
-
-    pub fn max_steps(self, max_steps: u8) -> Self {
-        self.stop_when_step_count(max_steps)
     }
 
     pub fn temperature(mut self, temperature: f32) -> Self {
@@ -226,7 +258,7 @@ impl AgentBuilder {
 
     pub fn prepare_call<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&AgentCallPlan) -> AgentCallPlan + Send + Sync + 'static,
+        F: Fn(&mut AgentCallPlan<P>) + Send + Sync + 'static,
     {
         self.prepare_call = Some(PrepareCallCallback::new(callback));
         self
@@ -234,7 +266,7 @@ impl AgentBuilder {
 
     pub fn prepare_step<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsPrepareStep) -> RunToolsPreparedStep + Send + Sync + 'static,
+        F: Fn(&RunToolsPrepareStep<P>) -> RunToolsPreparedStep<P> + Send + Sync + 'static,
     {
         self.prepare_step = Some(PrepareStepCallback::new(callback));
         self
@@ -250,7 +282,7 @@ impl AgentBuilder {
 
     pub fn on_start<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&RunToolsStart) + Send + Sync + 'static,
+        F: Fn(&RunToolsStart<P>) + Send + Sync + 'static,
     {
         self.on_start = Some(StartCallback::new(callback));
         self
@@ -296,26 +328,21 @@ impl AgentBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Agent, AiError> {
-        let Some(model) = self.model else {
-            return Err(AiError::new(
-                AiErrorCode::InvalidRequest,
-                "agent model is required; call .model(openai(\"gpt-4o-mini\")?)",
-            ));
-        };
+    pub fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
+        self.tool_error_policy = policy;
+        self
+    }
 
+    pub fn build(self) -> Result<Agent<P>, crate::error::AiError> {
+        validate_model_ref(&self.model)?;
         if let Some(max_steps) = self.max_steps {
-            if !(1..=32).contains(&max_steps) {
-                return Err(AiError::new(
-                    AiErrorCode::InvalidRequest,
-                    "max_steps must be in 1..=32",
-                ));
-            }
+            validate_max_steps(max_steps)?;
         }
+        validate_sampling(self.temperature, None)?;
 
         Ok(Agent {
             client: self.client,
-            model,
+            model: self.model,
             instructions: self.instructions,
             tools: self.tools,
             max_steps: self.max_steps,
@@ -331,6 +358,7 @@ impl AgentBuilder {
             on_step_finish: self.on_step_finish,
             on_finish: self.on_finish,
             stop_when: self.stop_when,
+            tool_error_policy: self.tool_error_policy,
         })
     }
 }
@@ -338,46 +366,16 @@ impl AgentBuilder {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{AiClient, AiErrorCode, openai};
+    use crate::{LlmClient, openai};
 
     #[test]
-    fn builder_requires_model() {
-        let client = AiClient::builder()
-            .with_openai("test-key", "https://api.openai.com")
+    fn builder_accepts_typed_model() {
+        let client = LlmClient::openai("test-key")
+            .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let err = match Agent::builder(client).build() {
-            Ok(_) => panic!("missing model should fail"),
-            Err(err) => err,
-        };
-        assert_eq!(err.code, AiErrorCode::InvalidRequest);
-    }
-
-    #[test]
-    fn builder_rejects_invalid_max_steps() {
-        let client = AiClient::builder()
-            .with_openai("test-key", "https://api.openai.com")
-            .build()
-            .expect("client should build");
-        let err = match Agent::builder(client)
-            .model(openai("gpt-4o-mini").expect("model should parse"))
-            .max_steps(0)
-            .build()
-        {
-            Ok(_) => panic!("invalid max_steps should fail"),
-            Err(err) => err,
-        };
-        assert_eq!(err.code, AiErrorCode::InvalidRequest);
-    }
-
-    #[test]
-    fn builder_accepts_model_ref() {
-        let client = AiClient::builder()
-            .with_openai("test-key", "https://api.openai.com")
-            .build()
-            .expect("client should build");
-        let agent = Agent::builder(client)
-            .model(openai("gpt-4o-mini").expect("model should parse"))
+        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+            .max_steps(3)
             .build()
             .expect("agent should build");
 

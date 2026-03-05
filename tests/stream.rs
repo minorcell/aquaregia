@@ -1,7 +1,5 @@
+use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic};
 use futures_util::StreamExt;
-use aquaregia::{
-    AiClient, ContentPart, GenerateTextRequest, Message, MessageRole, StreamEvent, anthropic,
-};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -25,27 +23,21 @@ async fn anthropic_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_anthropic("test-anthropic-key", server.uri(), "2023-06-01")
+    let client = LlmClient::anthropic("test-anthropic-key")
+        .base_url(server.uri())
+        .api_version("2023-06-01")
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest {
-        model: anthropic("claude-3-5-haiku-latest").expect("model should parse"),
-        messages: vec![Message {
-            role: MessageRole::User,
-            parts: vec![ContentPart::Text("hello".to_string())],
-            name: None,
-        }],
-        temperature: Some(0.2),
-        top_p: None,
-        max_output_tokens: Some(32),
-        stop_sequences: vec![],
-        tools: None,
-    };
+    let req = GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
+        .message(Message::user_text("hello"))
+        .temperature(0.2)
+        .max_output_tokens(32)
+        .build()
+        .expect("request should build");
 
     let mut stream = client
-        .stream_text(req)
+        .stream_request(req)
         .await
         .expect("stream_text should succeed");
 

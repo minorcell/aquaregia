@@ -1,5 +1,5 @@
+use aquaregia::LlmClient;
 use futures_util::StreamExt;
-use aquaregia::{AiClient, StreamEvent, openai_compatible};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -16,13 +16,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
+    let client = LlmClient::openai_compatible(base_url)
+        .api_key(api_key)
         .build()?;
 
     let mut stream = client
-        .stream_prompt(
-            openai_compatible(model)?,
+        .stream_text(
+            model,
             "Write a short release note for a Rust SDK refactor (Chinese).",
         )
         .await?;
@@ -30,27 +30,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut full_text = String::new();
 
     println!("=== streaming output ===");
-    while let Some(event) = stream.next().await {
-        match event? {
-            StreamEvent::TextDelta { text } => {
-                full_text.push_str(&text);
-                print!("{}", text);
-            }
-            StreamEvent::ToolCallReady { call } => {
-                println!("\n[tool call] {} args={}", call.tool_name, call.args_json);
-            }
-            StreamEvent::Usage { usage } => {
-                println!(
-                    "\n[usage] input={} output={} total={}",
-                    usage.input_tokens, usage.output_tokens, usage.total_tokens
-                );
-            }
-            StreamEvent::Done => {
-                println!("\n=== stream done ===");
-                break;
-            }
-        }
+    while let Some(chunk) = stream.next().await {
+        let text = chunk?;
+        full_text.push_str(&text);
+        print!("{text}");
     }
+    println!("\n=== stream done ===");
 
     println!(
         "\n--- final text length: {} chars ---",

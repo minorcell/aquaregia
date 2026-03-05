@@ -12,6 +12,7 @@ pub enum AiErrorCode {
     StreamProtocol,
     UnknownTool,
     InvalidToolArgs,
+    ToolExecutionFailed,
     MaxStepsExceeded,
     InvalidResponse,
 }

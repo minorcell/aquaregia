@@ -11,8 +11,8 @@ use crate::error::{AiError, AiErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    StreamEvent, TextStream, ToolCall, Usage,
+    Anthropic, ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message,
+    MessageRole, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "anthropic";
@@ -54,10 +54,10 @@ impl AnthropicAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter for AnthropicAdapter {
+impl ModelAdapter<Anthropic> for AnthropicAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest,
+        req: &GenerateTextRequest<Anthropic>,
     ) -> Result<GenerateTextResponse, AiError> {
         let payload = build_anthropic_payload(req, false);
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
@@ -79,7 +79,10 @@ impl ModelAdapter for AnthropicAdapter {
         normalize_anthropic_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, AiError> {
+    async fn stream_text(
+        &self,
+        req: &GenerateTextRequest<Anthropic>,
+    ) -> Result<TextStream, AiError> {
         let payload = build_anthropic_payload(req, true);
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let response = self
@@ -242,7 +245,7 @@ impl PendingToolUse {
     }
 }
 
-fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+fn build_anthropic_payload(req: &GenerateTextRequest<Anthropic>, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),

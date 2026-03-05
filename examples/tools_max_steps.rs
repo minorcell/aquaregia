@@ -1,4 +1,4 @@
-use aquaregia::{Agent, AiClient, openai_compatible, tool};
+use aquaregia::{Agent, LlmClient, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -16,21 +16,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
+    let client = LlmClient::openai_compatible(base_url)
+        .api_key(api_key)
         .build()?;
 
     // 工具 1：天气查询（mock 数据）
     let weather_tool = tool("get_weather")
         .description("Get current weather for a city")
-        .input_schema(json!({
+        .raw_schema(json!({
             "type": "object",
             "properties": {
                 "city": { "type": "string" }
             },
             "required": ["city"]
         }))
-        .execute(|args| async move {
+        .execute_raw(|args| async move {
             let city = args
                 .get("city")
                 .and_then(|v| v.as_str())
@@ -41,14 +41,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 工具 2：汇率查询（mock 数据）
     let fx_tool = tool("get_fx_rate")
         .description("Get FX rate by currency pair, e.g. USD/CNY")
-        .input_schema(json!({
+        .raw_schema(json!({
             "type": "object",
             "properties": {
                 "pair": { "type": "string" }
             },
             "required": ["pair"]
         }))
-        .execute(|args| async move {
+        .execute_raw(|args| async move {
             let pair = args
                 .get("pair")
                 .and_then(|v| v.as_str())
@@ -56,8 +56,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(json!({ "pair": pair, "rate": 7.18 }))
         });
 
-    let agent = Agent::builder(client)
-        .model(openai_compatible(model)?)
+    let agent = Agent::builder(client, model)
         .instructions(
             "You can call tools. If a tool is useful, call it first, then answer concisely.",
         )
@@ -70,9 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let response = agent
-        .generate_prompt(
-            "What is the weather in Shanghai and what is USD/CNY now? Use tools if needed.",
-        )
+        .run("What is the weather in Shanghai and what is USD/CNY now? Use tools if needed.")
         .await?;
 
     println!("=== agent answer ===");

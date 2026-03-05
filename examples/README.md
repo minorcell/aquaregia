@@ -14,15 +14,15 @@
 
 1. `basic_generate.rs`
 - 场景：一次性非流式调用。
-- 重点：`generate_prompt`、usage 读取、最小上手路径。
+- 重点：`generate`、usage 读取、最小上手路径。
 
 2. `basic_stream.rs`
-- 场景：流式输出到 CLI/UI。
-- 重点：消费 `StreamEvent`，处理 `TextDelta / Usage / Done`。
+- 场景：流式输出到 CLI/UI（文本增量简洁模式）。
+- 重点：`stream_text` 直接消费文本 chunk。
 
 3. `agent_minimal.rs`
 - 场景：最小 Agent + 单工具。
-- 重点：`Agent::builder`、`tool()`、`stop_when_step_count`。
+- 重点：`Agent::builder(client, model)`、`#[tool]` 宏、`max_steps(...)`。
 
 4. `tools_max_steps.rs`
 - 场景：循环 + 多工具 + 步数保护。
@@ -30,11 +30,11 @@
 
 5. `provider_selection_demo.rs`
 - 场景：DeepSeek 的两种接入方式（快捷配置 / settings 配置）。
-- 重点：`with_openai_compatible(...)` 与 `with_openai_compatible_settings(...)`。
+- 重点：`LlmClient::openai_compatible(base_url).api_key(...)` 与 `LlmClient::openai_compatible_with_settings(...)`。
 
 6. `google_generate.rs`
 - 场景：一次性调用 DeepSeek（保留文件名用于兼容旧索引）。
-- 重点：`openai_compatible(\"...\")` 模型选择。
+- 重点：`generate(model, ...)` 的最小调用路径。
 
 7. `openai_compatible_custom.rs`
 - 场景：接入 OpenAI-Compatible 服务。

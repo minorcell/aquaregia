@@ -1,23 +1,14 @@
-use aquaregia::{
-    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, anthropic,
-};
+use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, anthropic};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn anthropic_request() -> GenerateTextRequest {
-    GenerateTextRequest {
-        model: anthropic("claude-3-5-haiku-latest").expect("model should parse"),
-        messages: vec![Message {
-            role: MessageRole::User,
-            parts: vec![ContentPart::Text("hi".to_string())],
-            name: None,
-        }],
-        temperature: Some(0.2),
-        top_p: None,
-        max_output_tokens: Some(32),
-        stop_sequences: vec![],
-        tools: None,
-    }
+fn anthropic_request() -> GenerateTextRequest<aquaregia::Anthropic> {
+    GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
+        .message(Message::user_text("hi"))
+        .temperature(0.2)
+        .max_output_tokens(32)
+        .build()
+        .expect("request should build")
 }
 
 #[tokio::test]
@@ -30,14 +21,15 @@ async fn anthropic_429_maps_to_rate_limited() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_anthropic("test-anthropic-key", server.uri(), "2023-06-01")
+    let client = LlmClient::anthropic("test-anthropic-key")
+        .base_url(server.uri())
+        .api_version("2023-06-01")
         .max_retries(0)
         .build()
         .expect("client should build");
 
     let err = client
-        .generate_text(anthropic_request())
+        .generate_request(anthropic_request())
         .await
         .expect_err("request should fail");
 

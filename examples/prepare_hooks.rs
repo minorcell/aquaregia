@@ -1,7 +1,4 @@
-use aquaregia::{
-    Agent, AgentCallPlan, AiClient, ContentPart, Message, MessageRole, RunToolsPrepareStep,
-    RunToolsPreparedStep, openai_compatible, tool,
-};
+use aquaregia::{Agent, ContentPart, LlmClient, Message, MessageRole, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -19,43 +16,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
+    let client = LlmClient::openai_compatible(base_url)
+        .api_key(api_key)
         .build()?;
 
     let time_tool = tool("get_time")
         .description("Return current time in mock format")
-        .input_schema(json!({
+        .raw_schema(json!({
             "type": "object",
             "properties": {},
             "additionalProperties": false
         }))
-        .execute(|_| async move { Ok(json!({ "time": "2026-03-05T12:00:00+08:00" })) });
+        .execute_raw(|_| async move { Ok(json!({ "time": "2026-03-05T12:00:00+08:00" })) });
 
-    let agent = Agent::builder(client)
-        .model(openai_compatible(model)?)
+    let agent = Agent::builder(client, model)
         .instructions("You may call tools, then answer concisely.")
         .tool(time_tool)
         .max_steps(4)
         // 对应 AI SDK prepareCall：在一次调用开始前可动态改调用计划。
-        .prepare_call(|plan: &AgentCallPlan| {
-            let mut next = plan.clone();
-            if user_mentions_keyword(&next.messages, "json") {
-                next.temperature = Some(0.0);
-                next.max_output_tokens = Some(400);
+        .prepare_call(|plan| {
+            if user_mentions_keyword(&plan.messages, "json") {
+                plan.temperature = Some(0.0);
+                plan.max_output_tokens = Some(400);
             }
-            next
         })
         // 对应 AI SDK prepareStep：每一步前可动态改模型/消息/工具等。
-        .prepare_step(|event: &RunToolsPrepareStep| {
-            let mut next = RunToolsPreparedStep {
-                model: event.model.clone(),
-                messages: event.messages.clone(),
-                tools: event.tools.clone(),
-                temperature: event.temperature,
-                max_output_tokens: event.max_output_tokens,
-                stop_sequences: event.stop_sequences.clone(),
-            };
+        .prepare_step(|event| {
+            let mut next = event.to_prepared();
 
             next.messages.push(Message::system_text(format!(
                 "Current step: {}. Use minimal tools.",
@@ -87,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = agent
-        .generate_prompt("Use tool once, then answer in JSON with one short sentence.")
+        .run("Use tool once, then answer in JSON with one short sentence.")
         .await?;
 
     println!("\n=== answer ===");
@@ -104,10 +91,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn user_mentions_keyword(messages: &[Message], keyword: &str) -> bool {
     let keyword = keyword.to_ascii_lowercase();
     messages.iter().any(|message| {
-        if message.role != MessageRole::User {
+        if message.role() != MessageRole::User {
             return false;
         }
-        message.parts.iter().any(|part| match part {
+        message.parts().iter().any(|part| match part {
             ContentPart::Text(text) => text.to_ascii_lowercase().contains(&keyword),
             _ => false,
         })

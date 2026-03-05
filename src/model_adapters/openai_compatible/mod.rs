@@ -13,18 +13,18 @@ use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error}
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    StreamEvent, TextStream, ToolCall, Usage,
+    OpenAiCompatible, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai-compatible";
 pub const DEFAULT_PATH: &str = "/v1/chat/completions";
 
 pub struct OpenAiCompatibleAdapterSettings {
-    pub base_url: String,
-    pub api_key: Option<String>,
-    pub headers: HashMap<String, String>,
-    pub query_params: HashMap<String, String>,
-    pub chat_completions_path: String,
+    base_url: String,
+    api_key: Option<String>,
+    headers: HashMap<String, String>,
+    query_params: HashMap<String, String>,
+    chat_completions_path: String,
 }
 
 impl OpenAiCompatibleAdapterSettings {
@@ -36,6 +36,51 @@ impl OpenAiCompatibleAdapterSettings {
             query_params: HashMap::new(),
             chat_completions_path: DEFAULT_PATH.to_string(),
         }
+    }
+
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.api_key = Some(api_key.into());
+        self
+    }
+
+    pub fn no_api_key(mut self) -> Self {
+        self.api_key = None;
+        self
+    }
+
+    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.headers.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.query_params.insert(name.into(), value.into());
+        self
+    }
+
+    pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
+        self.chat_completions_path = path.into();
+        self
+    }
+
+    pub(crate) fn set_api_key(&mut self, api_key: impl Into<String>) {
+        self.api_key = Some(api_key.into());
+    }
+
+    pub(crate) fn clear_api_key(&mut self) {
+        self.api_key = None;
+    }
+
+    pub(crate) fn insert_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.headers.insert(name.into(), value.into());
+    }
+
+    pub(crate) fn insert_query_param(&mut self, name: impl Into<String>, value: impl Into<String>) {
+        self.query_params.insert(name.into(), value.into());
+    }
+
+    pub(crate) fn set_chat_completions_path(&mut self, path: impl Into<String>) {
+        self.chat_completions_path = path.into();
     }
 }
 
@@ -99,10 +144,10 @@ impl OpenAiCompatibleAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter for OpenAiCompatibleAdapter {
+impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest,
+        req: &GenerateTextRequest<OpenAiCompatible>,
     ) -> Result<GenerateTextResponse, AiError> {
         let payload = build_openai_payload(req, false);
         let url = self.endpoint_url()?;
@@ -120,7 +165,10 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
         normalize_openai_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, AiError> {
+    async fn stream_text(
+        &self,
+        req: &GenerateTextRequest<OpenAiCompatible>,
+    ) -> Result<TextStream, AiError> {
         let payload = build_openai_payload(req, true);
         let url = self.endpoint_url()?;
         let response = self
@@ -275,7 +323,7 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+fn build_openai_payload(req: &GenerateTextRequest<OpenAiCompatible>, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),

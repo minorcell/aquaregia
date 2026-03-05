@@ -1,24 +1,15 @@
-use aquaregia::{
-    AiClient, AiErrorCode, ContentPart, GenerateTextRequest, Message, MessageRole, openai,
-};
+use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi, openai};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn openai_request() -> GenerateTextRequest {
-    GenerateTextRequest {
-        model: openai("gpt-4o-mini").expect("model should parse"),
-        messages: vec![Message {
-            role: MessageRole::User,
-            parts: vec![ContentPart::Text("hello".to_string())],
-            name: None,
-        }],
-        temperature: Some(0.2),
-        top_p: None,
-        max_output_tokens: Some(64),
-        stop_sequences: vec![],
-        tools: None,
-    }
+fn openai_request() -> GenerateTextRequest<OpenAi> {
+    GenerateTextRequest::builder(openai("gpt-4o-mini"))
+        .message(Message::user_text("hello"))
+        .temperature(0.2)
+        .max_output_tokens(64)
+        .build()
+        .expect("request should build")
 }
 
 #[tokio::test]
@@ -45,13 +36,13 @@ async fn openai_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate_text(openai_request())
+        .generate_request(openai_request())
         .await
         .expect("generate_text should succeed");
 
@@ -69,13 +60,13 @@ async fn openai_401_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let err = client
-        .generate_text(openai_request())
+        .generate_request(openai_request())
         .await
         .expect_err("request should fail");
 

@@ -1,58 +1,56 @@
 # Aquaregia
 
-Use Aquaregia to quickly build your Rust AI application, with a unified interface to multiple providers and powerful tool execution capabilities.
+Aquaregia is a provider-agnostic Rust toolkit for building AI applications and tool-using agents.
 
-[中文文档 (README_CN.md)](./README_CN.md)
+It provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services, with first-class support for streaming output and multi-step tool execution.
 
-Aquaregia is a provider-agnostic Rust toolkit for AI apps and agents.
-Recommended path: run first, understand layers second, then unlock advanced control.
+Read the [API docs](https://docs.rs/aquaregia), browse [examples](./examples/README.md), or switch to [中文文档](./README_CN.md).
 
-## Start Here
+## Installation
 
-- [1) Get Running First](#1-get-running-first)
-- [2) Understand the Layers](#2-understand-the-layers)
-- [3) Explore Advanced Capabilities](#3-explore-advanced-capabilities)
-- [Open Source](#open-source)
-
-## 1) Get Running First
-
-### Installation
+You need Rust and a Tokio async runtime in your project.
 
 ```bash
 cargo add aquaregia
 ```
 
-### Environment Variables (DeepSeek example)
+Default features enable `openai` and `anthropic`. You can also validate minimal/provider-specific builds:
 
 ```bash
-export DEEPSEEK_API_KEY="your_api_key"
-export DEEPSEEK_BASE_URL="https://api.deepseek.com"   # optional
-export DEEPSEEK_MODEL="deepseek-chat"                  # optional
+cargo check --no-default-features
+cargo check --no-default-features --features openai
+cargo check --no-default-features --features anthropic
 ```
 
-### First Successful Call (2 minutes)
+## Unified Provider Architecture
+
+One `LlmClient` binds to one provider configuration.  
+Each call can pass a model id string directly (for example, `"deepseek-chat"`).
+
+| Provider          | Register API                                                                                       | Model argument              |
+| ----------------- | -------------------------------------------------------------------------------------------------- | --------------------------- |
+| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                         | `"gpt-4o-mini"`             |
+| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                 | `"claude-3-5-haiku-latest"` |
+| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                          | `"gemini-2.0-flash"`        |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` / `LlmClient::openai_compatible_no_auth(base_url)` / `LlmClient::openai_compatible_with_settings` | `"deepseek-chat"`           |
+
+## Usage
+
+### Generating Text
 
 ```rust
-use aquaregia::{AiClient, openai_compatible};
+use aquaregia::LlmClient;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = AiClient::builder()
-        .with_openai_compatible(
-            std::env::var("DEEPSEEK_BASE_URL")
-                .unwrap_or_else(|_| "https://api.deepseek.com".to_string()),
-            Some(std::env::var("DEEPSEEK_API_KEY")?),
-        )
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
         .build()?;
 
     let out = client
-        .generate_prompt(
-            openai_compatible(
-                std::env::var("DEEPSEEK_MODEL")
-                    .unwrap_or_else(|_| "deepseek-chat".to_string()),
-            )?,
-            "Explain Rust ownership in 3 bullets.",
-        )
+        .generate("deepseek-chat", "Explain Rust ownership in 3 bullet points.")
         .await?;
 
     println!("{}", out.output_text);
@@ -60,126 +58,146 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Examples Learning Path
+### Streaming Text (Simple)
 
-| Stage | Command | What you learn |
-| --- | --- | --- |
-| 1 | `cargo run --example basic_generate` | Minimal one-shot generation |
-| 2 | `cargo run --example basic_stream` | Streaming output handling |
-| 3 | `cargo run --example agent_minimal` | First agent + one tool |
-| 4 | `cargo run --example tools_max_steps` | Multi-step tool loop and guardrails |
-| 5 | `cargo run --example prepare_hooks` | Dynamic per-call and per-step control |
-| 6 | `cargo run --example openai_compatible_custom` | Custom headers/query/path for compatible providers |
+```rust
+use aquaregia::LlmClient;
+use futures_util::StreamExt;
 
-More examples: [examples/README.md](./examples/README.md)
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
+        .build()?;
 
-## 2) Understand the Layers
+    let mut stream = client.stream_text("deepseek-chat", "Write a short release note.").await?;
 
-### Unified Provider Architecture
+    while let Some(chunk) = stream.next().await {
+        print!("{}", chunk?);
+    }
+    Ok(())
+}
+```
 
-- One `AiClient` binds to one provider configuration.
-- One `ModelRef` (`openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)`) selects a model per call.
-- If your app needs multiple providers, create multiple clients.
+For full events (`TextDelta / Usage / ToolCallReady / Done`), use `client.stream_prompt(...)`.
 
-### Provider Registration + Model Selection
+### Error Handling
 
-| Provider kind | Register API | Model selector |
-| --- | --- | --- |
-| OpenAI GPT | `.with_openai(api_key, base_url)` | `openai("gpt-4o-mini")` |
-| Anthropic Claude | `.with_anthropic(api_key, base_url, api_version)` | `anthropic("claude-3-5-haiku-latest")` |
-| Google Gemini | `.with_google(api_key, base_url)` | `google("gemini-2.0-flash")` |
-| OpenAI-compatible | `.with_openai_compatible(base_url, api_key)` / `.with_openai_compatible_settings(...)` | `openai_compatible("deepseek-chat")` |
+```rust
+use aquaregia::{AiErrorCode, LlmClient};
 
-### Layer Map
-
-| Layer | Responsibility | Core APIs |
-| --- | --- | --- |
-| Provider binding | Configure transport, retries, and provider adapter | `AiClient::builder()` |
-| Model selection | Keep provider/model identity explicit | `openai(...)`, `anthropic(...)`, `google(...)`, `openai_compatible(...)` |
-| Generation | One-shot + streaming text | `generate_prompt`, `stream_prompt`, `generate_text`, `stream_text` |
-| Tool runtime | Multi-step reasoning + tool execution loop | `run_tools`, `tool(...)`, `max_steps`, `stop_when` |
-| Agent facade | Reusable workflow (model + instructions + tools + hooks) | `Agent::builder(...).generate_prompt(...)` |
-
-## 3) Explore Advanced Capabilities
+match client.generate("deepseek-chat", "hello").await {
+    Ok(out) => println!("{}", out.output_text),
+    Err(err) => match err.code {
+        AiErrorCode::RateLimited => eprintln!("rate limited; retry later"),
+        AiErrorCode::AuthFailed => eprintln!("check API key"),
+        _ => eprintln!("request failed: {}", err),
+    },
+}
+```
 
 ### Agent + Tool Loop
 
 ```rust
-use aquaregia::{Agent, openai_compatible, tool};
-use serde_json::json;
+use aquaregia::{Agent, LlmClient, tool};
+use serde_json::{Value, json};
 
-let weather = tool("get_weather")
-    .description("Get weather by city")
-    .input_schema(json!({
-        "type": "object",
-        "properties": { "city": { "type": "string" } },
-        "required": ["city"]
-    }))
-    .execute(|args| async move {
-        Ok(json!({ "city": args["city"], "temp_c": 23, "condition": "sunny" }))
-    });
+#[tool(description = "Get weather by city")]
+async fn get_weather(city: String) -> Result<Value, String> {
+    Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+}
 
-let agent = Agent::builder(client)
-    .model(openai_compatible("deepseek-chat")?)
-    .instructions("You can call tools before answering.")
-    .tool(weather)
-    .max_steps(4)
-    .build()?;
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
+    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+        .api_key(api_key)
+        .build()?;
+
+    let agent = Agent::builder(client, "deepseek-chat")
+        .instructions("You can call tools before answering.")
+        .tool(get_weather)
+        .max_steps(4)
+        .build()?;
+
+    let out = agent.run("What is the weather in Shanghai?").await?;
+    println!("{}", out.output_text);
+    Ok(())
+}
 ```
 
-### Dynamic Planning Hooks
-
-- `prepare_call`: adjust the call plan once before a run starts.
-- `prepare_step`: adjust model/messages/tools before each step.
+### Dynamic Planning (`prepare_call` / `prepare_step`)
 
 ```rust
-let agent = Agent::builder(client)
+use aquaregia::{Agent, LlmClient};
+
+let agent = Agent::builder(client, "deepseek-chat")
+    .max_steps(4)
     .prepare_call(|plan| {
-        let mut next = plan.clone();
-        next.temperature = Some(0.2);
-        next
+        plan.temperature = Some(0.2);
     })
     .prepare_step(|event| {
-        let mut next = aquaregia::RunToolsPreparedStep {
-            model: event.model.clone(),
-            messages: event.messages.clone(),
-            tools: event.tools.clone(),
-            temperature: event.temperature,
-            max_output_tokens: event.max_output_tokens,
-            stop_sequences: event.stop_sequences.clone(),
-        };
-        next.messages
-            .push(aquaregia::Message::system_text(format!("step={}", event.step)));
+        let mut next = event.to_prepared();
+        if event.step >= 2 {
+            next.tools.clear();
+        }
         next
     })
     .build()?;
 ```
-
-### Full Lifecycle Callbacks
-
-`on_start`, `on_step_start`, `on_tool_call_start`, `on_tool_call_finish`, `on_step_finish`, `on_finish`, `stop_when`
 
 ### OpenAI-Compatible Advanced Settings
 
-Need custom headers/query/path? Use `OpenAiCompatibleAdapterSettings`.
+```rust
+use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
 
-```bash
-cargo run --example openai_compatible_custom
+let settings = OpenAiCompatibleAdapterSettings::new("https://api.deepseek.com")
+    .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+    .header("x-trace-source", "aquaregia")
+    .query_param("source", "sdk");
+
+let client = LlmClient::openai_compatible_with_settings(settings)
+    .build()?;
 ```
 
-### Axum SSE Integration
+## Breaking Migration Notes
 
-```bash
-cargo check --features axum
-```
+- Model helpers are now infallible:
+  - `openai("gpt-4o-mini")` now returns `ModelRef<_>` directly (no `?`).
+- Prompt APIs now accept model strings directly:
+  - `client.generate("deepseek-chat", "...")`.
+- OpenAI-compatible quick constructor is now base-url-first:
+  - `LlmClient::openai_compatible(base_url).api_key(api_key)`.
+  - no-auth endpoints can use `LlmClient::openai_compatible_no_auth(base_url)`.
+- `AgentBuilder::build()` now returns `Result<Agent<_>, AiError>`:
+  - call `.build()?`.
+- Agent prompt execution API was renamed:
+  - `agent.run("...")` for prompt input.
+  - `agent.run_messages(messages)` for explicit message lists.
+- `MaxSteps` / `Temperature` / `TopP` newtypes were removed:
+  - use primitive types (`u8`, `f32`) and rely on validation in build/run paths.
+- Tool builder split into typed and raw modes:
+  - typed path: `.execute(|args: MyArgs| async move { ... })` with `Deserialize + JsonSchema`.
+  - raw escape hatch: `.raw_schema(json!(...)).execute_raw(|args| async move { ... })`.
+- `prepare_step` now has `event.to_prepared()` to clone the full default plan safely.
+- `OpenAiCompatibleAdapterSettings` fields are private:
+  - configure via chain methods (`api_key`, `header`, `query_param`, `chat_completions_path`).
 
-## Open Source
+## Examples
 
-### Contributing
+| Example                             | Command                                        | Focus                               |
+| ----------------------------------- | ---------------------------------------------- | ----------------------------------- |
+| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                 |
+| Basic stream                        | `cargo run --example basic_stream`             | `StreamEvent` handling              |
+| Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool         |
+| Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`      |
+| Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`     |
+| Provider settings                   | `cargo run --example provider_selection_demo`  | quick vs. advanced compatible setup |
+| Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`   |
+| Mini terminal code agent            | `cargo run --example mini_claude_code`         | `run_tools` with local tools        |
 
-Issues and PRs are welcome. For behavior changes, include tests.
-
-### Local Development Checks
+## Development
 
 ```bash
 cargo fmt
@@ -191,9 +209,17 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 ```
 
-### Governance
+For `ai-sdk/` workspace only:
 
-- [MIT License](./LICENSE)
+```bash
+cd ai-sdk && pnpm build && pnpm lint && pnpm type-check
+```
+
+## Contributing
+
+Contributions are welcome. For behavior changes, include integration tests (happy path + error mapping + tool/stream flows where relevant).
+
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
 - [Security Policy](./SECURITY.md)
+- [MIT License](./LICENSE)

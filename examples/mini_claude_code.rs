@@ -1,7 +1,4 @@
-use aquaregia::{
-    AiClient, Message, RunToolsRequest, RunToolsStep, StepCallback, ToolExecError,
-    openai_compatible, tool,
-};
+use aquaregia::{LlmClient, Message, RunTools, RunToolsStep, ToolExecError, tool};
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{self, Write};
@@ -31,10 +28,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
 
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url.clone(), Some(api_key))
+    let client = LlmClient::openai_compatible(base_url.clone())
+        .api_key(api_key)
         .build()?;
-    let model_ref = openai_compatible(model.clone())?;
+    let model_ref = model.clone();
     let tools = build_tools();
 
     println!("mini_claude_code (aquaregia example)");
@@ -76,23 +73,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         messages.push(Message::user_text(question.to_string()));
 
         match client
-            .run_tools(RunToolsRequest {
-                model: model_ref.clone(),
-                messages,
-                tools: tools.clone(),
-                max_steps: Some(MAX_STEPS),
-                temperature: Some(0.2),
-                max_output_tokens: Some(1_400),
-                stop_sequences: vec![],
-                prepare_step: None,
-                on_start: None,
-                on_step_start: None,
-                on_tool_call_start: None,
-                on_tool_call_finish: None,
-                on_step_finish: Some(StepCallback::new(print_step_debug)),
-                on_finish: None,
-                stop_when: None,
-            })
+            .run_tools(
+                RunTools::new(model_ref.clone())
+                    .messages(messages)
+                    .tools(tools.clone())
+                    .max_steps(MAX_STEPS)
+                    .temperature(0.2)
+                    .max_output_tokens(1_400)
+                    .on_step_finish(print_step_debug)
+                    .build()?,
+            )
             .await
         {
             Ok(result) => {
@@ -119,7 +109,7 @@ fn build_tools() -> Vec<aquaregia::Tool> {
     vec![
         tool("bash")
             .description("Execute a shell command in current workspace")
-            .input_schema(json!({
+            .raw_schema(json!({
                 "type": "object",
                 "properties": {
                     "command": { "type": "string", "minLength": 1 }
@@ -127,10 +117,10 @@ fn build_tools() -> Vec<aquaregia::Tool> {
                 "required": ["command"],
                 "additionalProperties": false
             }))
-            .execute(|args| async move { run_bash_tool(args) }),
+            .execute_raw(|args| async move { run_bash_tool(args) }),
         tool("read")
             .description("Read a file with optional line window")
-            .input_schema(json!({
+            .raw_schema(json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1 },
@@ -140,10 +130,10 @@ fn build_tools() -> Vec<aquaregia::Tool> {
                 "required": ["path"],
                 "additionalProperties": false
             }))
-            .execute(|args| async move { run_read_tool(args) }),
+            .execute_raw(|args| async move { run_read_tool(args) }),
         tool("write")
             .description("Write full file content (create parent dirs automatically)")
-            .input_schema(json!({
+            .raw_schema(json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1 },
@@ -152,10 +142,10 @@ fn build_tools() -> Vec<aquaregia::Tool> {
                 "required": ["path", "content"],
                 "additionalProperties": false
             }))
-            .execute(|args| async move { run_write_tool(args) }),
+            .execute_raw(|args| async move { run_write_tool(args) }),
         tool("edit")
             .description("Edit file by replacing one unique old_string with new_string")
-            .input_schema(json!({
+            .raw_schema(json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "minLength": 1 },
@@ -165,7 +155,7 @@ fn build_tools() -> Vec<aquaregia::Tool> {
                 "required": ["path", "old_string", "new_string"],
                 "additionalProperties": false
             }))
-            .execute(|args| async move { run_edit_tool(args) }),
+            .execute_raw(|args| async move { run_edit_tool(args) }),
     ]
 }
 

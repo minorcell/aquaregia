@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::future::Future;
+use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use jsonschema::{Validator, validator_for};
 use regex::Regex;
+use schemars::{JsonSchema, schema_for};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -58,6 +61,25 @@ pub fn tool(name: impl Into<String>) -> ToolBuilder {
     ToolBuilder::new(name)
 }
 
+pub trait IntoTool {
+    fn into_tool(self) -> Tool;
+}
+
+impl IntoTool for Tool {
+    fn into_tool(self) -> Tool {
+        self
+    }
+}
+
+impl<F> IntoTool for F
+where
+    F: FnOnce() -> Tool,
+{
+    fn into_tool(self) -> Tool {
+        self()
+    }
+}
+
 pub struct ToolBuilder {
     descriptor: ToolDescriptor,
 }
@@ -81,32 +103,70 @@ impl ToolBuilder {
         self
     }
 
-    pub fn input_schema(mut self, input_schema: Value) -> Self {
+    pub fn raw_schema(mut self, input_schema: Value) -> Self {
         self.descriptor.input_schema = input_schema;
         self
     }
 
-    pub fn execute<F, Fut>(self, executor: F) -> Tool
+    pub fn execute<Args, F, Fut>(mut self, executor: F) -> Tool
+    where
+        Args: DeserializeOwned + JsonSchema + Send + Sync + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+    {
+        let schema = schema_for!(Args);
+        self.descriptor.input_schema =
+            serde_json::to_value(schema).expect("typed tool schema should serialize to JSON");
+        Tool::from_parts(
+            self.descriptor,
+            Arc::new(TypedFnToolExecutor {
+                executor,
+                _args: PhantomData,
+            }),
+        )
+    }
+
+    pub fn execute_raw<F, Fut>(self, executor: F) -> Tool
     where
         F: Fn(Value) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
     {
-        Tool::from_parts(self.descriptor, Arc::new(FnToolExecutor { executor }))
+        Tool::from_parts(self.descriptor, Arc::new(RawFnToolExecutor { executor }))
     }
 }
 
-struct FnToolExecutor<F> {
+struct RawFnToolExecutor<F> {
     executor: F,
 }
 
 #[async_trait]
-impl<F, Fut> ToolExecutor for FnToolExecutor<F>
+impl<F, Fut> ToolExecutor for RawFnToolExecutor<F>
 where
     F: Fn(Value) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
 {
     async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
         (self.executor)(args).await
+    }
+}
+
+struct TypedFnToolExecutor<F, Args> {
+    executor: F,
+    _args: PhantomData<fn() -> Args>,
+}
+
+#[async_trait]
+impl<F, Fut, Args> ToolExecutor for TypedFnToolExecutor<F, Args>
+where
+    Args: DeserializeOwned + Send + Sync + 'static,
+    F: Fn(Args) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+{
+    async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
+        let typed = serde_json::from_value::<Args>(args).map_err(|e| {
+            ToolExecError::Execution(format!("tool args deserialization failed: {}", e))
+        })?;
+        (self.executor)(typed).await
     }
 }
 
@@ -171,6 +231,8 @@ mod tests {
     use std::sync::Arc;
 
     use async_trait::async_trait;
+    use schemars::JsonSchema;
+    use serde::Deserialize;
     use serde_json::json;
 
     use super::{Tool, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
@@ -219,16 +281,35 @@ mod tests {
 
     #[tokio::test]
     async fn tool_builder_executes_closure() {
+        #[derive(Debug, Deserialize, JsonSchema)]
+        struct EchoArgs {
+            x: String,
+        }
+
         let echo_tool = tool("echo")
             .description("Echo input")
-            .input_schema(json!({
+            .execute(|args: EchoArgs| async move { Ok(json!({ "x": args.x })) });
+
+        let output = echo_tool
+            .executor
+            .execute(json!({ "x": "ok" }))
+            .await
+            .expect("tool should execute");
+        assert_eq!(output, json!({ "x": "ok" }));
+    }
+
+    #[tokio::test]
+    async fn raw_tool_builder_executes_closure() {
+        let echo_tool = tool("echo")
+            .description("Echo input")
+            .raw_schema(json!({
                 "type": "object",
                 "properties": {
                     "x": { "type": "string" }
                 },
                 "required": ["x"]
             }))
-            .execute(|args| async move { Ok(args) });
+            .execute_raw(|args| async move { Ok(args) });
 
         let output = echo_tool
             .executor

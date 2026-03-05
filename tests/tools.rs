@@ -1,12 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use async_trait::async_trait;
 use aquaregia::{
-    AiClient, AiErrorCode, ContentPart, FinishCallback, Message, MessageRole, PrepareStepCallback,
-    RunToolsPreparedStep, RunToolsRequest, StartCallback, StepCallback, StepStartCallback, Tool,
-    ToolCallFinishCallback, ToolCallStartCallback, ToolDescriptor, ToolExecError, ToolExecutor,
-    openai,
+    AiErrorCode, LlmClient, Message, OpenAi, RunTools, RunToolsPreparedStep, Tool, ToolDescriptor,
+    ToolExecError, ToolExecutor, openai,
 };
+use async_trait::async_trait;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -41,30 +39,13 @@ fn make_weather_tool() -> Tool {
     }
 }
 
-fn tool_request(tools: Vec<Tool>) -> RunToolsRequest {
-    RunToolsRequest {
-        model: openai("gpt-4o-mini").expect("model should parse"),
-        messages: vec![Message {
-            role: MessageRole::User,
-            parts: vec![ContentPart::Text(
-                "What's the weather in Shanghai?".to_string(),
-            )],
-            name: None,
-        }],
-        tools,
-        max_steps: Some(3),
-        temperature: Some(0.2),
-        max_output_tokens: Some(256),
-        stop_sequences: vec![],
-        prepare_step: None,
-        on_start: None,
-        on_step_start: None,
-        on_tool_call_start: None,
-        on_tool_call_finish: None,
-        on_step_finish: None,
-        on_finish: None,
-        stop_when: None,
-    }
+fn tool_request(tools: Vec<Tool>) -> RunTools<OpenAi> {
+    RunTools::new(openai("gpt-4o-mini"))
+        .message(Message::user_text("What's the weather in Shanghai?"))
+        .tools(tools)
+        .max_steps(3)
+        .temperature(0.2)
+        .max_output_tokens(256)
 }
 
 #[tokio::test]
@@ -122,13 +103,17 @@ async fn run_tools_two_step_success() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .run_tools(tool_request(vec![make_weather_tool()]))
+        .run_tools(
+            tool_request(vec![make_weather_tool()])
+                .build()
+                .expect("request should build"),
+        )
         .await
         .expect("run_tools should succeed");
 
@@ -170,13 +155,17 @@ async fn run_tools_unknown_tool_fails() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let err = client
-        .run_tools(tool_request(vec![make_weather_tool()]))
+        .run_tools(
+            tool_request(vec![make_weather_tool()])
+                .build()
+                .expect("request should build"),
+        )
         .await
         .expect_err("run_tools should fail for unknown tool");
 
@@ -238,8 +227,8 @@ async fn run_tools_lifecycle_hooks_fire() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
@@ -251,52 +240,55 @@ async fn run_tools_lifecycle_hooks_fire() {
             .push(label);
     }
 
-    let mut request = tool_request(vec![make_weather_tool()]);
-    {
-        let events = Arc::clone(&events);
-        request.on_start = Some(StartCallback::new(move |_| {
-            push_event(&events, "start".to_string())
-        }));
-    }
-    {
-        let events = Arc::clone(&events);
-        request.on_step_start = Some(StepStartCallback::new(move |event| {
-            push_event(&events, format!("step_start:{}", event.step))
-        }));
-    }
-    {
-        let events = Arc::clone(&events);
-        request.on_tool_call_start = Some(ToolCallStartCallback::new(move |event| {
-            push_event(
-                &events,
-                format!("tool_call_start:{}", event.tool_call.tool_name),
-            )
-        }));
-    }
-    {
-        let events = Arc::clone(&events);
-        request.on_tool_call_finish = Some(ToolCallFinishCallback::new(move |event| {
-            push_event(
-                &events,
-                format!(
-                    "tool_call_finish:{}:{}",
-                    event.tool_call.tool_name, event.tool_result.is_error
-                ),
-            )
-        }));
-    }
-    {
-        let events = Arc::clone(&events);
-        request.on_step_finish = Some(StepCallback::new(move |event| {
-            push_event(&events, format!("step_finish:{}", event.step))
-        }));
-    }
-    {
-        let events = Arc::clone(&events);
-        request.on_finish = Some(FinishCallback::new(move |event| {
-            push_event(&events, format!("finish:{}", event.step_count))
-        }));
-    }
+    let request = {
+        let mut request = tool_request(vec![make_weather_tool()]);
+
+        {
+            let events = Arc::clone(&events);
+            request = request.on_start(move |_| push_event(&events, "start".to_string()));
+        }
+        {
+            let events = Arc::clone(&events);
+            request = request.on_step_start(move |event| {
+                push_event(&events, format!("step_start:{}", event.step))
+            });
+        }
+        {
+            let events = Arc::clone(&events);
+            request = request.on_tool_call_start(move |event| {
+                push_event(
+                    &events,
+                    format!("tool_call_start:{}", event.tool_call.tool_name),
+                )
+            });
+        }
+        {
+            let events = Arc::clone(&events);
+            request = request.on_tool_call_finish(move |event| {
+                push_event(
+                    &events,
+                    format!(
+                        "tool_call_finish:{}:{}",
+                        event.tool_call.tool_name, event.tool_result.is_error
+                    ),
+                )
+            });
+        }
+        {
+            let events = Arc::clone(&events);
+            request = request.on_step_finish(move |event| {
+                push_event(&events, format!("step_finish:{}", event.step))
+            });
+        }
+        {
+            let events = Arc::clone(&events);
+            request = request.on_finish(move |event| {
+                push_event(&events, format!("finish:{}", event.step_count))
+            });
+        }
+
+        request.build().expect("request should build")
+    };
 
     let response = client
         .run_tools(request)
@@ -347,24 +339,26 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let mut request = tool_request(vec![]);
-    request.max_steps = Some(1);
-    request.prepare_step = Some(PrepareStepCallback::new(|event| RunToolsPreparedStep {
-        model: event.model.clone(),
-        messages: vec![
-            Message::system_text("from-prepare-step"),
-            Message::user_text("hello"),
-        ],
-        tools: event.tools.clone(),
-        temperature: event.temperature,
-        max_output_tokens: event.max_output_tokens,
-        stop_sequences: event.stop_sequences.clone(),
-    }));
+    let request = tool_request(vec![])
+        .max_steps(1)
+        .prepare_step(|event| RunToolsPreparedStep {
+            model: event.model.clone(),
+            messages: vec![
+                Message::system_text("from-prepare-step"),
+                Message::user_text("hello"),
+            ],
+            tools: event.tools.clone(),
+            temperature: event.temperature,
+            max_output_tokens: event.max_output_tokens,
+            stop_sequences: event.stop_sequences.clone(),
+        })
+        .build()
+        .expect("request should build");
 
     let response = client
         .run_tools(request)

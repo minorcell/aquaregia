@@ -1,4 +1,4 @@
-use aquaregia::{AiClient, openai_compatible};
+use aquaregia::LlmClient;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -15,13 +15,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = AiClient::builder()
-        .with_openai_compatible(base_url, Some(api_key))
+    let client = LlmClient::openai_compatible(base_url)
+        .api_key(api_key)
         .build()?;
 
     let response = client
-        .generate_prompt(
-            openai_compatible(model)?,
+        .generate(
+            model,
             "Summarize what ownership and borrowing means in Rust in 3 bullet points.",
         )
         .await?;

@@ -1,4 +1,4 @@
-use aquaregia::{AiClient, OpenAiCompatibleAdapterSettings, google, openai_compatible};
+use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings, google, openai_compatible};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -31,16 +31,13 @@ async fn google_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_google("test-google-key", server.uri())
+    let client = LlmClient::google("test-google-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate_prompt(
-            google("gemini-2.0-flash").expect("model should parse"),
-            "hello",
-        )
+        .generate(google("gemini-2.0-flash"), "hello")
         .await
         .expect("request should succeed");
 
@@ -74,19 +71,15 @@ async fn openai_compatible_generate_text_success() {
         .mount(&server)
         .await;
 
-    let mut settings = OpenAiCompatibleAdapterSettings::new(server.uri());
-    settings.api_key = Some("test-compatible-key".to_string());
+    let settings =
+        OpenAiCompatibleAdapterSettings::new(server.uri()).api_key("test-compatible-key");
 
-    let client = AiClient::builder()
-        .with_openai_compatible_settings(settings)
+    let client = LlmClient::openai_compatible_with_settings(settings)
         .build()
         .expect("client should build");
 
     let response = client
-        .generate_prompt(
-            openai_compatible("deepseek-chat").expect("model should parse"),
-            "hello",
-        )
+        .generate(openai_compatible("deepseek-chat"), "hello")
         .await
         .expect("request should succeed");
 

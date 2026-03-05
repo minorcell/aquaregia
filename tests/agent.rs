@@ -1,10 +1,10 @@
-use aquaregia::{Agent, AiClient, Message, RunToolsPreparedStep, openai, tool};
+use aquaregia::{Agent, LlmClient, Message, RunToolsPreparedStep, openai, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[tokio::test]
-async fn agent_generate_prompt_includes_instructions() {
+async fn agent_run_includes_instructions() {
     let server = MockServer::start().await;
 
     let body = json!({
@@ -29,19 +29,18 @@ async fn agent_generate_prompt_includes_instructions() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client)
-        .model(openai("gpt-4o-mini").expect("model should parse"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .instructions("You are concise.")
         .build()
         .expect("agent should build");
 
     let response = agent
-        .generate_prompt("Say hi")
+        .run("Say hi")
         .await
         .expect("agent call should succeed");
 
@@ -104,21 +103,21 @@ async fn agent_tool_loop_works() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let weather = tool("get_weather")
         .description("Get weather by city")
-        .input_schema(json!({
+        .raw_schema(json!({
             "type": "object",
             "properties": {
                 "city": { "type": "string" }
             },
             "required": ["city"]
         }))
-        .execute(|args| async move {
+        .execute_raw(|args| async move {
             let city = args
                 .get("city")
                 .and_then(serde_json::Value::as_str)
@@ -126,15 +125,14 @@ async fn agent_tool_loop_works() {
             Ok(json!({ "city": city, "temp_c": 23 }))
         });
 
-    let agent = Agent::builder(client)
-        .model(openai("gpt-4o-mini").expect("model should parse"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .tool(weather)
         .max_steps(3)
         .build()
         .expect("agent should build");
 
     let response = agent
-        .generate_prompt("What's the weather in Shanghai?")
+        .run("What's the weather in Shanghai?")
         .await
         .expect("agent call should succeed");
 
@@ -167,26 +165,23 @@ async fn agent_prepare_call_can_override_messages() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client)
-        .model(openai("gpt-4o-mini").expect("model should parse"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .prepare_call(|plan| {
-            let mut next = plan.clone();
-            next.messages = vec![
+            plan.messages = vec![
                 Message::system_text("from-prepare-call"),
                 Message::user_text("hello"),
             ];
-            next
         })
         .build()
         .expect("agent should build");
 
     let response = agent
-        .generate(vec![Message::user_text("ignored")])
+        .run_messages(vec![Message::user_text("ignored")])
         .await
         .expect("agent call should succeed");
 
@@ -218,13 +213,12 @@ async fn agent_prepare_step_can_override_messages() {
         .mount(&server)
         .await;
 
-    let client = AiClient::builder()
-        .with_openai("test-openai-key", server.uri())
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client)
-        .model(openai("gpt-4o-mini").expect("model should parse"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .max_steps(1)
         .prepare_step(|event| RunToolsPreparedStep {
             model: event.model.clone(),
@@ -241,7 +235,7 @@ async fn agent_prepare_step_can_override_messages() {
         .expect("agent should build");
 
     let response = agent
-        .generate_prompt("Say hi")
+        .run("Say hi")
         .await
         .expect("agent call should succeed");
 

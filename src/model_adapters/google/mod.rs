@@ -11,8 +11,8 @@ use crate::error::{AiError, AiErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, Message,
+    MessageRole, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "google";
@@ -65,10 +65,10 @@ impl GoogleAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter for GoogleAdapter {
+impl ModelAdapter<Google> for GoogleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest,
+        req: &GenerateTextRequest<Google>,
     ) -> Result<GenerateTextResponse, AiError> {
         let payload = build_google_payload(req);
         let response = self
@@ -88,7 +88,7 @@ impl ModelAdapter for GoogleAdapter {
         normalize_google_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, AiError> {
+    async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, AiError> {
         let payload = build_google_payload(req);
         let response = self
             .http
@@ -185,7 +185,7 @@ impl ModelAdapter for GoogleAdapter {
     }
 }
 
-fn build_google_payload(req: &GenerateTextRequest) -> Value {
+fn build_google_payload(req: &GenerateTextRequest<Google>) -> Value {
     let (contents, system_instruction) = to_google_messages(&req.messages);
 
     let mut payload = Map::new();

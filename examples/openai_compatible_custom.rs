@@ -1,4 +1,4 @@
-use aquaregia::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
+use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -14,27 +14,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let mut settings = OpenAiCompatibleAdapterSettings::new(base_url);
-    settings.api_key = Some(std::env::var("DEEPSEEK_API_KEY")?);
+    let settings = OpenAiCompatibleAdapterSettings::new(base_url)
+        .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+        // 可选：部分兼容服务需要额外 header 或 query 参数。
+        .header("x-trace-source", "aquaregia-example")
+        .query_param("source", "aquaregia")
+        // 默认是 /v1/chat/completions，这里保持默认也可。
+        .chat_completions_path("/v1/chat/completions");
 
-    // 可选：部分兼容服务需要额外 header 或 query 参数。
-    settings
-        .headers
-        .insert("x-trace-source".to_string(), "aquaregia-example".to_string());
-    settings
-        .query_params
-        .insert("source".to_string(), "aquaregia".to_string());
+    let client = LlmClient::openai_compatible_with_settings(settings).build()?;
 
-    // 默认是 /v1/chat/completions，这里保持默认也可。
-    settings.chat_completions_path = "/v1/chat/completions".to_string();
-
-    let client = AiClient::builder()
-        .with_openai_compatible_settings(settings)
-        .build()?;
-
-    let response = client
-        .generate_prompt(openai_compatible(model)?, "Say hello in Chinese.")
-        .await?;
+    let response = client.generate(model, "Say hello in Chinese.").await?;
 
     println!("{}", response.output_text);
     Ok(())

@@ -1,4 +1,4 @@
-use aquaregia::{AiClient, OpenAiCompatibleAdapterSettings, openai_compatible};
+use aquaregia::{LlmClient, OpenAiCompatibleAdapterSettings};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
@@ -15,35 +15,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    // 1) 直接方式：with_openai_compatible(base_url, api_key)
-    let simple_client = AiClient::builder()
-        .with_openai_compatible(base_url.clone(), Some(api_key.clone()))
+    // 1) 直接方式：openai_compatible(base_url).api_key(...)
+    let simple_client = LlmClient::openai_compatible(base_url.clone())
+        .api_key(api_key.clone())
         .build()?;
 
     let response = simple_client
-        .generate_prompt(
-            openai_compatible(model.clone())?,
-            "Reply with exactly: deepseek-ok",
-        )
+        .generate(model.clone(), "Reply with exactly: deepseek-ok")
         .await?;
     println!("simple client result: {}", response.output_text);
 
-    // 2) 高级方式：with_openai_compatible_settings(...)
-    let mut settings = OpenAiCompatibleAdapterSettings::new(base_url);
-    settings.api_key = Some(api_key);
-    settings
-        .headers
-        .insert("x-demo".to_string(), "provider-selection".to_string());
+    // 2) 高级方式：openai_compatible_with_settings(...)
+    let settings = OpenAiCompatibleAdapterSettings::new(base_url)
+        .api_key(api_key)
+        .header("x-demo", "provider-selection");
 
-    let settings_client = AiClient::builder()
-        .with_openai_compatible_settings(settings)
-        .build()?;
+    let settings_client = LlmClient::openai_compatible_with_settings(settings).build()?;
 
     let second = settings_client
-        .generate_prompt(
-            openai_compatible(model)?,
-            "Reply with exactly: deepseek-settings-ok",
-        )
+        .generate(model, "Reply with exactly: deepseek-settings-ok")
         .await?;
     println!("settings client result: {}", second.output_text);
     Ok(())

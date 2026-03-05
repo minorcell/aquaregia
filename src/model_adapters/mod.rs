@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use reqwest::Response;
 
 use crate::error::AiError;
-use crate::types::{GenerateTextRequest, GenerateTextResponse, TextStream};
+use crate::types::{GenerateTextRequest, GenerateTextResponse, ProviderMarker, TextStream};
 
 pub mod anthropic;
 pub mod google;
@@ -12,16 +12,16 @@ pub mod openai;
 pub mod openai_compatible;
 
 #[async_trait]
-pub trait ModelAdapter: Send + Sync {
+pub trait ModelAdapter<P: ProviderMarker>: Send + Sync {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest,
+        req: &GenerateTextRequest<P>,
     ) -> Result<GenerateTextResponse, AiError>;
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, AiError>;
+    async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, AiError>;
 }
 
-pub type SharedAdapter = Arc<dyn ModelAdapter>;
+pub type SharedAdapter<P> = Arc<dyn ModelAdapter<P>>;
 
 pub(crate) async fn check_response_status(
     provider_id: &str,
