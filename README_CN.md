@@ -200,7 +200,7 @@ let client = LlmClient::openai_compatible_with_settings(settings)
 | 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`   |
 | Provider 选择    | `cargo run --example provider_selection_demo`  | 快速/高级兼容配置                 |
 | 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings` |
-| 终端代码 Agent   | `cargo run --example mini_claude_code`         | 本地工具 + `run_tools`            |
+| 终端代码 Agent   | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + 本地工具 |
 
 ## 本地开发检查
 

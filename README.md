@@ -197,7 +197,7 @@ let client = LlmClient::openai_compatible_with_settings(settings)
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`     |
 | Provider settings                   | `cargo run --example provider_selection_demo`  | quick vs. advanced compatible setup |
 | Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | `OpenAiCompatibleAdapterSettings`   |
-| Mini terminal code agent            | `cargo run --example mini_claude_code`         | `run_tools` with local tools        |
+| Mini terminal code agent            | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + local tools |
 
 ## Development
 

@@ -42,7 +42,7 @@
 
 8. `mini_claude_code.rs`
 - 场景：最小终端 Code Agent（TUI + 系统提示词 + 工具循环）。
-- 重点：`run_tools`、`on_step_finish`、`bash/read/write/edit` 工具组合。
+- 重点：`Agent::builder`、`#[tool]`、`on_step_finish`、`bash/read/write/edit` 工具组合。
 
 9. `prepare_hooks.rs`
 - 场景：动态控制每次调用和每一步执行（对齐 AI SDK 的 `prepareCall/prepareStep`）。
