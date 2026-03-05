@@ -2,6 +2,11 @@
 name = "aquaregia"
 version = "0.1.0"
 edition = "2024"
+description = "Provider-agnostic Rust toolkit for AI apps and agents."
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/minorcell/aquaregia"
+documentation = "https://docs.rs/aquaregia"
 
 [lib]
 name = "aquaregia"
