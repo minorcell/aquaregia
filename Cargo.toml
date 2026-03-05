@@ -19,7 +19,7 @@ anthropic = []
 axum = ["dep:axum"]
 
 [dependencies]
-aquaregia-macros = { path = "aquaregia-macros" }
+aquaregia-macros = { path = "aquaregia-macros", version = "0.1.2" }
 async-stream = "0.3"
 async-trait = "0.1"
 axum = { version = "0.8", optional = true }

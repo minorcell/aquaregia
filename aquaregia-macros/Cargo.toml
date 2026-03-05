@@ -1,8 +1,10 @@
 [package]
 name = "aquaregia-macros"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
-publish = false
+description = "Procedural macros for the aquaregia crate."
+license = "MIT"
+repository = "https://github.com/minorcell/aquaregia"
 
 [lib]
 proc-macro = true
