@@ -1,0 +1,145 @@
+:root {
+  --aq-bg: #f7f8fb;
+  --aq-panel: #ffffff;
+  --aq-text: #101827;
+  --aq-muted: #425466;
+  --aq-brand: #0057b8;
+  --aq-brand-soft: #dce9ff;
+  --aq-border: #d5ddeb;
+}
+
+html,
+body {
+  background: radial-gradient(circle at 10% 10%, #f4fbff 0%, var(--aq-bg) 42%);
+  color: var(--aq-text);
+}
+
+body {
+  margin: 0;
+}
+
+.aq-home {
+  margin: 0 auto;
+  max-width: 1100px;
+  padding: 2rem 1.25rem 3rem;
+}
+
+.aq-hero {
+  border: 1px solid var(--aq-border);
+  border-radius: 18px;
+  background: linear-gradient(150deg, #ffffff 0%, #eef4ff 70%, #fefcff 100%);
+  padding: 2rem;
+}
+
+.aq-hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 3.4vw, 3rem);
+}
+
+.aq-hero p {
+  margin-top: 0.75rem;
+  color: var(--aq-muted);
+  font-size: 1.05rem;
+}
+
+.aq-actions {
+  margin-top: 1.2rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.aq-btn {
+  display: inline-block;
+  border-radius: 10px;
+  padding: 0.58rem 0.95rem;
+  text-decoration: none;
+  font-weight: 600;
+  border: 1px solid var(--aq-border);
+  color: var(--aq-text);
+  background: #fff;
+}
+
+.aq-btn-primary {
+  border-color: var(--aq-brand);
+  color: #fff;
+  background: var(--aq-brand);
+}
+
+.aq-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.85rem;
+  margin-top: 1rem;
+}
+
+.aq-card {
+  border: 1px solid var(--aq-border);
+  border-radius: 14px;
+  background: var(--aq-panel);
+  padding: 1rem;
+}
+
+.aq-card h3 {
+  margin-top: 0;
+  margin-bottom: 0.4rem;
+}
+
+.aq-card p {
+  margin: 0;
+  color: var(--aq-muted);
+}
+
+.pagefind-panel {
+  border: 1px solid var(--aq-border);
+  border-radius: 14px;
+  background: var(--aq-panel);
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.pf-label {
+  font-size: 0.88rem;
+  color: var(--aq-muted);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+.pf-input {
+  width: 100%;
+  border: 1px solid var(--aq-border);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  padding: 0.55rem 0.65rem;
+}
+
+.pf-results {
+  list-style: none;
+  padding: 0;
+  margin: 0.75rem 0 0;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.pf-item {
+  border-top: 1px dashed var(--aq-border);
+  padding-top: 0.75rem;
+}
+
+.pf-title {
+  font-weight: 600;
+  color: var(--aq-brand);
+  text-decoration: none;
+}
+
+.pf-excerpt {
+  color: var(--aq-muted);
+  margin: 0.3rem 0 0;
+  font-size: 0.9rem;
+}
+
+.pf-hint {
+  color: var(--aq-muted);
+  margin-top: 0.75rem;
+  font-size: 0.9rem;
+}

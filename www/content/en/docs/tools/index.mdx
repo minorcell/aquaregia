@@ -1,0 +1,21 @@
+---
+title: Tool API
+description: Typed tool arguments with schema inference and safe runtime decoding.
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Tool API
+
+```rust
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct WeatherArgs { city: String }
+
+let weather = tool("get_weather")
+    .description("Get weather by city")
+    .execute(|args: WeatherArgs| async move {
+        Ok(serde_json::json!({"city": args.city, "temp_c": 23}))
+    });
+```

@@ -1,0 +1,41 @@
+---
+title: Agent API
+description: Agent 的构建、工具循环、步数限制和执行过程控制。
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Agent API
+
+`Agent` 在 `LLMClient` 基础上提供多步推理和工具调用循环。
+
+## 最小示例
+
+```rust
+let agent = Agent::builder(client, "deepseek-chat")
+    .instructions("回答前可调用工具")
+    .max_steps(4)
+    .build()?;
+
+let out = agent.run("解释 Rust 生命周期").await?;
+```
+
+## 步骤控制
+
+```rust
+let agent = Agent::builder(client, "deepseek-chat")
+    .prepare_step(|event| {
+        let mut next = event.to_prepared();
+        if event.step >= 2 {
+            next.tools.clear();
+        }
+        next
+    })
+    .build()?;
+```
+
+<Callout type="info" emoji="🧪">
+  推荐将 `max_steps` 作为生产默认防护，避免 tool loop 失控。
+</Callout>

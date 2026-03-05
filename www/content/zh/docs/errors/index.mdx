@@ -1,0 +1,35 @@
+---
+title: 错误契约
+description: AiError 的可匹配错误枚举、重试策略和恢复建议。
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# 错误契约
+
+Aquaregia 使用具体错误枚举，而不是 `Box<dyn Error>`。
+
+```rust
+use aquaregia::AiError;
+
+match agent.run("hello").await {
+    Ok(out) => println!("{}", out.output_text),
+    Err(AiError::RateLimit { retry_after }) => {
+        tokio::time::sleep(retry_after).await;
+    }
+    Err(AiError::AuthFailed) => {
+        eprintln!("invalid api key");
+    }
+    Err(e) => {
+        eprintln!("unexpected: {e}");
+    }
+}
+```
+
+| 错误类型 | 含义 | 建议 |
+| --- | --- | --- |
+| `AuthFailed` | 鉴权失败 | 检查密钥与权限 |
+| `RateLimit` | 请求过快 | 按 `retry_after` 回退 |
+| `Provider` | 上游服务异常 | 降级模型或切换 provider |

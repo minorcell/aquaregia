@@ -1,0 +1,30 @@
+---
+title: 核心概念
+description: 了解 Aquaregia 在 Client、Agent、Tool 与错误处理上的分层模型。
+searchable: true
+---
+
+# 核心概念
+
+## 架构分层
+
+<Mermaid
+  chart={`flowchart TD
+  A[调用方] --> B[LLMClient]
+  B --> C[Provider Adapter]
+  B --> D[Agent]
+  D --> E[Tool Runtime]
+  B --> F[AiError Mapping]`}
+/>
+
+## 设计原则
+
+- 难以误用：通过类型系统约束非法状态。
+- 渐进复杂度：先给最小 API，再给高级扩展点。
+- 可预测命名：`as_/to_/into_/try_/is_` 一致。
+- 接受宽泛，返回精确：调用门槛低，返回信息全。
+- 错误即契约：业务可精确匹配错误并恢复。
+
+<Callout type="warning" emoji="⚠️">
+  建议把所有外部输入（配置、用户参数）放到 `build()` 或 `run()` 阶段做统一校验。
+</Callout>

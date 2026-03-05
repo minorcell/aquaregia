@@ -1,0 +1,66 @@
+---
+title: 快速开始
+description: 5 分钟上手 Aquaregia v2，包括 LLMClient、Agent、工具调用与流式输出。
+searchable: true
+---
+
+# 快速开始
+
+## 安装
+
+```bash
+cargo add aquaregia --features openai
+```
+
+## 1) 创建 `LLMClient`
+
+```rust
+use aquaregia::LLMClient;
+
+let client = LLMClient::openai_compatible("https://api.deepseek.com")
+    .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+    .build()?;
+```
+
+## 2) 非流式生成
+
+```rust
+let out = client.generate("deepseek-chat", "你好，介绍一下 Rust trait 对象").await?;
+println!("{}", out.output_text);
+```
+
+## 3) Agent + Tool
+
+```rust
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+struct WeatherArgs {
+    city: String,
+}
+
+let weather = aquaregia::tool("get_weather")
+    .description("Get weather by city")
+    .execute(|args: WeatherArgs| async move {
+        Ok(serde_json::json!({ "city": args.city, "temp_c": 23 }))
+    });
+
+let agent = aquaregia::Agent::builder(client, "deepseek-chat")
+    .instructions("可在必要时调用工具")
+    .tool(weather)
+    .max_steps(4)
+    .build()?;
+
+let out = agent.run("上海天气如何？").await?;
+println!("{}", out.output_text);
+```
+
+<Tabs items={["最小", "可观测", "生产建议"]}>
+  <Tabs.Tab>
+    优先跑通最小闭环：`client.generate(...)`。
+  </Tabs.Tab>
+  <Tabs.Tab>
+    接入 `prepare_call` / `prepare_step` 记录每一步变化。
+  </Tabs.Tab>
+  <Tabs.Tab>
+    对 `AiError` 做可恢复分类（鉴权、限流、服务端、网络）。
+  </Tabs.Tab>
+</Tabs>

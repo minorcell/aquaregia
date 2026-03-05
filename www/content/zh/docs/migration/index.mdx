@@ -1,0 +1,33 @@
+---
+title: 迁移指南
+description: 从旧版 API 迁移到 v2 的重命名、参数变化与兼容说明。
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# 迁移指南
+
+## 核心变化
+
+- `AiClient` -> `LLMClient`
+- `generate_prompt` -> `generate` / `run`
+- `stream_prompt` -> `stream` / `stream_text`
+- `openai_compatible(base_url).api_key(...).build()` 为推荐初始化方式
+
+## 迁移清单
+
+<Steps>
+### 替换类型名
+
+统一把 `AiClient` 替换为 `LLMClient`。
+
+### 更新方法名
+
+`generate_prompt` 改为 `generate`；Agent 层使用 `run`。
+
+### 工具参数类型化
+
+将 `Value` 参数改为 `Deserialize + JsonSchema` 结构体。
+</Steps>

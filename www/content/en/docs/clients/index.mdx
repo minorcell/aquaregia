@@ -1,0 +1,20 @@
+---
+title: Client API
+description: LLMClient construction, generation, streaming, and call preparation hooks.
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Client API
+
+`LLMClient` owns provider configuration and request execution.
+
+```rust
+let client = LLMClient::openai_compatible("https://api.deepseek.com")
+    .api_key(api_key)
+    .build()?;
+
+let out = client.generate("deepseek-chat", "hello").await?;
+```

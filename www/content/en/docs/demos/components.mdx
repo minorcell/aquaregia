@@ -1,0 +1,93 @@
+---
+title: Component Catalog
+description: Examples for Callout, Tabs, Cards, Steps, FileTree, Mermaid, Math, and Collapse.
+searchable: true
+---
+
+# Component Catalog
+
+## Callout
+
+<Callout type="warning" emoji="⚠️">
+  Add trace IDs for production-grade observability.
+</Callout>
+
+## Tabs
+
+<Tabs items={["cargo", "pnpm"]}>
+  <Tabs.Tab>
+
+```bash
+cargo test
+```
+
+  </Tabs.Tab>
+  <Tabs.Tab>
+
+```bash
+pnpm build
+```
+
+  </Tabs.Tab>
+</Tabs>
+
+## Cards
+
+<Cards>
+  <Cards.Card title="Client API" href="/en/docs/clients" arrow />
+  <Cards.Card title="Agent API" href="/en/docs/agent" arrow />
+  <Cards.Card title="Tool API" href="/en/docs/tools" arrow />
+</Cards>
+
+## Steps
+
+<Steps>
+### Configure client
+
+Prepare provider endpoint and credentials.
+
+### Register tools
+
+Use typed arguments for schema inference.
+
+### Run agent
+
+Handle `AiError` variants for recovery.
+</Steps>
+
+## FileTree
+
+<FileTree>
+  <FileTree.Folder name="src" defaultOpen>
+    <FileTree.File name="lib.rs" />
+    <FileTree.Folder name="agent" defaultOpen>
+      <FileTree.File name="mod.rs" />
+      <FileTree.File name="runner.rs" />
+    </FileTree.Folder>
+  </FileTree.Folder>
+</FileTree>
+
+## Mermaid
+
+<Mermaid
+  chart={`sequenceDiagram
+  participant U as User
+  participant A as Agent
+  participant T as Tool
+  U->>A: run(prompt)
+  A->>T: execute(args)
+  T-->>A: result
+  A-->>U: final answer`}
+/>
+
+## Math
+
+$$L(\theta)=\sum_{i=1}^{n}\log p_\theta(y_i \mid x_i)$$
+
+## Collapse
+
+<Collapse isOpen={true}>
+  <div style={{ padding: "0.8rem", border: "1px solid #d5ddeb", borderRadius: "8px" }}>
+    Expanded by default; useful for advanced parameter notes.
+  </div>
+</Collapse>

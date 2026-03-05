@@ -1,0 +1,43 @@
+---
+title: Client API
+description: LLMClient 的构造、调用、流式输出与 provider 路由策略。
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Client API
+
+`LLMClient` 负责 provider 配置、请求编排和结果映射。
+
+## 构造方式
+
+```rust
+let deepseek = LLMClient::openai_compatible("https://api.deepseek.com")
+    .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+    .header("x-trace-source", "aquaregia")
+    .query("source", "sdk")
+    .build()?;
+```
+
+## 非流式与流式
+
+```rust
+let out = deepseek.generate("deepseek-chat", "hello").await?;
+
+let mut stream = deepseek.stream_text("deepseek-chat", "hello").await?;
+while let Some(chunk) = stream.next().await {
+    print!("{}", chunk?);
+}
+```
+
+## Prepare Hook
+
+```rust
+let client = deepseek
+    .prepare_call(|plan| {
+        plan.temperature = Some(0.2);
+        plan.max_output_tokens = Some(512);
+    });
+```

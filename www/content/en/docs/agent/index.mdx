@@ -1,0 +1,19 @@
+---
+title: Agent API
+description: Build tool-enabled multi-step workflows with explicit step boundaries.
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Agent API
+
+```rust
+let agent = Agent::builder(client, "deepseek-chat")
+    .instructions("You may call tools before answering.")
+    .max_steps(4)
+    .build()?;
+
+let out = agent.run("Summarize this file").await?;
+```

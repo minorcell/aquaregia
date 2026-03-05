@@ -1,0 +1,15 @@
+---
+title: Migration
+description: Migrate from legacy names to Aquaregia v2 API.
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Migration
+
+- `AiClient` -> `LLMClient`
+- `generate_prompt` -> `generate` / `run`
+- `stream_prompt` -> `stream` / `stream_text`
+- Prefer `openai_compatible(base_url).api_key(...).build()`

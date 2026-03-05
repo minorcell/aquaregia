@@ -1,0 +1,21 @@
+---
+title: Error Contract
+description: Match on concrete error variants to retry and recover safely.
+crate_version: "2.x"
+stability: stable
+since: "2.0.0"
+searchable: true
+---
+
+# Error Contract
+
+```rust
+match agent.run("hello").await {
+    Ok(out) => println!("{}", out.output_text),
+    Err(AiError::RateLimit { retry_after }) => {
+        tokio::time::sleep(retry_after).await;
+    }
+    Err(AiError::AuthFailed) => eprintln!("invalid api key"),
+    Err(err) => eprintln!("unexpected: {err}"),
+}
+```

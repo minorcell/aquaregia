@@ -1,0 +1,21 @@
+---
+title: Concepts
+description: Understand how client, agent, and tools are layered in Aquaregia.
+searchable: true
+---
+
+# Concepts
+
+<Mermaid
+  chart={`flowchart TD
+  A[Caller] --> B[LLMClient]
+  B --> C[Provider Adapter]
+  B --> D[Agent]
+  D --> E[Tool Runtime]
+  B --> F[AiError Mapping]`}
+/>
+
+- Hard-to-misuse API surfaces
+- Progressive complexity
+- Predictable naming conventions
+- Specific error contracts
