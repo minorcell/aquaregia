@@ -69,15 +69,8 @@ pub struct Agent<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> Agent<P> {
-    pub fn builder(client: BoundClient<P>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
-        AgentBuilder::new(Arc::new(client), model.into_model_ref())
-    }
-
-    pub fn builder_with_client(
-        client: Arc<BoundClient<P>>,
-        model: impl IntoModelRef<P>,
-    ) -> AgentBuilder<P> {
-        AgentBuilder::new(client, model.into_model_ref())
+    pub fn builder(client: impl Into<Arc<BoundClient<P>>>, model: impl IntoModelRef<P>) -> AgentBuilder<P> {
+        AgentBuilder::new(client.into(), model.into_model_ref())
     }
 
     pub fn model_id(&self) -> String {
