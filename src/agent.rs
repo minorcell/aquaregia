@@ -349,7 +349,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{LlmClient, openai};
+    use crate::{LlmClient, openai_model};
 
     #[test]
     fn builder_accepts_typed_model() {
@@ -357,7 +357,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
             .max_steps(3)
             .build()
             .expect("agent should build");

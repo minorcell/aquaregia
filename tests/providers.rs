@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient, google, openai_compatible};
+use aquaregia::{GenerateTextRequest, LlmClient, google_model, openai_compatible_model};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -37,7 +37,7 @@ async fn google_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello"))
+        .generate_request(GenerateTextRequest::from_user_prompt(google_model("gemini-2.0-flash"), "hello"))
         .await
         .expect("request should succeed");
 
@@ -77,7 +77,7 @@ async fn openai_compatible_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(openai_compatible("deepseek-chat"), "hello"))
+        .generate_request(GenerateTextRequest::from_user_prompt(openai_compatible_model("deepseek-chat"), "hello"))
         .await
         .expect("request should succeed");
 

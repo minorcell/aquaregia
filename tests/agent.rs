@@ -1,4 +1,4 @@
-use aquaregia::{Agent, AgentPreparedStep, LlmClient, Message, openai, tool};
+use aquaregia::{Agent, AgentPreparedStep, LlmClient, Message, openai_model, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -34,7 +34,7 @@ async fn agent_run_includes_instructions() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .instructions("You are concise.")
         .build()
         .expect("agent should build");
@@ -125,7 +125,7 @@ async fn agent_tool_loop_works() {
             Ok(json!({ "city": city, "temp_c": 23 }))
         });
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .tools([weather])
         .max_steps(3)
         .build()
@@ -170,7 +170,7 @@ async fn agent_prepare_call_can_override_messages() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .prepare_call(|plan| {
             plan.messages = vec![
                 Message::system_text("from-prepare-call"),
@@ -218,7 +218,7 @@ async fn agent_prepare_step_can_override_messages() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .max_steps(1)
         .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),

@@ -1,9 +1,9 @@
-use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, anthropic};
+use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, anthropic_model};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn anthropic_request() -> GenerateTextRequest<aquaregia::Anthropic> {
-    GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
+    GenerateTextRequest::builder(anthropic_model("claude-3-5-haiku-latest"))
         .message(Message::user_text("hi"))
         .temperature(0.2)
         .max_output_tokens(32)

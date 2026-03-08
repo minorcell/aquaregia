@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use aquaregia::{
     Agent, AgentPreparedStep, AiErrorCode, LlmClient, Message, Tool, ToolDescriptor,
-    ToolExecError, ToolExecutor, openai,
+    ToolExecError, ToolExecutor, openai_model,
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -99,7 +99,7 @@ async fn run_tools_two_step_success() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .tools([make_weather_tool()])
         .max_steps(3)
         .temperature(0.2)
@@ -155,7 +155,7 @@ async fn run_tools_unknown_tool_fails() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .tools([make_weather_tool()])
         .max_steps(3)
         .build()
@@ -239,7 +239,7 @@ async fn run_tools_lifecycle_hooks_fire() {
 
     let agent = {
         let e = Arc::clone(&events);
-        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
             .tools([make_weather_tool()])
             .max_steps(3)
             .temperature(0.2)
@@ -331,7 +331,7 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
         .max_steps(1)
         .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),

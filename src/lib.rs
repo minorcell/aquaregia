@@ -42,18 +42,18 @@ pub use types::{
     ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };
 
-pub fn openai(model: impl Into<String>) -> ModelRef<OpenAi> {
+pub fn openai_model(model: impl Into<String>) -> ModelRef<OpenAi> {
     ModelRef::<OpenAi>::new(model)
 }
 
-pub fn anthropic(model: impl Into<String>) -> ModelRef<Anthropic> {
+pub fn anthropic_model(model: impl Into<String>) -> ModelRef<Anthropic> {
     ModelRef::<Anthropic>::new(model)
 }
 
-pub fn google(model: impl Into<String>) -> ModelRef<Google> {
+pub fn google_model(model: impl Into<String>) -> ModelRef<Google> {
     ModelRef::<Google>::new(model)
 }
 
-pub fn openai_compatible(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
+pub fn openai_compatible_model(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
     ModelRef::<OpenAiCompatible>::new(model)
 }
