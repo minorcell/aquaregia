@@ -60,8 +60,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .instructions(
             "You can call tools. If a tool is useful, call it first, then answer concisely.",
         )
-        .tool(weather_tool)
-        .tool(fx_tool)
+        .tools([weather_tool, fx_tool])
         // 避免异常循环；生产中建议根据任务复杂度设置。
         .max_steps(4)
         .temperature(0.2)

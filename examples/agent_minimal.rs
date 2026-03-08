@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::builder(client, model)
         .instructions("You are a concise assistant.")
-        .tool(get_weather)
+        .tools([get_weather])
         .max_steps(4)
         .build()?;
 

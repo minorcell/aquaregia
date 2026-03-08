@@ -100,7 +100,7 @@ async fn run_tools_two_step_success() {
         .expect("client should build");
 
     let agent = Agent::builder(client, openai("gpt-4o-mini"))
-        .tool(make_weather_tool())
+        .tools([make_weather_tool()])
         .max_steps(3)
         .temperature(0.2)
         .max_output_tokens(256)
@@ -156,7 +156,7 @@ async fn run_tools_unknown_tool_fails() {
         .expect("client should build");
 
     let agent = Agent::builder(client, openai("gpt-4o-mini"))
-        .tool(make_weather_tool())
+        .tools([make_weather_tool()])
         .max_steps(3)
         .build()
         .expect("agent should build");
@@ -240,7 +240,7 @@ async fn run_tools_lifecycle_hooks_fire() {
     let agent = {
         let e = Arc::clone(&events);
         let agent = Agent::builder(client, openai("gpt-4o-mini"))
-            .tool(make_weather_tool())
+            .tools([make_weather_tool()])
             .max_steps(3)
             .temperature(0.2)
             .max_output_tokens(256)

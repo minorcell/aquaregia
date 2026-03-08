@@ -126,7 +126,7 @@ async fn agent_tool_loop_works() {
         });
 
     let agent = Agent::builder(client, openai("gpt-4o-mini"))
-        .tool(weather)
+        .tools([weather])
         .max_steps(3)
         .build()
         .expect("agent should build");

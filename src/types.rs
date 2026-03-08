@@ -309,11 +309,6 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
         self
     }
 
-    pub fn stop_sequence(mut self, stop_sequence: impl Into<String>) -> Self {
-        self.request.stop_sequences.push(stop_sequence.into());
-        self
-    }
-
     pub fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
         self.request.stop_sequences = stop_sequences.into_iter().collect();
         self

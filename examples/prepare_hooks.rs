@@ -31,7 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let agent = Agent::builder(client, model)
         .instructions("You may call tools, then answer concisely.")
-        .tool(time_tool)
+        .tools([time_tool])
         .max_steps(4)
         // 对应 AI SDK prepareCall：在一次调用开始前可动态改调用计划。
         .prepare_call(|plan| {

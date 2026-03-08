@@ -209,11 +209,6 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
-    pub fn tool(mut self, tool: impl IntoTool) -> Self {
-        self.tools.push(tool.into_tool());
-        self
-    }
-
     pub fn tools<I, T>(mut self, tools: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -236,11 +231,6 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
-        self
-    }
-
-    pub fn stop_sequence(mut self, stop_sequence: impl Into<String>) -> Self {
-        self.stop_sequences.push(stop_sequence.into());
         self
     }
 
