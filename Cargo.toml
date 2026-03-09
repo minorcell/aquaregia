@@ -1,6 +1,6 @@
 [package]
 name = "aquaregia"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Provider-agnostic Rust toolkit for AI apps and agents."
 license = "MIT"
