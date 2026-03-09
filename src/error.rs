@@ -14,6 +14,7 @@ pub enum ErrorCode {
     ToolExecutionFailed,
     MaxStepsExceeded,
     InvalidResponse,
+    Cancelled,
 }
 
 #[derive(Debug, thiserror::Error, Clone, Serialize, Deserialize)]

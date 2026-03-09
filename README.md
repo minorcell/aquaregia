@@ -16,12 +16,19 @@ You need Rust and a Tokio async runtime in your project.
 cargo add aquaregia
 ```
 
-Default features enable `openai` and `anthropic`. You can also validate minimal/provider-specific builds:
+Default features enable `openai` and `anthropic`. Optional features:
+
+| Feature     | Description                                                          |
+| ----------- | -------------------------------------------------------------------- |
+| `openai`    | OpenAI adapter (default)                                             |
+| `anthropic` | Anthropic adapter (default)                                          |
+| `telemetry` | `tracing` spans for `generate`, `stream`, agent steps and tool calls |
 
 ```bash
 cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic
+cargo check --features telemetry
 ```
 
 ## Unified Provider Architecture
@@ -29,12 +36,12 @@ cargo check --no-default-features --features anthropic
 One `LlmClient` binds to one provider configuration.
 Each call passes a `GenerateTextRequest` that carries both the model and the messages.
 
-| Provider          | Register API                                                                                                                                            | Model argument              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gpt-4o"`                  |
-| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                                                                      | `"claude-sonnet-4-5"`       |
-| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gemini-2.0-flash"`        |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                                                                   | `"deepseek-chat"`           |
+| Provider          | Register API                                                                       | Model argument        |
+| ----------------- | ---------------------------------------------------------------------------------- | --------------------- |
+| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                         | `"gpt-4o"`            |
+| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`) | `"claude-sonnet-4-5"` |
+| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                         | `"gemini-2.0-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                              | `"deepseek-chat"`     |
 
 ## Usage
 
@@ -45,10 +52,8 @@ use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
     let out = client
@@ -71,9 +76,8 @@ use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
     let mut stream = client
@@ -94,6 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+`StreamEvent` covers all variants: `TextDelta`, `Usage`, `ToolCallReady`, and `Done`.
+
 ### Error Handling
 
 ```rust
@@ -106,7 +112,8 @@ match client
     Ok(out) => println!("{}", out.output_text),
     Err(err) => match err.code {
         ErrorCode::RateLimited => eprintln!("rate limited; retry later"),
-        ErrorCode::AuthFailed => eprintln!("check API key"),
+        ErrorCode::AuthFailed  => eprintln!("check API key"),
+        ErrorCode::Cancelled   => eprintln!("request was cancelled"),
         _ => eprintln!("request failed: {}", err),
     },
 }
@@ -125,9 +132,8 @@ async fn get_weather(city: String) -> Result<Value, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
     let agent = Agent::builder(client, "deepseek-chat")
@@ -160,6 +166,77 @@ let agent = Agent::builder(client, "deepseek-chat")
         next
     })
     .build()?;
+```
+
+### Cancellation
+
+Every request and agent run can be cancelled via a `CancellationToken`.
+
+```rust
+use aquaregia::{Agent, CancellationToken, GenerateTextRequest, LlmClient};
+use tokio::time::{Duration, sleep};
+
+// Cancel a single generate call
+let token = CancellationToken::new();
+let token_clone = token.clone();
+tokio::spawn(async move {
+    sleep(Duration::from_millis(200)).await;
+    token_clone.cancel();
+});
+
+let req = GenerateTextRequest::builder("deepseek-chat")
+    .user_prompt("Write a 10000-word essay.")
+    .cancellation_token(token)
+    .build()?;
+
+match client.generate(req).await {
+    Err(e) if e.code == ErrorCode::Cancelled => println!("cancelled as expected"),
+    other => println!("{other:?}"),
+}
+```
+
+Agents expose dedicated helpers:
+
+```rust
+let token = CancellationToken::new();
+token.cancel(); // or cancel later from another task
+
+// Returns Err with ErrorCode::Cancelled
+agent.run_cancellable("hello", token).await?;
+
+// Pass your own message list
+agent.run_messages_cancellable(messages, token).await?;
+```
+
+Cancellation is checked:
+
+- **Before every HTTP send** (via `tokio::select!` — zero overhead when not cancelled)
+- **After every SSE chunk** in streaming responses
+- **At the top of every agent step** in the tool loop
+
+### Telemetry
+
+Enable the `telemetry` feature to get `tracing` spans automatically:
+
+```toml
+aquaregia = { version = "*", features = ["telemetry"] }
+```
+
+Spans emitted:
+
+| Span                  | Fields              |
+| --------------------- | ------------------- |
+| `aquaregia::generate` | `model`, `provider` |
+| `aquaregia::stream`   | `model`             |
+| `agent_step`          | `step`              |
+| `tool_call`           | `tool.name`         |
+
+Wire your own subscriber (e.g. `tracing-subscriber`, `tracing-opentelemetry`) — Aquaregia does not configure one for you.
+
+```rust
+tracing_subscriber::fmt::init(); // or any other subscriber
+
+let out = client.generate(req).await?; // emits a span
 ```
 
 ### OpenAI-Compatible Advanced Settings
@@ -197,6 +274,8 @@ cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic
 cargo check --features axum
+cargo test --features telemetry
+cargo clippy -- -D warnings
 ```
 
 For `ai-sdk/` workspace only:

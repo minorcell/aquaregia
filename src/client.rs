@@ -17,10 +17,9 @@ use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Anthropic, ContentPart,
-    FinishCallback, GenerateTextRequest, GenerateTextResponse, Google, Message, OpenAi,
-    OpenAiCompatible, ProviderMarker, RunTools, TextStream, ToolCall, ToolCallFinishCallback,
-    ToolCallStartCallback, ToolErrorPolicy, ToolResult, Usage, validate_max_steps,
-    validate_messages, validate_model_ref, validate_sampling,
+    GenerateTextRequest, GenerateTextResponse, Google, Message, OpenAi, OpenAiCompatible,
+    ProviderMarker, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
+    validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
 
 pub trait ProviderBinding: ProviderMarker {
@@ -215,6 +214,13 @@ pub struct BoundClient<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> BoundClient<P> {
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip_all,
+            fields(model = %req.model.model(), provider = %P::KIND.as_slug())
+        )
+    )]
     pub async fn generate(
         &self,
         req: GenerateTextRequest<P>,
@@ -226,6 +232,13 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
+    #[cfg_attr(
+        feature = "telemetry",
+        tracing::instrument(
+            skip_all,
+            fields(model = %req.model.model())
+        )
+    )]
     pub async fn stream(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
@@ -241,6 +254,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             tools,
             max_steps,
             temperature,
+            top_p,
             max_output_tokens,
             stop_sequences,
             prepare_step,
@@ -252,21 +266,18 @@ impl<P: ProviderMarker> BoundClient<P> {
             on_finish,
             stop_when,
             tool_error_policy,
+            cancellation_token,
         } = req;
 
-        validate_model_ref(&model)?;
-        validate_messages(&messages)?;
-
         let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
-        validate_max_steps(resolved_max_steps)?;
 
         let mut messages = messages;
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
 
         if let Some(callback) = &on_start {
-            callback.call(&AgentStart {
-                model: model.clone(),
+            callback(&AgentStart {
+                model_id: model.id(),
                 messages: messages.clone(),
                 tool_count: tools.len(),
                 max_steps: resolved_max_steps,
@@ -274,6 +285,17 @@ impl<P: ProviderMarker> BoundClient<P> {
         }
 
         for step in 1..=resolved_max_steps {
+            if cancellation_token
+                .as_ref()
+                .map(|t| t.is_cancelled())
+                .unwrap_or(false)
+            {
+                return Err(Error::new(ErrorCode::Cancelled, "agent cancelled"));
+            }
+
+            #[cfg(feature = "telemetry")]
+            let _step_span = tracing::info_span!("agent_step", step = step).entered();
+
             let mut prepared_step = AgentPreparedStep {
                 model: model.clone(),
                 messages: messages.clone(),
@@ -283,7 +305,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 stop_sequences: stop_sequences.clone(),
             };
             if let Some(callback) = &prepare_step {
-                prepared_step = callback.call(&AgentPrepareStep {
+                prepared_step = callback(&AgentPrepareStep {
                     step,
                     model: model.clone(),
                     messages: messages.clone(),
@@ -298,7 +320,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             validate_messages(&prepared_step.messages)?;
 
             if let Some(callback) = &on_step_start {
-                callback.call(&AgentStepStart {
+                callback(&AgentStepStart {
                     step,
                     messages: prepared_step.messages.clone(),
                 });
@@ -309,7 +331,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                     model: prepared_step.model.clone(),
                     messages: prepared_step.messages.clone(),
                     temperature: prepared_step.temperature,
-                    top_p: None,
+                    top_p,
                     max_output_tokens: prepared_step.max_output_tokens,
                     stop_sequences: prepared_step.stop_sequences.clone(),
                     tools: if prepared_step.tools.is_empty() {
@@ -323,6 +345,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                                 .collect(),
                         )
                     },
+                    cancellation_token: cancellation_token.clone(),
                 })
                 .await?;
             usage_total += response.usage.clone();
@@ -340,7 +363,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 };
                 step_results.push(step_state.clone());
                 if let Some(callback) = &on_step_finish {
-                    callback.call(&step_state);
+                    callback(&step_state);
                 }
                 let final_response = AgentResponse {
                     output_text: response.output_text,
@@ -386,11 +409,11 @@ impl<P: ProviderMarker> BoundClient<P> {
             step_results.push(step_state.clone());
             next_messages.append(&mut tool_messages);
             if let Some(callback) = &on_step_finish {
-                callback.call(&step_state);
+                callback(&step_state);
             }
             if stop_when
                 .as_ref()
-                .is_some_and(|predicate| predicate.should_stop(&step_state))
+                .is_some_and(|predicate| predicate(&step_state))
             {
                 let final_response = AgentResponse {
                     output_text: response.output_text,
@@ -464,7 +487,7 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
 }
 
 fn emit_on_finish(
-    callback: Option<&FinishCallback>,
+    callback: Option<&crate::types::Hook<AgentFinish>>,
     response: &AgentResponse,
     finish_reason: &crate::types::FinishReason,
     step_results: &[AgentStep],
@@ -473,7 +496,7 @@ fn emit_on_finish(
         return;
     };
 
-    callback.call(&AgentFinish {
+    callback(&AgentFinish {
         output_text: response.output_text.clone(),
         step_count: response.steps,
         finish_reason: finish_reason.clone(),
@@ -493,8 +516,8 @@ async fn execute_tool_calls(
     calls: &[ToolCall],
     step: u8,
     policy: ToolErrorPolicy,
-    on_tool_call_start: Option<&ToolCallStartCallback>,
-    on_tool_call_finish: Option<&ToolCallFinishCallback>,
+    on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
+    on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
 ) -> Result<Vec<ExecutedToolCall>, Error> {
     let mut tasks = Vec::with_capacity(calls.len());
     for call in calls {
@@ -519,7 +542,7 @@ async fn execute_tool_calls(
             })?;
 
         if let Some(callback) = on_tool_call_start {
-            callback.call(&AgentToolCallStart {
+            callback(&AgentToolCallStart {
                 step,
                 tool_call: call.clone(),
             });
@@ -529,6 +552,8 @@ async fn execute_tool_calls(
         let call = call.clone();
         let args_json = call.args_json.clone();
         tasks.push(async move {
+            #[cfg(feature = "telemetry")]
+            let _span = tracing::info_span!("tool_call", tool.name = %call.tool_name).entered();
             let started_at = Instant::now();
             let result = executor.execute(args_json).await;
             let duration_ms = started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
@@ -574,7 +599,7 @@ async fn execute_tool_calls(
         };
 
         if let Some(callback) = on_tool_call_finish {
-            callback.call(&AgentToolCallFinish {
+            callback(&AgentToolCallFinish {
                 step,
                 tool_call: call.clone(),
                 tool_result: tool_result.clone(),

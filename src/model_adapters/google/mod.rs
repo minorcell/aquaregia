@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -71,15 +72,23 @@ impl ModelAdapter<Google> for GoogleAdapter {
         req: &GenerateTextRequest<Google>,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_google_payload(req);
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let send_fut = self
             .http
             .post(self.generate_url(req.model.model()))
             .header("x-goog-api-key", &self.api_key)
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let body: Value = response
             .json()
@@ -90,15 +99,24 @@ impl ModelAdapter<Google> for GoogleAdapter {
 
     async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, Error> {
         let payload = build_google_payload(req);
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let cancel_token_stream = cancel_token.clone();
+        let send_fut = self
             .http
             .post(self.stream_url(req.model.model()))
             .header("x-goog-api-key", &self.api_key)
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
 
@@ -108,6 +126,9 @@ impl ModelAdapter<Google> for GoogleAdapter {
             let mut tool_counter = 0u32;
 
             while let Some(chunk) = byte_stream.next().await {
+                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
+                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                }
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;

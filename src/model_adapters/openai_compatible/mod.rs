@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -151,12 +152,20 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_openai_payload(req, false);
         let url = self.endpoint_url()?;
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let send_fut = self
             .apply_headers(self.http.post(url))
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let body: Value = response
             .json()
@@ -171,12 +180,21 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
     ) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = self.endpoint_url()?;
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let cancel_token_stream = cancel_token.clone();
+        let send_fut = self
             .apply_headers(self.http.post(url))
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
 
@@ -186,6 +204,9 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
             let mut done = false;
 
             while let Some(chunk) = byte_stream.next().await {
+                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
+                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                }
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -263,7 +284,7 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(Value::as_str)
                     {
                         if finish_reason == "tool_calls" && !tool_partial.is_empty() {
-                            for (_, partial) in &tool_partial {
+                            for partial in tool_partial.values() {
                                 if let Some(call) = partial.to_tool_call()? {
                                     yield StreamEvent::ToolCallReady { call };
                                 }

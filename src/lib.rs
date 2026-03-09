@@ -14,7 +14,7 @@ pub use schemars as __aquaregia_schemars;
 #[doc(hidden)]
 pub use serde as __aquaregia_serde;
 
-pub use agent::{Agent, AgentBuilder, AgentCallPlan};
+pub use agent::{Agent, AgentBuilder, AgentRunPlan};
 pub use aquaregia_macros::tool;
 pub use client::{BoundClient, ClientBuilder, LlmClient};
 pub use error::{Error, ErrorCode};
@@ -23,6 +23,7 @@ pub use model_adapters::anthropic::AnthropicAdapterSettings;
 pub use model_adapters::google::GoogleAdapterSettings;
 pub use model_adapters::openai::OpenAiAdapterSettings;
 pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
+pub use tokio_util::sync::CancellationToken;
 
 pub use tool::{
     IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool,
