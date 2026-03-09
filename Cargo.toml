@@ -20,7 +20,7 @@ axum = ["dep:axum"]
 telemetry = ["dep:tracing"]
 
 [dependencies]
-aquaregia-macros = { path = "aquaregia-macros", version = "0.1.2" }
+aquaregia-macros = { path = "aquaregia-macros", version = "0.1.3" }
 async-stream = "0.3"
 async-trait = "0.1"
 axum = { version = "0.8", optional = true }
