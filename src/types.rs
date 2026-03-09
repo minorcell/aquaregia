@@ -303,8 +303,11 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
         self
     }
 
-    pub fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
-        self.request.stop_sequences = stop_sequences.into_iter().collect();
+    pub fn stop_sequences<S: Into<String>>(
+        mut self,
+        stop_sequences: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.request.stop_sequences = stop_sequences.into_iter().map(Into::into).collect();
         self
     }
 
@@ -401,11 +404,11 @@ impl<P: ProviderMarker> RunTools<P> {
         self
     }
 
-    pub(crate) fn stop_sequences(
+    pub(crate) fn stop_sequences<S: Into<String>>(
         mut self,
-        stop_sequences: impl IntoIterator<Item = String>,
+        stop_sequences: impl IntoIterator<Item = S>,
     ) -> Self {
-        self.stop_sequences = stop_sequences.into_iter().collect();
+        self.stop_sequences = stop_sequences.into_iter().map(Into::into).collect();
         self
     }
 
@@ -782,6 +785,7 @@ pub struct AgentResponse {
     pub steps: u8,
     pub transcript: Vec<Message>,
     pub usage_total: Usage,
+    pub step_results: Vec<AgentStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -37,7 +37,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .expect("request should build");
 
     let mut stream = client
-        .stream_request(req)
+        .stream(req)
         .await
         .expect("stream_text should succeed");
 

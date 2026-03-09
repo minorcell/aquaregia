@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = client
-        .generate_request(GenerateTextRequest::from_user_prompt(
+        .generate(GenerateTextRequest::from_user_prompt(
             "deepseek-chat",
             "Explain Rust ownership in 3 bullet points.",
         ))
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream_request(GenerateTextRequest::from_user_prompt(
+        .stream(GenerateTextRequest::from_user_prompt(
             "deepseek-chat",
             "Write a short release note.",
         ))
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
 
 match client
-    .generate_request(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
+    .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
     .await
 {
     Ok(out) => println!("{}", out.output_text),
@@ -179,8 +179,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 
 | Example                             | Command                                        | Focus                                      |
 | ----------------------------------- | ---------------------------------------------- | ------------------------------------------ |
-| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate_request`                |
-| Basic stream                        | `cargo run --example basic_stream`             | `stream_request` + `StreamEvent` handling  |
+| Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                        |
+| Basic stream                        | `cargo run --example basic_stream`             | `stream` + `StreamEvent` handling          |
 | Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool                |
 | Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`             |
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |

@@ -27,7 +27,7 @@ and give one quick fix tip for each point.
 "#;
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(model, prompt))
+        .generate(GenerateTextRequest::from_user_prompt(model, prompt))
         .await?;
 
     println!("=== one-shot result ===");

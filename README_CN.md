@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let out = client
-        .generate_request(GenerateTextRequest::from_user_prompt(
+        .generate(GenerateTextRequest::from_user_prompt(
             "deepseek-chat",
             "用 3 个要点解释 Rust 所有权。",
         ))
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream_request(GenerateTextRequest::from_user_prompt(
+        .stream(GenerateTextRequest::from_user_prompt(
             "deepseek-chat",
             "写一段简短版本发布说明。",
         ))
@@ -102,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
 
 match client
-    .generate_request(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
+    .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
     .await
 {
     Ok(out) => println!("{}", out.output_text),
@@ -181,8 +181,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 
 | 示例             | 命令                                           | 重点                                    |
 | ---------------- | ---------------------------------------------- | --------------------------------------- |
-| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate_request`               |
-| 基础流式输出     | `cargo run --example basic_stream`             | `stream_request` + `StreamEvent` 处理   |
+| 基础文本生成     | `cargo run --example basic_generate`           | 一次性 `generate`                       |
+| 基础流式输出     | `cargo run --example basic_stream`             | `stream` + `StreamEvent` 处理           |
 | 最小 Agent       | `cargo run --example agent_minimal`            | `Agent::builder` + 单工具               |
 | 工具循环保护     | `cargo run --example tools_max_steps`          | 多步工具调用 + `max_steps`              |
 | 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`         |

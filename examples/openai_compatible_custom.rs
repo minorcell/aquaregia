@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let response = client
-        .generate_request(GenerateTextRequest::from_user_prompt(
+        .generate(GenerateTextRequest::from_user_prompt(
             model,
             "Say hello in Chinese.",
         ))

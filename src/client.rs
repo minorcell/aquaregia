@@ -215,7 +215,7 @@ pub struct BoundClient<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> BoundClient<P> {
-    pub async fn generate_request(
+    pub async fn generate(
         &self,
         req: GenerateTextRequest<P>,
     ) -> Result<GenerateTextResponse, Error> {
@@ -226,7 +226,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    pub async fn stream_request(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
+    pub async fn stream(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -305,7 +305,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             }
 
             let response = self
-                .generate_request(GenerateTextRequest {
+                .generate(GenerateTextRequest {
                     model: prepared_step.model.clone(),
                     messages: prepared_step.messages.clone(),
                     temperature: prepared_step.temperature,
@@ -347,6 +347,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                     steps: step,
                     transcript: next_messages,
                     usage_total,
+                    step_results: step_results.clone(),
                 };
                 emit_on_finish(
                     on_finish.as_ref(),
@@ -396,6 +397,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                     steps: step,
                     transcript: next_messages,
                     usage_total,
+                    step_results: step_results.clone(),
                 };
                 emit_on_finish(
                     on_finish.as_ref(),

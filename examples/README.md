@@ -15,12 +15,12 @@
 1. `basic_generate.rs`
 
 - 场景：一次性非流式调用。
-- 重点：`generate_request`、usage 读取、最小上手路径。
+- 重点：`generate`、usage 读取、最小上手路径。
 
 2. `basic_stream.rs`
 
 - 场景：流式输出到 CLI/UI。
-- 重点：`stream_request` 消费 `StreamEvent`；`TextDelta` 变体提供文本增量，`Done` 表示结束。
+- 重点：`stream` 消费 `StreamEvent`；`TextDelta` 变体提供文本增量，`Done` 表示结束。
 
 3. `agent_minimal.rs`
 
@@ -35,7 +35,7 @@
 5. `google_generate.rs`
 
 - 场景：一次性调用（OpenAI-compatible 接口）。
-- 重点：`generate_request` 的最小调用路径。
+- 重点：`generate` 的最小调用路径。
 
 6. `openai_compatible_custom.rs`
 

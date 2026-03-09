@@ -42,7 +42,7 @@ async fn openai_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(openai_request())
+        .generate(openai_request())
         .await
         .expect("generate_text should succeed");
 
@@ -66,7 +66,7 @@ async fn openai_401_maps_to_auth_failed() {
         .expect("client should build");
 
     let err = client
-        .generate_request(openai_request())
+        .generate(openai_request())
         .await
         .expect_err("request should fail");
 

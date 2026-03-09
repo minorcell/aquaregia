@@ -29,7 +29,7 @@ async fn anthropic_429_maps_to_rate_limited() {
         .expect("client should build");
 
     let err = client
-        .generate_request(anthropic_request())
+        .generate(anthropic_request())
         .await
         .expect_err("request should fail");
 

@@ -242,8 +242,12 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
-    pub fn stop_sequences(mut self, stop_sequences: impl IntoIterator<Item = String>) -> Self {
-        self.stop_sequences.extend(stop_sequences);
+    pub fn stop_sequences<S: Into<String>>(
+        mut self,
+        stop_sequences: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.stop_sequences
+            .extend(stop_sequences.into_iter().map(Into::into));
         self
     }
 
