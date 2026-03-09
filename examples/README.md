@@ -19,13 +19,13 @@
 
 2. `basic_stream.rs`
 
-- 场景：流式输出到 CLI/UI（文本增量简洁模式）。
-- 重点：`stream` 直接消费文本 chunk；如需完整事件流（Usage 等）使用 `stream_events`。
+- 场景：流式输出到 CLI/UI。
+- 重点：`stream` 消费 `StreamEvent`；`TextDelta` 变体提供文本增量，`Done` 表示结束。
 
 3. `agent_minimal.rs`
 
 - 场景：最小 Agent + 单工具。
-- 重点：`Agent::builder(client, model)`、`#[tool]` 宏、`max_steps(...)`。
+- 重点：`Agent::builder(client, model)`、`#[tool]` 宏、`tools([...])` 批量注册、`max_steps(...)`。
 
 4. `tools_max_steps.rs`
 
@@ -34,13 +34,13 @@
 
 5. `google_generate.rs`
 
-- 场景：一次性调用 DeepSeek（保留文件名用于兼容旧索引）。
-- 重点：`generate(model, ...)` 的最小调用路径。
+- 场景：一次性调用（OpenAI-compatible 接口）。
+- 重点：`generate` 的最小调用路径。
 
 6. `openai_compatible_custom.rs`
 
 - 场景：接入 OpenAI-Compatible 服务。
-- 重点：自定义 `headers / query_params / chat_completions_path`。
+- 重点：自定义 `header` / `query_param` / `chat_completions_path`。
 
 7. `mini_claude_code.rs`
 
@@ -58,7 +58,6 @@
 2. `basic_stream.rs`
 3. `agent_minimal.rs`
 4. `tools_max_steps.rs`
-5. `google_generate.rs`
-6. `openai_compatible_custom.rs`
-7. `mini_claude_code.rs`
-8. `prepare_hooks.rs`
+5. `openai_compatible_custom.rs`
+6. `mini_claude_code.rs`
+7. `prepare_hooks.rs`

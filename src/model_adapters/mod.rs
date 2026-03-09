@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use reqwest::Response;
 
-use crate::error::AiError;
+use crate::error::Error;
 use crate::types::{GenerateTextRequest, GenerateTextResponse, ProviderMarker, TextStream};
 
 pub mod anthropic;
@@ -16,9 +16,9 @@ pub trait ModelAdapter<P: ProviderMarker>: Send + Sync {
     async fn generate_text(
         &self,
         req: &GenerateTextRequest<P>,
-    ) -> Result<GenerateTextResponse, AiError>;
+    ) -> Result<GenerateTextResponse, Error>;
 
-    async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, AiError>;
+    async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, Error>;
 }
 
 pub type SharedAdapter<P> = Arc<dyn ModelAdapter<P>>;
@@ -26,7 +26,7 @@ pub type SharedAdapter<P> = Arc<dyn ModelAdapter<P>>;
 pub(crate) async fn check_response_status(
     provider_id: &str,
     response: Response,
-) -> Result<Response, AiError> {
+) -> Result<Response, Error> {
     let status = response.status();
     if status.is_success() {
         return Ok(response);
@@ -48,6 +48,6 @@ pub(crate) async fn check_response_status(
     ))
 }
 
-pub(crate) fn map_send_error(provider_id: &str, err: reqwest::Error) -> AiError {
+pub(crate) fn map_send_error(provider_id: &str, err: reqwest::Error) -> Error {
     crate::error::transport_error(provider_id, err)
 }

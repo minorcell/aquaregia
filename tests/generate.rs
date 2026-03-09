@@ -1,10 +1,10 @@
-use aquaregia::{AiErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi, openai_model};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi, openai};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn openai_request() -> GenerateTextRequest<OpenAi> {
-    GenerateTextRequest::builder(openai_model("gpt-4o-mini"))
+    GenerateTextRequest::builder(openai("gpt-4o-mini"))
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(64)
@@ -42,7 +42,7 @@ async fn openai_generate_text_success() {
         .expect("client should build");
 
     let response = client
-        .generate_request(openai_request())
+        .generate(openai_request())
         .await
         .expect("generate_text should succeed");
 
@@ -66,11 +66,11 @@ async fn openai_401_maps_to_auth_failed() {
         .expect("client should build");
 
     let err = client
-        .generate_request(openai_request())
+        .generate(openai_request())
         .await
         .expect_err("request should fail");
 
-    assert_eq!(err.code, AiErrorCode::AuthFailed);
+    assert_eq!(err.code, ErrorCode::AuthFailed);
     assert_eq!(err.status, Some(401));
     assert!(!err.retryable);
 }

@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::error::{AiError, AiErrorCode};
+use crate::error::{Error, ErrorCode};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
@@ -180,7 +180,7 @@ pub struct ToolRegistry {
 }
 
 impl ToolRegistry {
-    pub fn from_tools(tools: Vec<Tool>) -> Result<Self, AiError> {
+    pub fn from_tools(tools: Vec<Tool>) -> Result<Self, Error> {
         let mut entries = HashMap::new();
         let name_re = Regex::new(r"^[a-zA-Z0-9_-]{1,64}$")
             .expect("tool name regex must be valid at compile time");
@@ -188,21 +188,21 @@ impl ToolRegistry {
         for tool in tools {
             let name = tool.descriptor.name.clone();
             if !name_re.is_match(&name) {
-                return Err(AiError::new(
-                    AiErrorCode::InvalidRequest,
+                return Err(Error::new(
+                    ErrorCode::InvalidRequest,
                     format!("invalid tool name `{}`", name),
                 ));
             }
             if entries.contains_key(&name) {
-                return Err(AiError::new(
-                    AiErrorCode::InvalidRequest,
+                return Err(Error::new(
+                    ErrorCode::InvalidRequest,
                     format!("duplicate tool name `{}`", name),
                 ));
             }
 
             let validator = validator_for(&tool.descriptor.input_schema).map_err(|e| {
-                AiError::new(
-                    AiErrorCode::InvalidRequest,
+                Error::new(
+                    ErrorCode::InvalidRequest,
                     format!("invalid JSON schema for tool `{}`: {}", name, e),
                 )
             })?;

@@ -1,8 +1,9 @@
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use aquaregia::{
-    Agent, AgentPreparedStep, AiErrorCode, LlmClient, Message, Tool, ToolDescriptor,
-    ToolExecError, ToolExecutor, openai_model,
+    Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, Tool, ToolDescriptor, ToolExecError,
+    ToolExecutor, openai,
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -99,7 +100,7 @@ async fn run_tools_two_step_success() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .tools([make_weather_tool()])
         .max_steps(3)
         .temperature(0.2)
@@ -155,7 +156,7 @@ async fn run_tools_unknown_tool_fails() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .tools([make_weather_tool()])
         .max_steps(3)
         .build()
@@ -166,7 +167,7 @@ async fn run_tools_unknown_tool_fails() {
         .await
         .expect_err("agent should fail for unknown tool");
 
-    assert_eq!(err.code, AiErrorCode::UnknownTool);
+    assert_eq!(err.code, ErrorCode::UnknownTool);
 }
 
 #[tokio::test]
@@ -239,7 +240,7 @@ async fn run_tools_lifecycle_hooks_fire() {
 
     let agent = {
         let e = Arc::clone(&events);
-        let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
+        let agent = Agent::builder(client, openai("gpt-4o-mini"))
             .tools([make_weather_tool()])
             .max_steps(3)
             .temperature(0.2)
@@ -254,14 +255,21 @@ async fn run_tools_lifecycle_hooks_fire() {
             })
             .on_tool_call_start({
                 let e = Arc::clone(&e);
-                move |event| push_event(&e, format!("tool_call_start:{}", event.tool_call.tool_name))
+                move |event| {
+                    push_event(&e, format!("tool_call_start:{}", event.tool_call.tool_name))
+                }
             })
             .on_tool_call_finish({
                 let e = Arc::clone(&e);
-                move |event| push_event(
-                    &e,
-                    format!("tool_call_finish:{}:{}", event.tool_call.tool_name, event.tool_result.is_error),
-                )
+                move |event| {
+                    push_event(
+                        &e,
+                        format!(
+                            "tool_call_finish:{}:{}",
+                            event.tool_call.tool_name, event.tool_result.is_error
+                        ),
+                    )
+                }
             })
             .on_step_finish({
                 let e = Arc::clone(&e);
@@ -331,7 +339,7 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai_model("gpt-4o-mini"))
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
         .max_steps(1)
         .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),
@@ -347,11 +355,107 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .build()
         .expect("agent should build");
 
-    let response = agent
-        .run("Say hi")
-        .await
-        .expect("agent should succeed");
+    let response = agent.run("Say hi").await.expect("agent should succeed");
 
     assert_eq!(response.output_text, "prepared-step-ok");
     assert_eq!(response.steps, 1);
+}
+
+struct SlowTool;
+
+#[async_trait]
+impl ToolExecutor for SlowTool {
+    async fn execute(&self, _args: serde_json::Value) -> Result<serde_json::Value, ToolExecError> {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(json!({ "done": true }))
+    }
+}
+
+#[tokio::test]
+async fn tool_calls_execute_in_parallel() {
+    let server = MockServer::start().await;
+
+    let step1 = json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_a",
+                        "type": "function",
+                        "function": { "name": "slow_tool", "arguments": "{\"id\":\"a\"}" }
+                    },
+                    {
+                        "id": "call_b",
+                        "type": "function",
+                        "function": { "name": "slow_tool", "arguments": "{\"id\":\"b\"}" }
+                    }
+                ]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": { "prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15 }
+    });
+
+    let step2 = json!({
+        "choices": [{
+            "message": { "content": "Both done." },
+            "finish_reason": "stop"
+        }],
+        "usage": { "prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("\"role\":\"tool\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(step2))
+        .expect(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(step1))
+        .expect(1)
+        .with_priority(5)
+        .mount(&server)
+        .await;
+
+    let slow_tool = Tool {
+        descriptor: ToolDescriptor {
+            name: "slow_tool".to_string(),
+            description: "A slow tool".to_string(),
+            input_schema: json!({
+                "type": "object",
+                "properties": { "id": { "type": "string" } }
+            }),
+        },
+        executor: Arc::new(SlowTool),
+    };
+
+    let client = LlmClient::openai("test-openai-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        .tools([slow_tool])
+        .max_steps(3)
+        .build()
+        .expect("agent should build");
+
+    let start = Instant::now();
+    let response = agent
+        .run("run both tools")
+        .await
+        .expect("agent should succeed");
+    let elapsed = start.elapsed();
+
+    assert_eq!(response.output_text, "Both done.");
+    assert!(
+        elapsed < Duration::from_millis(250),
+        "expected < 250ms (parallel) but took {:?}",
+        elapsed
+    );
 }

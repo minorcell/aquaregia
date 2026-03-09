@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -7,7 +8,7 @@ use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
-use crate::error::{AiError, AiErrorCode};
+use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -53,44 +54,61 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
     async fn generate_text(
         &self,
         req: &GenerateTextRequest<OpenAi>,
-    ) -> Result<GenerateTextResponse, AiError> {
+    ) -> Result<GenerateTextResponse, Error> {
         let payload = build_openai_payload(req, false);
         let url = format!(
             "{}/v1/chat/completions",
             self.base_url.trim_end_matches('/')
         );
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let send_fut = self
             .http
             .post(url)
             .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let body: Value = response
             .json()
             .await
-            .map_err(|e| AiError::new(AiErrorCode::InvalidResponse, e.to_string()))?;
+            .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
         normalize_openai_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest<OpenAi>) -> Result<TextStream, AiError> {
+    async fn stream_text(&self, req: &GenerateTextRequest<OpenAi>) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = format!(
             "{}/v1/chat/completions",
             self.base_url.trim_end_matches('/')
         );
-        let response = self
+        let cancel_token = req.cancellation_token.clone();
+        let cancel_token_stream = cancel_token.clone();
+        let send_fut = self
             .http
             .post(url)
             .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
-            .send()
-            .await
-            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+            .send();
+        let response = tokio::select! {
+            r = send_fut => r.map_err(|e| map_send_error(PROVIDER_SLUG, e))?,
+            _ = async move {
+                match cancel_token {
+                    Some(t) => t.cancelled().await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => return Err(Error::new(ErrorCode::Cancelled, "request cancelled")),
+        };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
 
@@ -100,9 +118,12 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
             let mut done = false;
 
             while let Some(chunk) = byte_stream.next().await {
-                let chunk = chunk.map_err(|e| AiError::new(AiErrorCode::Transport, e.to_string()))?;
+                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
+                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                }
+                let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
-                    .map_err(|e| AiError::new(AiErrorCode::StreamProtocol, e.to_string()))?;
+                    .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
                 buffer.push_str(text);
 
                 let frames = drain_sse_frames(&mut buffer);
@@ -115,7 +136,7 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
                     }
 
                     let value: Value = serde_json::from_str(data)
-                        .map_err(|e| AiError::new(AiErrorCode::StreamProtocol, e.to_string()))?;
+                        .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
                     if let Some(text_delta) = value
                         .get("choices")
                         .and_then(Value::as_array)
@@ -177,7 +198,7 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
                         .and_then(Value::as_str)
                     {
                         if finish_reason == "tool_calls" && !tool_partial.is_empty() {
-                            for (_, partial) in &tool_partial {
+                            for partial in tool_partial.values() {
                                 if let Some(call) = partial.to_tool_call()? {
                                     yield StreamEvent::ToolCallReady { call };
                                 }
@@ -193,8 +214,8 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
             }
 
             if !done {
-                Err(AiError::new(
-                    AiErrorCode::StreamProtocol,
+                Err(Error::new(
+                    ErrorCode::StreamProtocol,
                     "openai stream closed without [DONE]",
                 ))?;
             }
@@ -212,7 +233,7 @@ struct PartialToolCall {
 }
 
 impl PartialToolCall {
-    fn to_tool_call(&self) -> Result<Option<ToolCall>, AiError> {
+    fn to_tool_call(&self) -> Result<Option<ToolCall>, Error> {
         let Some(call_id) = self.call_id.clone() else {
             return Ok(None);
         };
@@ -223,8 +244,8 @@ impl PartialToolCall {
             json!({})
         } else {
             serde_json::from_str(&self.args_buf).map_err(|e| {
-                AiError::new(
-                    AiErrorCode::InvalidToolArgs,
+                Error::new(
+                    ErrorCode::InvalidToolArgs,
                     format!("invalid streamed tool arguments: {}", e),
                 )
             })?
@@ -375,21 +396,21 @@ fn text_content_from_parts(parts: &[ContentPart]) -> Value {
     Value::String(texts.join(""))
 }
 
-fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, AiError> {
+fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
     let Some(choice) = body
         .get("choices")
         .and_then(Value::as_array)
         .and_then(|arr| arr.first())
     else {
-        return Err(AiError::new(
-            AiErrorCode::InvalidResponse,
+        return Err(Error::new(
+            ErrorCode::InvalidResponse,
             "openai response missing choices[0]",
         ));
     };
 
     let message = choice
         .get("message")
-        .ok_or_else(|| AiError::new(AiErrorCode::InvalidResponse, "missing message"))?;
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing message"))?;
 
     let output_text = message
         .get("content")
@@ -430,18 +451,18 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, AiErro
     })
 }
 
-fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, AiError> {
+fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, Error> {
     let call_id = value
         .get("id")
         .and_then(Value::as_str)
-        .ok_or_else(|| AiError::new(AiErrorCode::InvalidResponse, "tool call missing id"))?;
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "tool call missing id"))?;
     let tool_name = value
         .get("function")
         .and_then(|f| f.get("name"))
         .and_then(Value::as_str)
         .ok_or_else(|| {
-            AiError::new(
-                AiErrorCode::InvalidResponse,
+            Error::new(
+                ErrorCode::InvalidResponse,
                 "tool call missing function name",
             )
         })?;
@@ -451,8 +472,8 @@ fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, AiError> {
         .and_then(Value::as_str)
         .unwrap_or("{}");
     let args_json = serde_json::from_str(args_raw).map_err(|e| {
-        AiError::new(
-            AiErrorCode::InvalidToolArgs,
+        Error::new(
+            ErrorCode::InvalidToolArgs,
             format!("failed to parse tool arguments JSON: {}", e),
         )
     })?;

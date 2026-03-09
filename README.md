@@ -16,43 +16,51 @@ You need Rust and a Tokio async runtime in your project.
 cargo add aquaregia
 ```
 
-Default features enable `openai` and `anthropic`. You can also validate minimal/provider-specific builds:
+Default features enable `openai` and `anthropic`. Optional features:
+
+| Feature     | Description                                                          |
+| ----------- | -------------------------------------------------------------------- |
+| `openai`    | OpenAI adapter (default)                                             |
+| `anthropic` | Anthropic adapter (default)                                          |
+| `telemetry` | `tracing` spans for `generate`, `stream`, agent steps and tool calls |
 
 ```bash
 cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic
+cargo check --features telemetry
 ```
 
 ## Unified Provider Architecture
 
-One `LlmClient` binds to one provider configuration.  
-Each call can pass a model id string directly (for example, `"deepseek-chat"`).
+One `LlmClient` binds to one provider configuration.
+Each call passes a `GenerateTextRequest` that carries both the model and the messages.
 
-| Provider          | Register API                                                                                                                                            | Model argument              |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
-| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gpt-5.3-codex"`             |
-| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`)                                                                      | `"claude-4-6-sonnet"` |
-| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                                                                                              | `"gemini-3.0-pro"`        |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                                                 | `"deepseek-chat"`           |
+| Provider          | Register API                                                                       | Model argument        |
+| ----------------- | ---------------------------------------------------------------------------------- | --------------------- |
+| OpenAI            | `LlmClient::openai(api_key)` (+ optional `.base_url(...)`)                         | `"gpt-4o"`            |
+| Anthropic         | `LlmClient::anthropic(api_key)` (+ optional `.base_url(...)`, `.api_version(...)`) | `"claude-sonnet-4-5"` |
+| Google            | `LlmClient::google(api_key)` (+ optional `.base_url(...)`)                         | `"gemini-2.0-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)`                              | `"deepseek-chat"`     |
 
 ## Usage
 
 ### Generating Text
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
     let out = client
-        .generate("deepseek-chat", "Explain Rust ownership in 3 bullet points.")
+        .generate(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "Explain Rust ownership in 3 bullet points.",
+        ))
         .await?;
 
     println!("{}", out.output_text);
@@ -60,40 +68,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### Streaming Text (Simple)
+### Streaming Text
 
 ```rust
-use aquaregia::LlmClient;
+use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
 use futures_util::StreamExt;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
-    let mut stream = client.stream("deepseek-chat", "Write a short release note.").await?;
+    let mut stream = client
+        .stream(GenerateTextRequest::from_user_prompt(
+            "deepseek-chat",
+            "Write a short release note.",
+        ))
+        .await?;
 
-    while let Some(chunk) = stream.next().await {
-        print!("{}", chunk?);
+    while let Some(event) = stream.next().await {
+        match event? {
+            StreamEvent::TextDelta { text } => print!("{text}"),
+            StreamEvent::Done => break,
+            _ => {}
+        }
     }
     Ok(())
 }
 ```
 
-For full events (`TextDelta / Usage / ToolCallReady / Done`), use `client.stream_events(...)`.
+`StreamEvent` covers all variants: `TextDelta`, `Usage`, `ToolCallReady`, and `Done`.
 
 ### Error Handling
 
 ```rust
-use aquaregia::{AiErrorCode, LlmClient};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
 
-match client.generate("deepseek-chat", "hello").await {
+match client
+    .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
+    .await
+{
     Ok(out) => println!("{}", out.output_text),
     Err(err) => match err.code {
-        AiErrorCode::RateLimited => eprintln!("rate limited; retry later"),
-        AiErrorCode::AuthFailed => eprintln!("check API key"),
+        ErrorCode::RateLimited => eprintln!("rate limited; retry later"),
+        ErrorCode::AuthFailed  => eprintln!("check API key"),
+        ErrorCode::Cancelled   => eprintln!("request was cancelled"),
         _ => eprintln!("request failed: {}", err),
     },
 }
@@ -112,14 +132,13 @@ async fn get_weather(city: String) -> Result<Value, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
     let client = LlmClient::openai_compatible("https://api.deepseek.com")
-        .api_key(api_key)
+        .api_key(std::env::var("DEEPSEEK_API_KEY"))
         .build()?;
 
     let agent = Agent::builder(client, "deepseek-chat")
         .instructions("You can call tools before answering.")
-        .tool(get_weather)
+        .tools([get_weather])
         .max_steps(4)
         .build()?;
 
@@ -149,6 +168,77 @@ let agent = Agent::builder(client, "deepseek-chat")
     .build()?;
 ```
 
+### Cancellation
+
+Every request and agent run can be cancelled via a `CancellationToken`.
+
+```rust
+use aquaregia::{Agent, CancellationToken, GenerateTextRequest, LlmClient};
+use tokio::time::{Duration, sleep};
+
+// Cancel a single generate call
+let token = CancellationToken::new();
+let token_clone = token.clone();
+tokio::spawn(async move {
+    sleep(Duration::from_millis(200)).await;
+    token_clone.cancel();
+});
+
+let req = GenerateTextRequest::builder("deepseek-chat")
+    .user_prompt("Write a 10000-word essay.")
+    .cancellation_token(token)
+    .build()?;
+
+match client.generate(req).await {
+    Err(e) if e.code == ErrorCode::Cancelled => println!("cancelled as expected"),
+    other => println!("{other:?}"),
+}
+```
+
+Agents expose dedicated helpers:
+
+```rust
+let token = CancellationToken::new();
+token.cancel(); // or cancel later from another task
+
+// Returns Err with ErrorCode::Cancelled
+agent.run_cancellable("hello", token).await?;
+
+// Pass your own message list
+agent.run_messages_cancellable(messages, token).await?;
+```
+
+Cancellation is checked:
+
+- **Before every HTTP send** (via `tokio::select!` — zero overhead when not cancelled)
+- **After every SSE chunk** in streaming responses
+- **At the top of every agent step** in the tool loop
+
+### Telemetry
+
+Enable the `telemetry` feature to get `tracing` spans automatically:
+
+```toml
+aquaregia = { version = "*", features = ["telemetry"] }
+```
+
+Spans emitted:
+
+| Span                  | Fields              |
+| --------------------- | ------------------- |
+| `aquaregia::generate` | `model`, `provider` |
+| `aquaregia::stream`   | `model`             |
+| `agent_step`          | `step`              |
+| `tool_call`           | `tool.name`         |
+
+Wire your own subscriber (e.g. `tracing-subscriber`, `tracing-opentelemetry`) — Aquaregia does not configure one for you.
+
+```rust
+tracing_subscriber::fmt::init(); // or any other subscriber
+
+let out = client.generate(req).await?; // emits a span
+```
+
 ### OpenAI-Compatible Advanced Settings
 
 ```rust
@@ -158,6 +248,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
+    .chat_completions_path("/v1/chat/completions")
     .build()?;
 ```
 
@@ -166,7 +257,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 | Example                             | Command                                        | Focus                                      |
 | ----------------------------------- | ---------------------------------------------- | ------------------------------------------ |
 | Basic generation                    | `cargo run --example basic_generate`           | one-shot `generate`                        |
-| Basic stream                        | `cargo run --example basic_stream`             | `StreamEvent` handling                     |
+| Basic stream                        | `cargo run --example basic_stream`             | `stream` + `StreamEvent` handling          |
 | Minimal agent                       | `cargo run --example agent_minimal`            | `Agent::builder` + one tool                |
 | Tool loop guardrails                | `cargo run --example tools_max_steps`          | multi-step tools + `max_steps`             |
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |
@@ -183,6 +274,8 @@ cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic
 cargo check --features axum
+cargo test --features telemetry
+cargo clippy -- -D warnings
 ```
 
 For `ai-sdk/` workspace only:

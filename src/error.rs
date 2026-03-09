@@ -1,8 +1,7 @@
 use serde::{Deserialize, Serialize};
-use thiserror::Error;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AiErrorCode {
+pub enum ErrorCode {
     InvalidRequest,
     AuthFailed,
     RateLimited,
@@ -15,12 +14,13 @@ pub enum AiErrorCode {
     ToolExecutionFailed,
     MaxStepsExceeded,
     InvalidResponse,
+    Cancelled,
 }
 
-#[derive(Debug, Error, Clone, Serialize, Deserialize)]
+#[derive(Debug, thiserror::Error, Clone, Serialize, Deserialize)]
 #[error("{code:?}: {message}")]
-pub struct AiError {
-    pub code: AiErrorCode,
+pub struct Error {
+    pub code: ErrorCode,
     pub message: String,
     pub provider: Option<String>,
     pub status: Option<u16>,
@@ -29,8 +29,8 @@ pub struct AiError {
     pub raw_body: Option<String>,
 }
 
-impl AiError {
-    pub fn new(code: AiErrorCode, message: impl Into<String>) -> Self {
+impl Error {
+    pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
         let code_value = code;
         Self {
             code,
@@ -64,23 +64,23 @@ impl AiError {
     }
 }
 
-pub fn classify_http_error(status: u16) -> AiErrorCode {
+pub fn classify_http_error(status: u16) -> ErrorCode {
     match status {
-        401 | 403 => AiErrorCode::AuthFailed,
-        429 => AiErrorCode::RateLimited,
-        500..=599 => AiErrorCode::ProviderServerError,
-        400..=499 => AiErrorCode::InvalidRequest,
-        _ => AiErrorCode::Transport,
+        401 | 403 => ErrorCode::AuthFailed,
+        429 => ErrorCode::RateLimited,
+        500..=599 => ErrorCode::ProviderServerError,
+        400..=499 => ErrorCode::InvalidRequest,
+        _ => ErrorCode::Transport,
     }
 }
 
-pub fn is_retryable(code: AiErrorCode) -> bool {
+pub fn is_retryable(code: ErrorCode) -> bool {
     matches!(
         code,
-        AiErrorCode::RateLimited
-            | AiErrorCode::ProviderServerError
-            | AiErrorCode::Transport
-            | AiErrorCode::Timeout
+        ErrorCode::RateLimited
+            | ErrorCode::ProviderServerError
+            | ErrorCode::Transport
+            | ErrorCode::Timeout
     )
 }
 
@@ -89,23 +89,23 @@ pub(crate) fn provider_http_error(
     status: u16,
     body: Option<String>,
     request_id: Option<String>,
-) -> AiError {
+) -> Error {
     let code = classify_http_error(status);
     let message = body
         .clone()
         .unwrap_or_else(|| format!("provider returned HTTP status {}", status));
-    AiError::new(code, message)
+    Error::new(code, message)
         .with_provider(provider_id)
         .with_status(status)
         .with_raw_body(body)
         .with_request_id(request_id)
 }
 
-pub(crate) fn transport_error(provider_id: &str, err: reqwest::Error) -> AiError {
+pub(crate) fn transport_error(provider_id: &str, err: reqwest::Error) -> Error {
     let code = if err.is_timeout() {
-        AiErrorCode::Timeout
+        ErrorCode::Timeout
     } else {
-        AiErrorCode::Transport
+        ErrorCode::Transport
     };
-    AiError::new(code, err.to_string()).with_provider(provider_id)
+    Error::new(code, err.to_string()).with_provider(provider_id)
 }

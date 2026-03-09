@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic_model};
+use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic};
 use futures_util::StreamExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -29,7 +29,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(anthropic_model("claude-3-5-haiku-latest"))
+    let req = GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -37,7 +37,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .expect("request should build");
 
     let mut stream = client
-        .stream_request(req)
+        .stream(req)
         .await
         .expect("stream_text should succeed");
 

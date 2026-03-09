@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let mut stream = client
-        .stream_request(GenerateTextRequest::from_user_prompt(
+        .stream(GenerateTextRequest::from_user_prompt(
             model,
             "Write a short release note for a Rust SDK refactor (Chinese).",
         ))

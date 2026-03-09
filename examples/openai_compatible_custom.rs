@@ -23,7 +23,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .chat_completions_path("/v1/chat/completions")
         .build()?;
 
-    let response = client.generate_request(GenerateTextRequest::from_user_prompt(model, "Say hello in Chinese.")).await?;
+    let response = client
+        .generate(GenerateTextRequest::from_user_prompt(
+            model,
+            "Say hello in Chinese.",
+        ))
+        .await?;
 
     println!("{}", response.output_text);
     Ok(())
