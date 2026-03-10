@@ -121,22 +121,17 @@ impl OpenAiCompatibleAdapter {
     }
 
     fn endpoint_url(&self) -> Result<String, Error> {
-        let mut path = self.chat_completions_path.clone();
-        if !path.starts_with('/') {
-            path = format!("/{}", path);
-        }
-
-        let raw_url = format!("{}{}", self.base_url.trim_end_matches('/'), path);
-        if self.query_params.is_empty() {
-            return Ok(raw_url);
-        }
-
-        let mut url = url::Url::parse(&raw_url).map_err(|e| {
+        let path = canonicalize_path(&self.chat_completions_path);
+        let mut url = url::Url::parse(self.base_url.trim()).map_err(|e| {
             Error::new(
                 ErrorCode::InvalidRequest,
                 format!("invalid openai-compatible base url: {}", e),
             )
         })?;
+
+        let merged_path = merge_endpoint_path(url.path(), &path);
+        url.set_path(&merged_path);
+
         for (k, v) in &self.query_params {
             url.query_pairs_mut().append_pair(k, v);
         }
@@ -153,6 +148,46 @@ impl OpenAiCompatibleAdapter {
         }
         request
     }
+}
+
+fn canonicalize_path(path: &str) -> String {
+    if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    }
+}
+
+fn split_segments(path: &str) -> Vec<&str> {
+    path.split('/').filter(|segment| !segment.is_empty()).collect()
+}
+
+fn merge_endpoint_path(base_path: &str, endpoint_path: &str) -> String {
+    let base_segments = split_segments(base_path);
+    let endpoint_segments = split_segments(endpoint_path);
+
+    if endpoint_segments.is_empty() {
+        return if base_segments.is_empty() {
+            "/".to_string()
+        } else {
+            format!("/{}", base_segments.join("/"))
+        };
+    }
+
+    let mut overlap = 0usize;
+    let max_overlap = base_segments.len().min(endpoint_segments.len());
+    for size in 1..=max_overlap {
+        if base_segments[base_segments.len() - size..] == endpoint_segments[..size] {
+            overlap = size;
+        }
+    }
+
+    let mut merged_segments =
+        Vec::with_capacity(base_segments.len() + endpoint_segments.len() - overlap);
+    merged_segments.extend(base_segments.iter().copied());
+    merged_segments.extend(endpoint_segments[overlap..].iter().copied());
+
+    format!("/{}", merged_segments.join("/"))
 }
 
 #[async_trait]
@@ -702,5 +737,47 @@ fn map_openai_finish_reason(reason: &str) -> FinishReason {
         "tool_calls" => FinishReason::ToolCalls,
         "content_filter" => FinishReason::ContentFilter,
         _ => FinishReason::Unknown(reason.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use super::{OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings};
+
+    fn adapter_with_base(base_url: &str) -> OpenAiCompatibleAdapter {
+        OpenAiCompatibleAdapter::from_settings(
+            OpenAiCompatibleAdapterSettings::new(base_url),
+            Arc::new(reqwest::Client::new()),
+        )
+    }
+
+    #[test]
+    fn endpoint_url_uses_default_path_for_root_base_url() {
+        let adapter = adapter_with_base("https://api.example.com");
+        let url = adapter.endpoint_url().expect("build endpoint url");
+        assert_eq!(url, "https://api.example.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn endpoint_url_deduplicates_trailing_version_segment() {
+        let adapter = adapter_with_base("https://api.example.com/v1");
+        let url = adapter.endpoint_url().expect("build endpoint url");
+        assert_eq!(url, "https://api.example.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn endpoint_url_preserves_proxy_prefix_when_deduplicating() {
+        let adapter = adapter_with_base("https://api.example.com/proxy/v1");
+        let url = adapter.endpoint_url().expect("build endpoint url");
+        assert_eq!(url, "https://api.example.com/proxy/v1/chat/completions");
+    }
+
+    #[test]
+    fn endpoint_url_keeps_non_overlapping_paths() {
+        let adapter = adapter_with_base("https://api.example.com/proxy");
+        let url = adapter.endpoint_url().expect("build endpoint url");
+        assert_eq!(url, "https://api.example.com/proxy/v1/chat/completions");
     }
 }
