@@ -22,9 +22,14 @@ use crate::types::{
     validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
 
+/// Binds a provider marker type to its adapter settings and adapter implementation.
+///
+/// This trait is mainly an internal extension seam used by [`ClientBuilder`].
 pub trait ProviderBinding: ProviderMarker {
+    /// Provider-specific client configuration payload.
     type Settings;
 
+    /// Converts provider settings into a runtime adapter.
     fn into_adapter(
         settings: Self::Settings,
         http: Arc<reqwest::Client>,
@@ -75,26 +80,35 @@ impl ProviderBinding for OpenAiCompatible {
     }
 }
 
+/// Entry point for creating provider-bound clients.
+///
+/// `LlmClient` only provides constructors; call `.build()` on the returned
+/// [`ClientBuilder`] to obtain a reusable [`BoundClient`].
 pub struct LlmClient;
 
 impl LlmClient {
+    /// Creates an OpenAI client builder.
     pub fn openai(api_key: impl Into<String>) -> ClientBuilder<OpenAi> {
         ClientBuilder::new(OpenAiAdapterSettings::new(api_key))
     }
 
+    /// Creates an Anthropic client builder.
     pub fn anthropic(api_key: impl Into<String>) -> ClientBuilder<Anthropic> {
         ClientBuilder::new(AnthropicAdapterSettings::new(api_key))
     }
 
+    /// Creates a Google client builder.
     pub fn google(api_key: impl Into<String>) -> ClientBuilder<Google> {
         ClientBuilder::new(GoogleAdapterSettings::new(api_key))
     }
 
+    /// Creates an OpenAI-compatible client builder.
     pub fn openai_compatible(base_url: impl Into<String>) -> ClientBuilder<OpenAiCompatible> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
 }
 
+/// Configures HTTP/runtime behavior before building a [`BoundClient`].
 pub struct ClientBuilder<P: ProviderBinding> {
     timeout: Duration,
     max_retries: u8,
@@ -114,26 +128,31 @@ impl<P: ProviderBinding> ClientBuilder<P> {
         }
     }
 
+    /// Sets request timeout for all requests sent by this client.
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
+    /// Sets the maximum number of retries for retryable errors.
     pub fn max_retries(mut self, retries: u8) -> Self {
         self.max_retries = retries;
         self
     }
 
+    /// Sets the default max step count used by agent tool loops.
     pub fn default_max_steps(mut self, max_steps: u8) -> Self {
         self.default_max_steps = max_steps;
         self
     }
 
+    /// Overrides the default SDK `User-Agent` header value.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
         self.user_agent = ua.into();
         self
     }
 
+    /// Builds a provider-bound client with validated settings.
     pub fn build(self) -> Result<BoundClient<P>, Error> {
         validate_max_steps(self.default_max_steps)?;
         let http = Arc::new(
@@ -154,6 +173,7 @@ impl<P: ProviderBinding> ClientBuilder<P> {
 }
 
 impl ClientBuilder<OpenAi> {
+    /// Overrides the OpenAI API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
         self
@@ -161,11 +181,13 @@ impl ClientBuilder<OpenAi> {
 }
 
 impl ClientBuilder<Anthropic> {
+    /// Overrides the Anthropic API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
         self
     }
 
+    /// Overrides the Anthropic API version header.
     pub fn api_version(mut self, api_version: impl Into<String>) -> Self {
         self.settings.api_version = api_version.into();
         self
@@ -173,6 +195,7 @@ impl ClientBuilder<Anthropic> {
 }
 
 impl ClientBuilder<Google> {
+    /// Overrides the Google Generative Language API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
         self
@@ -180,32 +203,38 @@ impl ClientBuilder<Google> {
 }
 
 impl ClientBuilder<OpenAiCompatible> {
+    /// Sets a bearer token for OpenAI-compatible requests.
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.settings.set_api_key(api_key);
         self
     }
 
+    /// Sends requests without an `Authorization` bearer token.
     pub fn no_api_key(mut self) -> Self {
         self.settings.clear_api_key();
         self
     }
 
+    /// Adds or replaces a custom HTTP header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.settings.insert_header(name, value);
         self
     }
 
+    /// Adds or replaces a query parameter on the chat completions endpoint.
     pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.settings.insert_query_param(name, value);
         self
     }
 
+    /// Overrides the chat completions path (default: `/v1/chat/completions`).
     pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
         self.settings.set_chat_completions_path(path);
         self
     }
 }
 
+/// Reusable provider-bound client used for `generate`, `stream`, and agent loops.
 pub struct BoundClient<P: ProviderMarker> {
     max_retries: u8,
     default_max_steps: u8,
@@ -221,6 +250,9 @@ impl<P: ProviderMarker> BoundClient<P> {
             fields(model = %req.model.model(), provider = %P::KIND.as_slug())
         )
     )]
+    /// Runs a non-streaming generation request.
+    ///
+    /// The request is validated locally and retried on retryable failures.
     pub async fn generate(
         &self,
         req: GenerateTextRequest<P>,
@@ -239,6 +271,9 @@ impl<P: ProviderMarker> BoundClient<P> {
             fields(model = %req.model.model())
         )
     )]
+    /// Runs a streaming generation request.
+    ///
+    /// The request is validated locally and retried on retryable failures.
     pub async fn stream(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
@@ -356,6 +391,8 @@ impl<P: ProviderMarker> BoundClient<P> {
                 let step_state = AgentStep {
                     step,
                     output_text: response.output_text.clone(),
+                    reasoning_text: response.reasoning_text.clone(),
+                    reasoning_parts: response.reasoning_parts.clone(),
                     finish_reason: response.finish_reason.clone(),
                     usage: response.usage.clone(),
                     tool_calls: Vec::new(),
@@ -398,6 +435,8 @@ impl<P: ProviderMarker> BoundClient<P> {
             let step_state = AgentStep {
                 step,
                 output_text: response.output_text.clone(),
+                reasoning_text: response.reasoning_text.clone(),
+                reasoning_parts: response.reasoning_parts.clone(),
                 finish_reason: response.finish_reason.clone(),
                 usage: response.usage.clone(),
                 tool_calls: response.tool_calls.clone(),
@@ -474,6 +513,9 @@ fn backoff_delay(attempt: u8) -> Duration {
 
 fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
     let mut parts = Vec::new();
+    for reasoning in &response.reasoning_parts {
+        parts.push(ContentPart::Reasoning(reasoning.clone()));
+    }
     if !response.output_text.is_empty() {
         parts.push(ContentPart::Text(response.output_text.clone()));
     }

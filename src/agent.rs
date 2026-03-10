@@ -13,18 +13,31 @@ use crate::types::{
 
 pub(crate) type PrepareCallHook<P> = Arc<dyn Fn(&mut AgentRunPlan<P>) + Send + Sync>;
 
+/// Mutable plan for one agent run before execution starts.
+///
+/// This is passed to `prepare_call` so callers can adjust request-level settings
+/// (model, messages, tools, sampling, limits) per invocation.
 #[derive(Debug, Clone)]
 pub struct AgentRunPlan<P: ProviderMarker> {
+    /// Model selected for this run.
     pub model: ModelRef<P>,
+    /// Initial message list to start the loop with.
     pub messages: Vec<Message>,
+    /// Tools available to the model.
     pub tools: Vec<Tool>,
+    /// Step cap for this run. `None` falls back to client default.
     pub max_steps: Option<u8>,
+    /// Sampling temperature in range `0.0..=2.0`.
     pub temperature: Option<f32>,
+    /// Nucleus sampling value in range `0.0..=1.0`.
     pub top_p: Option<f32>,
+    /// Maximum output token budget per model call.
     pub max_output_tokens: Option<u32>,
+    /// Stop sequences forwarded to provider requests.
     pub stop_sequences: Vec<String>,
 }
 
+/// Multi-step tool-using agent bound to one provider and one default model.
 pub struct Agent<P: ProviderMarker> {
     client: Arc<BoundClient<P>>,
     model: ModelRef<P>,
@@ -48,6 +61,7 @@ pub struct Agent<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> Agent<P> {
+    /// Starts building an [`Agent`] from a provider-bound client and model.
     pub fn builder(
         client: impl Into<Arc<BoundClient<P>>>,
         model: impl IntoModelRef<P>,
@@ -55,10 +69,14 @@ impl<P: ProviderMarker> Agent<P> {
         AgentBuilder::new(client.into(), model.into_model_ref())
     }
 
+    /// Returns the fully qualified model id (`<provider>/<model>`).
     pub fn model_id(&self) -> String {
         self.model.id()
     }
 
+    /// Runs the agent with a single user prompt.
+    ///
+    /// If `instructions` were configured, they are inserted as an initial system message.
     pub async fn run(
         &self,
         prompt: impl Into<String>,
@@ -71,6 +89,7 @@ impl<P: ProviderMarker> Agent<P> {
         self.run_messages_inner(messages, None).await
     }
 
+    /// Runs the agent with an explicit message list.
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
@@ -78,6 +97,7 @@ impl<P: ProviderMarker> Agent<P> {
         self.run_messages_inner(messages, None).await
     }
 
+    /// Runs the agent with a prompt and cancellation support.
     pub async fn run_cancellable(
         &self,
         prompt: impl Into<String>,
@@ -91,6 +111,7 @@ impl<P: ProviderMarker> Agent<P> {
         self.run_messages_cancellable(messages, token).await
     }
 
+    /// Runs the agent with explicit messages and cancellation support.
     pub async fn run_messages_cancellable(
         &self,
         messages: Vec<Message>,
@@ -179,6 +200,7 @@ impl<P: ProviderMarker> Agent<P> {
     }
 }
 
+/// Builder for configuring an [`Agent`].
 pub struct AgentBuilder<P: ProviderMarker> {
     client: Arc<BoundClient<P>>,
     model: ModelRef<P>,
@@ -226,11 +248,13 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         }
     }
 
+    /// Sets default system instructions prepended for prompt-based runs.
     pub fn instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
         self
     }
 
+    /// Registers tools available to the model.
     pub fn tools<I, T>(mut self, tools: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -241,26 +265,31 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Sets the max number of agent loop steps.
     pub fn max_steps(mut self, max_steps: u8) -> Self {
         self.max_steps = Some(max_steps);
         self
     }
 
+    /// Sets default sampling temperature in range `0.0..=2.0`.
     pub fn temperature(mut self, temperature: f32) -> Self {
         self.temperature = Some(temperature);
         self
     }
 
+    /// Sets default nucleus sampling value in range `0.0..=1.0`.
     pub fn top_p(mut self, top_p: f32) -> Self {
         self.top_p = Some(top_p);
         self
     }
 
+    /// Sets default maximum output token budget per step.
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
         self
     }
 
+    /// Appends default stop sequences for each model call.
     pub fn stop_sequences<S: Into<String>>(
         mut self,
         stop_sequences: impl IntoIterator<Item = S>,
@@ -270,6 +299,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback to mutate [`AgentRunPlan`] before execution starts.
     pub fn prepare_call<F>(mut self, callback: F) -> Self
     where
         F: Fn(&mut AgentRunPlan<P>) + Send + Sync + 'static,
@@ -278,6 +308,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback to mutate per-step inputs right before each model call.
     pub fn prepare_step<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
@@ -286,6 +317,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired after each completed step.
     pub fn on_step_finish<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentStep) + Send + Sync + 'static,
@@ -294,6 +326,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired once before step 1 starts.
     pub fn on_start<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentStart) + Send + Sync + 'static,
@@ -302,6 +335,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired at the beginning of each step.
     pub fn on_step_start<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentStepStart) + Send + Sync + 'static,
@@ -310,6 +344,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired right before each tool execution.
     pub fn on_tool_call_start<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentToolCallStart) + Send + Sync + 'static,
@@ -318,6 +353,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired right after each tool execution.
     pub fn on_tool_call_finish<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentToolCallFinish) + Send + Sync + 'static,
@@ -326,6 +362,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers a callback fired once when the run finishes successfully.
     pub fn on_finish<F>(mut self, callback: F) -> Self
     where
         F: Fn(&AgentFinish) + Send + Sync + 'static,
@@ -334,6 +371,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Registers an early-stop predicate evaluated after each completed step.
     pub fn stop_when<F>(mut self, predicate: F) -> Self
     where
         F: Fn(&AgentStep) -> bool + Send + Sync + 'static,
@@ -342,11 +380,13 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
+    /// Controls how tool execution errors are handled inside the loop.
     pub fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
         self
     }
 
+    /// Validates configuration and builds the [`Agent`].
     pub fn build(self) -> Result<Agent<P>, crate::error::Error> {
         validate_model_ref(&self.model)?;
         if let Some(max_steps) = self.max_steps {

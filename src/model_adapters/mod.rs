@@ -6,21 +6,32 @@ use reqwest::Response;
 use crate::error::Error;
 use crate::types::{GenerateTextRequest, GenerateTextResponse, ProviderMarker, TextStream};
 
+/// Anthropic provider adapter implementation.
 pub mod anthropic;
+/// Google provider adapter implementation.
 pub mod google;
+/// OpenAI provider adapter implementation.
 pub mod openai;
+/// OpenAI-compatible provider adapter implementation.
 pub mod openai_compatible;
 
+/// Provider adapter contract used by [`crate::BoundClient`].
+///
+/// End users typically do not implement this trait directly unless integrating
+/// a custom in-tree provider adapter.
 #[async_trait]
 pub trait ModelAdapter<P: ProviderMarker>: Send + Sync {
+    /// Executes a non-streaming text generation call.
     async fn generate_text(
         &self,
         req: &GenerateTextRequest<P>,
     ) -> Result<GenerateTextResponse, Error>;
 
+    /// Executes a streaming text generation call.
     async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, Error>;
 }
 
+/// Shared adapter object used internally by provider-bound clients.
 pub type SharedAdapter<P> = Arc<dyn ModelAdapter<P>>;
 
 pub(crate) async fn check_response_status(

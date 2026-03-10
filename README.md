@@ -4,7 +4,7 @@
 
 Aquaregia is a provider-agnostic Rust toolkit for building AI applications and tool-using agents.
 
-It provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services, with first-class support for streaming output and multi-step tool execution.
+It provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services, with first-class support for reasoning-aware output, streaming events, and multi-step tool execution.
 
 Read the [API docs](https://docs.rs/aquaregia), browse [examples](./examples/README.md), or switch to [中文文档](./README_CN.md).
 
@@ -89,7 +89,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(event) = stream.next().await {
         match event? {
+            StreamEvent::ReasoningStarted { block_id, .. } => {
+                eprintln!("\n[reasoning:{block_id}]");
+            }
+            StreamEvent::ReasoningDelta { text, .. } => {
+                eprint!("{text}");
+            }
+            StreamEvent::ReasoningDone { .. } => {
+                eprintln!();
+            }
             StreamEvent::TextDelta { text } => print!("{text}"),
+            StreamEvent::Usage { usage } => {
+                eprintln!(
+                    "\nusage: in={} out={} reasoning={} total={}",
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_tokens,
+                    usage.total_tokens
+                );
+            }
             StreamEvent::Done => break,
             _ => {}
         }
@@ -98,7 +116,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`StreamEvent` covers all variants: `TextDelta`, `Usage`, `ToolCallReady`, and `Done`.
+`StreamEvent` covers all variants:
+`ReasoningStarted`, `ReasoningDelta`, `ReasoningDone`, `TextDelta`, `ToolCallReady`, `Usage`, and `Done`.
+
+### Reasoning (AI SDK-style)
+
+Reasoning is exposed in both non-streaming and streaming APIs.
+
+```rust
+let out = client
+    .generate(GenerateTextRequest::from_user_prompt(
+        "deepseek-chat",
+        "Solve this step by step.",
+    ))
+    .await?;
+
+println!("answer: {}", out.output_text);
+println!("reasoning text: {}", out.reasoning_text);
+println!("reasoning tokens: {}", out.usage.reasoning_tokens);
+
+for part in &out.reasoning_parts {
+    println!("reasoning block: {}", part.text);
+}
+```
+
+Unified output fields:
+
+- `GenerateTextResponse.reasoning_text`: flattened reasoning text (convenience field).
+- `GenerateTextResponse.reasoning_parts`: structured reasoning blocks with optional provider metadata.
+- `Usage.reasoning_tokens`: provider-reported reasoning tokens when available.
+- `Message.parts`: assistant messages can include `ContentPart::Reasoning(...)` for transcript replay.
+
+Provider mapping:
+
+| Provider | Reasoning Content | Reasoning Tokens |
+| --- | --- | --- |
+| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`) in sync + stream | `completion_tokens_details.reasoning_tokens` |
+| Anthropic | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | currently not reported by adapter (defaults to `0`) |
+| Google | parts with `thought: true`, optional `thoughtSignature` metadata | `thoughtsTokenCount` |
 
 ### Error Handling
 

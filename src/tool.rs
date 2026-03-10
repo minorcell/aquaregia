@@ -13,21 +13,30 @@ use serde_json::{Value, json};
 
 use crate::error::{Error, ErrorCode};
 
+/// Serializable description of a callable tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
+    /// Unique tool name (validated by [`ToolRegistry`]).
     pub name: String,
+    /// Human-readable description shown to the model.
     pub description: String,
+    /// JSON Schema describing the tool input payload.
     pub input_schema: Value,
 }
 
+/// Async tool execution contract.
 #[async_trait]
 pub trait ToolExecutor: Send + Sync {
+    /// Executes the tool with JSON arguments.
     async fn execute(&self, args: Value) -> Result<Value, ToolExecError>;
 }
 
+/// Runtime tool value (descriptor + executor).
 #[derive(Clone)]
 pub struct Tool {
+    /// Public descriptor passed to providers.
     pub descriptor: ToolDescriptor,
+    /// Async executor called by the agent runtime.
     pub executor: Arc<dyn ToolExecutor>,
 }
 
@@ -41,6 +50,7 @@ impl std::fmt::Debug for Tool {
 }
 
 impl Tool {
+    /// Creates a tool from explicit parts.
     pub fn from_parts(descriptor: ToolDescriptor, executor: Arc<dyn ToolExecutor>) -> Self {
         Self {
             descriptor,
@@ -49,19 +59,25 @@ impl Tool {
     }
 }
 
+/// Tool execution failure categories.
 #[derive(Debug, thiserror::Error)]
 pub enum ToolExecError {
+    /// Execution failed with an application-level message.
     #[error("execution failed: {0}")]
     Execution(String),
+    /// Execution timed out.
     #[error("timeout")]
     Timeout,
 }
 
+/// Starts building a tool descriptor and executor.
 pub fn tool(name: impl Into<String>) -> ToolBuilder {
     ToolBuilder::new(name)
 }
 
+/// Converts values into a [`Tool`], used by builder APIs.
 pub trait IntoTool {
+    /// Performs the conversion.
     fn into_tool(self) -> Tool;
 }
 
@@ -80,11 +96,13 @@ where
     }
 }
 
+/// Builder for creating typed or raw JSON tools.
 pub struct ToolBuilder {
     descriptor: ToolDescriptor,
 }
 
 impl ToolBuilder {
+    /// Creates a new tool builder with permissive default schema.
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             descriptor: ToolDescriptor {
@@ -98,16 +116,22 @@ impl ToolBuilder {
         }
     }
 
+    /// Sets the tool description.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.descriptor.description = description.into();
         self
     }
 
+    /// Overrides input schema directly.
     pub fn raw_schema(mut self, input_schema: Value) -> Self {
         self.descriptor.input_schema = input_schema;
         self
     }
 
+    /// Builds a typed tool.
+    ///
+    /// `Args` is converted to JSON Schema via `schemars` and incoming JSON is
+    /// deserialized before calling the provided async function.
     pub fn execute<Args, F, Fut>(mut self, executor: F) -> Tool
     where
         Args: DeserializeOwned + JsonSchema + Send + Sync + 'static,
@@ -126,6 +150,7 @@ impl ToolBuilder {
         )
     }
 
+    /// Builds a raw JSON tool without typed argument deserialization.
     pub fn execute_raw<F, Fut>(self, executor: F) -> Tool
     where
         F: Fn(Value) -> Fut + Send + Sync + 'static,
@@ -175,11 +200,13 @@ pub(crate) struct RegisteredTool {
     pub validator: Validator,
 }
 
+/// Validated registry keyed by tool name.
 pub struct ToolRegistry {
     entries: HashMap<String, RegisteredTool>,
 }
 
 impl ToolRegistry {
+    /// Builds a registry and validates names and JSON Schemas.
     pub fn from_tools(tools: Vec<Tool>) -> Result<Self, Error> {
         let mut entries = HashMap::new();
         let name_re = Regex::new(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -213,10 +240,12 @@ impl ToolRegistry {
         Ok(Self { entries })
     }
 
+    /// Returns a registered tool by name.
     pub fn get(&self, name: &str) -> Option<&Tool> {
         self.entries.get(name).map(|entry| &entry.tool)
     }
 
+    /// Returns all registered tool names.
     pub fn names(&self) -> Vec<&str> {
         self.entries.keys().map(String::as_str).collect()
     }

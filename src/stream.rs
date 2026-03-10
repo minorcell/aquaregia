@@ -1,9 +1,19 @@
+/// Parsed SSE frame.
+///
+/// `event` is optional (`data:`-only frames are valid in SSE) and `data` joins
+/// all `data:` lines using `\n`.
 #[derive(Debug, Clone)]
 pub struct SseFrame {
+    /// Optional SSE event name.
     pub event: Option<String>,
+    /// Frame payload from one or more `data:` lines.
     pub data: String,
 }
 
+/// Parses one or more SSE frames from a complete string payload.
+///
+/// This helper normalizes `\r\n` to `\n` and ensures a trailing frame separator
+/// so callers can pass chunked test fixtures conveniently.
 pub fn parse_sse_lines(input: &str) -> Vec<SseFrame> {
     let mut buffer = input.replace("\r\n", "\n");
     if !buffer.ends_with("\n\n") {
