@@ -124,6 +124,7 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
             let mut buffer = String::new();
             let mut tool_partial: BTreeMap<usize, PartialToolCall> = BTreeMap::new();
             let mut done = false;
+            let mut saw_payload_frame = false;
             let mut reasoning_active = false;
             let reasoning_block_id = "reasoning-0".to_string();
 
@@ -138,6 +139,7 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
 
                 let frames = drain_sse_frames(&mut buffer);
                 for frame in frames {
+                    saw_payload_frame = true;
                     let data = frame.data.trim();
                     if data == "[DONE]" {
                         if reasoning_active {
@@ -279,10 +281,16 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
             }
 
             if !done {
-                Err(Error::new(
-                    ErrorCode::StreamProtocol,
-                    "openai stream closed without [DONE]",
-                ))?;
+                if saw_payload_frame {
+                    // Some OpenAI-compatible servers close the stream after final chunk
+                    // without emitting a terminal `[DONE]` marker.
+                    yield StreamEvent::Done;
+                } else {
+                    Err(Error::new(
+                        ErrorCode::StreamProtocol,
+                        "openai stream closed without payload",
+                    ))?;
+                }
             }
         };
 
