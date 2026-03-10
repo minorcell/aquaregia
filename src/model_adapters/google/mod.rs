@@ -16,15 +16,21 @@ use crate::types::{
     MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
+/// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "google";
+/// Default Google Generative Language API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
 
+/// Runtime settings for the Google adapter.
 pub struct GoogleAdapterSettings {
+    /// Base URL for API requests.
     pub base_url: String,
+    /// API key sent via `x-goog-api-key`.
     pub api_key: String,
 }
 
 impl GoogleAdapterSettings {
+    /// Creates settings with default base URL.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -33,6 +39,7 @@ impl GoogleAdapterSettings {
     }
 }
 
+/// Google adapter implementation.
 pub struct GoogleAdapter {
     base_url: String,
     api_key: String,
@@ -40,6 +47,7 @@ pub struct GoogleAdapter {
 }
 
 impl GoogleAdapter {
+    /// Creates an adapter from validated settings and shared HTTP client.
     pub fn from_settings(settings: GoogleAdapterSettings, http: Arc<reqwest::Client>) -> Self {
         Self {
             base_url: settings.base_url,
@@ -355,9 +363,14 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                         ContentPart::Reasoning(reasoning) => {
                             if !reasoning.text.is_empty() {
                                 let mut reasoning_part = Map::new();
-                                reasoning_part.insert("text".to_string(), Value::String(reasoning.text.clone()));
+                                reasoning_part.insert(
+                                    "text".to_string(),
+                                    Value::String(reasoning.text.clone()),
+                                );
                                 reasoning_part.insert("thought".to_string(), Value::Bool(true));
-                                if let Some(signature) = thought_signature_from_provider_metadata(reasoning.provider_metadata.as_ref()) {
+                                if let Some(signature) = thought_signature_from_provider_metadata(
+                                    reasoning.provider_metadata.as_ref(),
+                                ) {
                                     reasoning_part.insert(
                                         "thoughtSignature".to_string(),
                                         Value::String(signature),

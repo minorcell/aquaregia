@@ -1,12 +1,28 @@
+//! Provider-agnostic Rust toolkit for AI text generation, streaming, and tool-using agents.
+//!
+//! This crate exposes:
+//! - [`LlmClient`] for provider-bound generate/stream calls.
+//! - [`Agent`] for multi-step tool loops.
+//! - [`tool()`], [`macro@tool`], and related types for defining executable tools.
+//! - Shared request/response and stream types in [`types`].
+
+/// Agent runtime and builder APIs.
 pub mod agent;
+/// Provider-bound client types and retry behavior.
 pub mod client;
+/// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
+/// Provider adapter traits and concrete provider implementations.
 pub mod model_adapters;
+/// SSE frame parsing helpers used by streaming adapters.
 pub mod stream;
+/// Tool definition, execution, and registry types.
 pub mod tool;
+/// Shared request/response and event types.
 pub mod types;
 
 #[cfg(feature = "axum")]
+/// Axum SSE bridge for converting [`TextStream`] into SSE responses.
 pub mod axum_sse;
 
 #[doc(hidden)]
@@ -68,18 +84,22 @@ pub use types::{
     Usage,
 };
 
+/// Creates a typed OpenAI model reference (`openai/<model>`).
 pub fn openai(model: impl Into<String>) -> ModelRef<OpenAi> {
     ModelRef::<OpenAi>::new(model)
 }
 
+/// Creates a typed Anthropic model reference (`anthropic/<model>`).
 pub fn anthropic(model: impl Into<String>) -> ModelRef<Anthropic> {
     ModelRef::<Anthropic>::new(model)
 }
 
+/// Creates a typed Google model reference (`google/<model>`).
 pub fn google(model: impl Into<String>) -> ModelRef<Google> {
     ModelRef::<Google>::new(model)
 }
 
+/// Creates a typed OpenAI-compatible model reference (`openai-compatible/<model>`).
 pub fn openai_compatible(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
     ModelRef::<OpenAiCompatible>::new(model)
 }

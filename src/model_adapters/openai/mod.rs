@@ -16,15 +16,21 @@ use crate::types::{
     OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
+/// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "openai";
+/// Default OpenAI API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 
+/// Runtime settings for the OpenAI adapter.
 pub struct OpenAiAdapterSettings {
+    /// Base URL for API requests.
     pub base_url: String,
+    /// API key sent as bearer token.
     pub api_key: String,
 }
 
 impl OpenAiAdapterSettings {
+    /// Creates settings with default base URL.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -33,6 +39,7 @@ impl OpenAiAdapterSettings {
     }
 }
 
+/// OpenAI adapter implementation.
 pub struct OpenAiAdapter {
     base_url: String,
     api_key: String,
@@ -40,6 +47,7 @@ pub struct OpenAiAdapter {
 }
 
 impl OpenAiAdapter {
+    /// Creates an adapter from validated settings and shared HTTP client.
     pub fn from_settings(settings: OpenAiAdapterSettings, http: Arc<reqwest::Client>) -> Self {
         Self {
             base_url: settings.base_url,
@@ -403,7 +411,10 @@ fn to_openai_message(message: &Message) -> Value {
                 .collect();
             let mut payload = Map::new();
             payload.insert("role".to_string(), Value::String("assistant".to_string()));
-            payload.insert("content".to_string(), text_content_from_parts(&message.parts));
+            payload.insert(
+                "content".to_string(),
+                text_content_from_parts(&message.parts),
+            );
             if !reasoning_content.is_empty() {
                 payload.insert(
                     "reasoning_content".to_string(),

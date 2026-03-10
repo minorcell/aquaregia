@@ -4,7 +4,7 @@
 
 Aquaregia 是一个 provider-agnostic 的 Rust AI 工具包，用于构建 AI 应用与可调用工具的 Agent。
 
-它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），同时支持流式输出和多步工具执行循环。
+它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），并内置 reasoning 感知输出、流式事件和多步工具执行循环能力。
 
 查看 [API 文档](https://docs.rs/aquaregia)、[示例指南](./examples/README.md)，或切换到 [English README](./README.md)。
 
@@ -89,7 +89,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(event) = stream.next().await {
         match event? {
+            StreamEvent::ReasoningStarted { block_id, .. } => {
+                eprintln!("\n[reasoning:{block_id}]");
+            }
+            StreamEvent::ReasoningDelta { text, .. } => {
+                eprint!("{text}");
+            }
+            StreamEvent::ReasoningDone { .. } => {
+                eprintln!();
+            }
             StreamEvent::TextDelta { text } => print!("{text}"),
+            StreamEvent::Usage { usage } => {
+                eprintln!(
+                    "\nusage: in={} out={} reasoning={} total={}",
+                    usage.input_tokens,
+                    usage.output_tokens,
+                    usage.reasoning_tokens,
+                    usage.total_tokens
+                );
+            }
             StreamEvent::Done => break,
             _ => {}
         }
@@ -98,7 +116,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-如果你需要完整事件（`TextDelta / Usage / ToolCallReady / Done`），`StreamEvent` 枚举已包含所有变体。
+如果你需要完整事件，`StreamEvent` 已覆盖：
+`ReasoningStarted / ReasoningDelta / ReasoningDone / TextDelta / ToolCallReady / Usage / Done`。
+
+### Reasoning（对齐 AI SDK 风格）
+
+reasoning 在非流式与流式 API 中都可用。
+
+```rust
+let out = client
+    .generate(GenerateTextRequest::from_user_prompt(
+        "deepseek-chat",
+        "请分步骤推理后给出答案。",
+    ))
+    .await?;
+
+println!("answer: {}", out.output_text);
+println!("reasoning text: {}", out.reasoning_text);
+println!("reasoning tokens: {}", out.usage.reasoning_tokens);
+
+for part in &out.reasoning_parts {
+    println!("reasoning block: {}", part.text);
+}
+```
+
+统一字段说明：
+
+- `GenerateTextResponse.reasoning_text`：扁平化 reasoning 文本（便捷字段）。
+- `GenerateTextResponse.reasoning_parts`：结构化 reasoning 分块，包含可选 provider 元数据。
+- `Usage.reasoning_tokens`：provider 若返回推理 token，将映射到该字段。
+- `Message.parts`：assistant 消息可包含 `ContentPart::Reasoning(...)`，可用于 transcript 回放。
+
+Provider 映射：
+
+| Provider | Reasoning 内容来源 | Reasoning Token 来源 |
+| --- | --- | --- |
+| OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`） | `completion_tokens_details.reasoning_tokens` |
+| Anthropic | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 当前适配器未单独上报（默认为 `0`） |
+| Google | `thought: true` 的 part，支持 `thoughtSignature` 元数据 | `thoughtsTokenCount` |
 
 ### 错误处理
 

@@ -9,15 +9,21 @@ use serde_json::Value;
 use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
 
+/// Supported provider families.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProviderKind {
+    /// OpenAI provider family.
     OpenAi,
+    /// Anthropic provider family.
     Anthropic,
+    /// Google provider family.
     Google,
+    /// OpenAI-compatible provider family.
     OpenAiCompatible,
 }
 
 impl ProviderKind {
+    /// Parses a provider slug (case-insensitive).
     pub fn from_slug(value: &str) -> Option<Self> {
         match value.to_ascii_lowercase().as_str() {
             "openai" => Some(Self::OpenAi),
@@ -28,6 +34,7 @@ impl ProviderKind {
         }
     }
 
+    /// Returns the canonical provider slug.
     pub fn as_slug(&self) -> &'static str {
         match self {
             Self::OpenAi => "openai",
@@ -38,10 +45,13 @@ impl ProviderKind {
     }
 }
 
+/// Type marker for provider-specific request/response typing.
 pub trait ProviderMarker: Clone + Copy + Send + Sync + 'static {
+    /// Provider family represented by this marker type.
     const KIND: ProviderKind;
 }
 
+/// OpenAI provider marker.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct OpenAi;
 
@@ -49,6 +59,7 @@ impl ProviderMarker for OpenAi {
     const KIND: ProviderKind = ProviderKind::OpenAi;
 }
 
+/// Anthropic provider marker.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Anthropic;
 
@@ -56,6 +67,7 @@ impl ProviderMarker for Anthropic {
     const KIND: ProviderKind = ProviderKind::Anthropic;
 }
 
+/// Google provider marker.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct Google;
 
@@ -63,6 +75,7 @@ impl ProviderMarker for Google {
     const KIND: ProviderKind = ProviderKind::Google;
 }
 
+/// OpenAI-compatible provider marker.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct OpenAiCompatible;
 
@@ -70,6 +83,7 @@ impl ProviderMarker for OpenAiCompatible {
     const KIND: ProviderKind = ProviderKind::OpenAiCompatible;
 }
 
+/// Strongly-typed model reference carrying provider information at compile time.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ModelRef<P: ProviderMarker> {
     model: String,
@@ -78,6 +92,7 @@ pub struct ModelRef<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> ModelRef<P> {
+    /// Creates a model reference from a provider-local model id.
     pub fn new(model: impl Into<String>) -> Self {
         let model = model.into();
         Self {
@@ -86,18 +101,22 @@ impl<P: ProviderMarker> ModelRef<P> {
         }
     }
 
+    /// Returns a fully-qualified model id (`<provider>/<model>`).
     pub fn id(&self) -> String {
         format!("{}/{}", P::KIND.as_slug(), self.model)
     }
 
+    /// Returns the provider family marker for this model.
     pub fn provider_kind(&self) -> ProviderKind {
         P::KIND
     }
 
+    /// Returns the provider slug for this model.
     pub fn provider_slug(&self) -> &'static str {
         P::KIND.as_slug()
     }
 
+    /// Returns the provider-local model id.
     pub fn model(&self) -> &str {
         &self.model
     }
@@ -109,7 +128,9 @@ impl<P: ProviderMarker> std::fmt::Display for ModelRef<P> {
     }
 }
 
+/// Converts values into a typed [`ModelRef`].
 pub trait IntoModelRef<P: ProviderMarker> {
+    /// Performs the conversion.
     fn into_model_ref(self) -> ModelRef<P>;
 }
 
@@ -131,14 +152,20 @@ impl<P: ProviderMarker> IntoModelRef<P> for String {
     }
 }
 
+/// Chat message role used across providers.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
+    /// System/instruction message.
     System,
+    /// User message.
     User,
+    /// Assistant/model message.
     Assistant,
+    /// Tool result message.
     Tool,
 }
 
+/// Provider-agnostic chat message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     pub(crate) role: MessageRole,
@@ -161,6 +188,7 @@ impl Message {
         })
     }
 
+    /// Creates a system message containing one text part.
     pub fn system_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::System,
@@ -169,6 +197,7 @@ impl Message {
         }
     }
 
+    /// Creates a user message containing one text part.
     pub fn user_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
@@ -177,6 +206,7 @@ impl Message {
         }
     }
 
+    /// Creates an assistant message containing one text part.
     pub fn assistant_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Assistant,
@@ -185,6 +215,7 @@ impl Message {
         }
     }
 
+    /// Creates a tool-role message containing one tool result part.
     pub fn tool_result(result: ToolResult) -> Self {
         Self {
             role: MessageRole::Tool,
@@ -193,19 +224,23 @@ impl Message {
         }
     }
 
+    /// Attaches an optional author/tool name to the message.
     pub fn with_name(mut self, name: impl Into<String>) -> Self {
         self.name = Some(name.into());
         self
     }
 
+    /// Returns the message role.
     pub fn role(&self) -> MessageRole {
         self.role.clone()
     }
 
+    /// Returns message content parts.
     pub fn parts(&self) -> &[ContentPart] {
         &self.parts
     }
 
+    /// Returns optional message name.
     pub fn name(&self) -> Option<&str> {
         self.name.as_deref()
     }
@@ -219,35 +254,52 @@ impl Message {
     }
 }
 
+/// Content block used in a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
+    /// Plain text content.
     Text(String),
+    /// Provider reasoning content.
     Reasoning(ReasoningPart),
+    /// Tool call requested by the model.
     ToolCall(ToolCall),
+    /// Tool execution result.
     ToolResult(ToolResult),
 }
 
+/// Reasoning content block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReasoningPart {
+    /// Reasoning text content.
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional provider-specific metadata (for example signatures).
     pub provider_metadata: Option<Value>,
 }
 
+/// Tool call requested by the model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCall {
+    /// Provider-generated call identifier.
     pub call_id: String,
+    /// Tool name to execute.
     pub tool_name: String,
+    /// JSON arguments for the tool.
     pub args_json: Value,
 }
 
+/// Tool execution result sent back to the model.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolResult {
+    /// Matches [`ToolCall::call_id`].
     pub call_id: String,
+    /// JSON output payload.
     pub output_json: Value,
+    /// Indicates this payload represents a tool error.
     pub is_error: bool,
 }
 
+/// Provider-typed request for generation/streaming calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTextRequest<P: ProviderMarker> {
     pub(crate) model: ModelRef<P>,
@@ -262,6 +314,7 @@ pub struct GenerateTextRequest<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> GenerateTextRequest<P> {
+    /// Builds a one-message request from a user prompt.
     pub fn from_user_prompt(model: impl IntoModelRef<P>, prompt: impl Into<String>) -> Self {
         Self {
             model: model.into_model_ref(),
@@ -275,6 +328,7 @@ impl<P: ProviderMarker> GenerateTextRequest<P> {
         }
     }
 
+    /// Starts a request builder.
     pub fn builder(model: impl IntoModelRef<P>) -> GenerateTextRequestBuilder<P> {
         GenerateTextRequestBuilder {
             request: Self {
@@ -291,41 +345,49 @@ impl<P: ProviderMarker> GenerateTextRequest<P> {
     }
 }
 
+/// Builder for [`GenerateTextRequest`].
 pub struct GenerateTextRequestBuilder<P: ProviderMarker> {
     request: GenerateTextRequest<P>,
 }
 
 impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
+    /// Appends one message.
     pub fn message(mut self, message: Message) -> Self {
         self.request.messages.push(message);
         self
     }
 
+    /// Replaces all messages.
     pub fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
         self.request.messages = messages.into_iter().collect();
         self
     }
 
+    /// Replaces messages with a single user prompt.
     pub fn user_prompt(mut self, prompt: impl Into<String>) -> Self {
         self.request.messages = vec![Message::user_text(prompt)];
         self
     }
 
+    /// Sets sampling temperature in range `0.0..=2.0`.
     pub fn temperature(mut self, temperature: f32) -> Self {
         self.request.temperature = Some(temperature);
         self
     }
 
+    /// Sets nucleus sampling value in range `0.0..=1.0`.
     pub fn top_p(mut self, top_p: f32) -> Self {
         self.request.top_p = Some(top_p);
         self
     }
 
+    /// Sets max output token budget.
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.request.max_output_tokens = Some(max_output_tokens);
         self
     }
 
+    /// Sets stop sequences.
     pub fn stop_sequences<S: Into<String>>(
         mut self,
         stop_sequences: impl IntoIterator<Item = S>,
@@ -334,20 +396,20 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
         self
     }
 
+    /// Sets tools available to the model in this request.
     pub fn tools(mut self, tools: impl IntoIterator<Item = ToolDescriptor>) -> Self {
         let tools = tools.into_iter().collect::<Vec<_>>();
         self.request.tools = if tools.is_empty() { None } else { Some(tools) };
         self
     }
 
-    pub fn cancellation_token(
-        mut self,
-        token: tokio_util::sync::CancellationToken,
-    ) -> Self {
+    /// Adds a cancellation token checked by adapters and streams.
+    pub fn cancellation_token(mut self, token: tokio_util::sync::CancellationToken) -> Self {
         self.request.cancellation_token = Some(token);
         self
     }
 
+    /// Validates and finalizes the request.
     pub fn build(self) -> Result<GenerateTextRequest<P>, Error> {
         validate_model_ref(&self.request.model)?;
         validate_messages(&self.request.messages)?;
@@ -356,10 +418,13 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
     }
 }
 
+/// Policy for handling tool execution errors inside agent loops.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ToolErrorPolicy {
+    /// Convert tool failures into error-shaped tool results and continue.
     #[default]
     ContinueAsToolResult,
+    /// Abort the run immediately when a tool fails.
     FailFast,
 }
 
@@ -521,10 +586,7 @@ impl<P: ProviderMarker> RunTools<P> {
         self
     }
 
-    pub(crate) fn cancellation_token(
-        mut self,
-        token: tokio_util::sync::CancellationToken,
-    ) -> Self {
+    pub(crate) fn cancellation_token(mut self, token: tokio_util::sync::CancellationToken) -> Self {
         self.cancellation_token = Some(token);
         self
     }
@@ -540,77 +602,125 @@ impl<P: ProviderMarker> RunTools<P> {
     }
 }
 
+/// Emitted once before the first agent step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStart {
+    /// Fully-qualified model id used by the run.
     pub model_id: String,
+    /// Initial messages passed into the run.
     pub messages: Vec<Message>,
+    /// Number of registered tools.
     pub tool_count: usize,
+    /// Effective max step cap for this run.
     pub max_steps: u8,
 }
 
+/// Emitted when an agent step begins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStepStart {
+    /// 1-based step index.
     pub step: u8,
+    /// Messages sent to the model for this step.
     pub messages: Vec<Message>,
 }
 
+/// Emitted right before executing one tool call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentToolCallStart {
+    /// 1-based step index.
     pub step: u8,
+    /// Tool call about to execute.
     pub tool_call: ToolCall,
 }
 
+/// Emitted right after executing one tool call.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentToolCallFinish {
+    /// 1-based step index.
     pub step: u8,
+    /// Executed tool call.
     pub tool_call: ToolCall,
+    /// Result returned by the tool runtime.
     pub tool_result: ToolResult,
+    /// Tool execution duration in milliseconds.
     pub duration_ms: u64,
 }
 
+/// Result snapshot for one completed agent step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStep {
+    /// 1-based step index.
     pub step: u8,
+    /// Assistant text output for this step.
     pub output_text: String,
     #[serde(default)]
+    /// Flattened reasoning text (legacy convenience field).
     pub reasoning_text: String,
     #[serde(default)]
+    /// Structured reasoning parts for this step.
     pub reasoning_parts: Vec<ReasoningPart>,
+    /// Provider finish reason.
     pub finish_reason: FinishReason,
+    /// Token usage for this single step.
     pub usage: Usage,
+    /// Tool calls requested by the model in this step.
     pub tool_calls: Vec<ToolCall>,
+    /// Tool results produced in this step.
     pub tool_results: Vec<ToolResult>,
 }
 
+/// Emitted once when the agent run ends successfully.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentFinish {
+    /// Final assistant text.
     pub output_text: String,
+    /// Number of executed steps.
     pub step_count: u8,
+    /// Finish reason from the final model call.
     pub finish_reason: FinishReason,
+    /// Accumulated token usage across all steps.
     pub usage_total: Usage,
+    /// Full message transcript produced by the run.
     pub transcript: Vec<Message>,
+    /// Per-step snapshots.
     pub step_results: Vec<AgentStep>,
 }
 
+/// Per-step mutable input passed to `prepare_step`.
 #[derive(Debug, Clone)]
 pub struct AgentPrepareStep<P: ProviderMarker> {
+    /// 1-based step index to be executed.
     pub step: u8,
+    /// Model selected for this step.
     pub model: ModelRef<P>,
+    /// Messages that will be sent unless changed.
     pub messages: Vec<Message>,
+    /// Tools currently available for this step.
     pub tools: Vec<Tool>,
+    /// Sampling temperature for this step.
     pub temperature: Option<f32>,
+    /// Max output token budget for this step.
     pub max_output_tokens: Option<u32>,
+    /// Stop sequences for this step.
     pub stop_sequences: Vec<String>,
+    /// Completed previous step snapshots.
     pub previous_steps: Vec<AgentStep>,
 }
 
+/// Finalized step input returned by `prepare_step`.
 #[derive(Debug, Clone)]
 pub struct AgentPreparedStep<P: ProviderMarker> {
+    /// Model selected for this step.
     pub model: ModelRef<P>,
+    /// Messages to send for this step.
     pub messages: Vec<Message>,
+    /// Tools available for this step.
     pub tools: Vec<Tool>,
+    /// Sampling temperature for this step.
     pub temperature: Option<f32>,
+    /// Max output token budget for this step.
     pub max_output_tokens: Option<u32>,
+    /// Stop sequences for this step.
     pub stop_sequences: Vec<String>,
 }
 
@@ -621,43 +731,68 @@ pub(crate) type PrepareStepHook<P> =
     Arc<dyn Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync>;
 pub(crate) type StopPredicate = Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>;
 
+/// Normalized non-streaming generation response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTextResponse {
+    /// Assistant text output.
     pub output_text: String,
     #[serde(default)]
+    /// Flattened reasoning text (legacy convenience field).
     pub reasoning_text: String,
     #[serde(default)]
+    /// Structured reasoning parts.
     pub reasoning_parts: Vec<ReasoningPart>,
+    /// Provider finish reason.
     pub finish_reason: FinishReason,
+    /// Token usage for this request.
     pub usage: Usage,
+    /// Tool calls emitted by the model.
     pub tool_calls: Vec<ToolCall>,
+    /// Best-effort raw provider response for debugging.
     pub raw_provider_response: Option<Value>,
 }
 
+/// Final response of a completed agent run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponse {
+    /// Final assistant text output.
     pub output_text: String,
+    /// Number of executed steps.
     pub steps: u8,
+    /// Full transcript (including tool results).
     pub transcript: Vec<Message>,
+    /// Accumulated token usage.
     pub usage_total: Usage,
+    /// Per-step snapshots.
     pub step_results: Vec<AgentStep>,
 }
 
+/// Provider finish reasons normalized across adapters.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FinishReason {
+    /// Model stopped naturally.
     Stop,
+    /// Output was cut by token limit.
     Length,
+    /// Model expects tool execution before final answer.
     ToolCalls,
+    /// Content was filtered by provider policy.
     ContentFilter,
+    /// Any provider-specific reason not mapped above.
     Unknown(String),
 }
 
+/// Token usage counters.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Usage {
+    /// Prompt/input tokens.
     pub input_tokens: u32,
+    /// Completion/output tokens.
     pub output_tokens: u32,
     #[serde(default)]
+    /// Provider-reported reasoning tokens (if available).
     pub reasoning_tokens: u32,
+    /// Total tokens (`input + output + reasoning` when reported).
     pub total_tokens: u32,
 }
 
@@ -683,31 +818,57 @@ impl std::ops::AddAssign for Usage {
     }
 }
 
+/// Streaming event emitted by [`TextStream`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum StreamEvent {
+    /// A reasoning block started.
     ReasoningStarted {
+        /// Stable block id to correlate start/delta/done events.
         block_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Optional provider-specific metadata for this block.
         provider_metadata: Option<Value>,
     },
+    /// Incremental reasoning text.
     ReasoningDelta {
+        /// Stable block id.
         block_id: String,
+        /// Text delta payload.
         text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Optional provider-specific metadata.
         provider_metadata: Option<Value>,
     },
+    /// A reasoning block completed.
     ReasoningDone {
+        /// Stable block id.
         block_id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
+        /// Optional provider-specific metadata.
         provider_metadata: Option<Value>,
     },
-    TextDelta { text: String },
-    ToolCallReady { call: ToolCall },
-    Usage { usage: Usage },
+    /// Incremental assistant text.
+    TextDelta {
+        /// Text delta payload.
+        text: String,
+    },
+    /// Tool call became executable.
+    ToolCallReady {
+        /// Executable tool call.
+        call: ToolCall,
+    },
+    /// Incremental usage metadata.
+    Usage {
+        /// Usage counters snapshot.
+        usage: Usage,
+    },
+    /// Stream finished cleanly.
     Done,
 }
 
+/// Provider-agnostic stream of structured generation events.
 pub type TextStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;
+/// Convenience stream of text deltas only.
 pub type TextDeltaStream = Pin<Box<dyn Stream<Item = Result<String, Error>> + Send>>;
 
 fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<(), Error> {
@@ -731,6 +892,7 @@ fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<()
 }
 
 impl<P: ProviderMarker> AgentPrepareStep<P> {
+    /// Converts this event payload into a mutable prepared-step value.
     pub fn to_prepared(&self) -> AgentPreparedStep<P> {
         AgentPreparedStep {
             model: self.model.clone(),

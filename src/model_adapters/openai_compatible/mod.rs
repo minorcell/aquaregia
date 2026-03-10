@@ -17,9 +17,12 @@ use crate::types::{
     OpenAiCompatible, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
+/// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "openai-compatible";
+/// Default path for OpenAI-compatible chat completions.
 pub const DEFAULT_PATH: &str = "/v1/chat/completions";
 
+/// Runtime settings for OpenAI-compatible endpoints.
 pub struct OpenAiCompatibleAdapterSettings {
     base_url: String,
     api_key: Option<String>,
@@ -29,6 +32,7 @@ pub struct OpenAiCompatibleAdapterSettings {
 }
 
 impl OpenAiCompatibleAdapterSettings {
+    /// Creates settings with default path and no API key.
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
@@ -39,26 +43,31 @@ impl OpenAiCompatibleAdapterSettings {
         }
     }
 
+    /// Sets a bearer token.
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.api_key = Some(api_key.into());
         self
     }
 
+    /// Clears the bearer token so requests are sent unauthenticated.
     pub fn no_api_key(mut self) -> Self {
         self.api_key = None;
         self
     }
 
+    /// Adds or replaces a custom HTTP header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.headers.insert(name.into(), value.into());
         self
     }
 
+    /// Adds or replaces a query parameter.
     pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
         self.query_params.insert(name.into(), value.into());
         self
     }
 
+    /// Overrides chat completions path.
     pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
         self.chat_completions_path = path.into();
         self
@@ -85,6 +94,7 @@ impl OpenAiCompatibleAdapterSettings {
     }
 }
 
+/// OpenAI-compatible adapter implementation.
 pub struct OpenAiCompatibleAdapter {
     base_url: String,
     api_key: Option<String>,
@@ -95,6 +105,7 @@ pub struct OpenAiCompatibleAdapter {
 }
 
 impl OpenAiCompatibleAdapter {
+    /// Creates an adapter from settings and shared HTTP client.
     pub fn from_settings(
         settings: OpenAiCompatibleAdapterSettings,
         http: Arc<reqwest::Client>,
@@ -490,7 +501,10 @@ fn to_openai_message(message: &Message) -> Value {
                 .collect();
             let mut payload = Map::new();
             payload.insert("role".to_string(), Value::String("assistant".to_string()));
-            payload.insert("content".to_string(), text_content_from_parts(&message.parts));
+            payload.insert(
+                "content".to_string(),
+                text_content_from_parts(&message.parts),
+            );
             if !reasoning_content.is_empty() {
                 payload.insert(
                     "reasoning_content".to_string(),

@@ -20,7 +20,7 @@
 2. `basic_stream.rs`
 
 - 场景：流式输出到 CLI/UI。
-- 重点：`stream` 消费 `StreamEvent`；`TextDelta` 变体提供文本增量，`Done` 表示结束。
+- 重点：`stream` 消费 `StreamEvent`；可同时处理 `ReasoningStarted/ReasoningDelta/ReasoningDone`、`TextDelta`、`Usage`、`Done`。
 
 3. `agent_minimal.rs`
 

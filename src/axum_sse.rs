@@ -6,6 +6,10 @@ use serde_json::json;
 
 use crate::types::{StreamEvent, TextStream};
 
+/// Converts a [`TextStream`] into an Axum [`Sse`] response stream.
+///
+/// Stream errors are converted into `event: error` payloads, so the resulting
+/// stream item type is `Result<Event, Infallible>`.
 pub fn stream_to_sse(
     stream: TextStream,
 ) -> Sse<impl futures_core::Stream<Item = Result<Event, Infallible>>> {

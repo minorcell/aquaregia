@@ -16,17 +16,25 @@ use crate::types::{
     MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
+/// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "anthropic";
+/// Default Anthropic API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+/// Default Anthropic API version header value.
 pub const DEFAULT_API_VERSION: &str = "2023-06-01";
 
+/// Runtime settings for the Anthropic adapter.
 pub struct AnthropicAdapterSettings {
+    /// Base URL for API requests.
     pub base_url: String,
+    /// API key sent via `x-api-key`.
     pub api_key: String,
+    /// API version sent via `anthropic-version`.
     pub api_version: String,
 }
 
 impl AnthropicAdapterSettings {
+    /// Creates settings with default base URL and API version.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -36,6 +44,7 @@ impl AnthropicAdapterSettings {
     }
 }
 
+/// Anthropic adapter implementation.
 pub struct AnthropicAdapter {
     base_url: String,
     api_key: String,
@@ -44,6 +53,7 @@ pub struct AnthropicAdapter {
 }
 
 impl AnthropicAdapter {
+    /// Creates an adapter from validated settings and shared HTTP client.
     pub fn from_settings(settings: AnthropicAdapterSettings, http: Arc<reqwest::Client>) -> Self {
         Self {
             base_url: settings.base_url,
