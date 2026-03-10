@@ -540,8 +540,13 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
 }
 
 fn parse_google_usage(value: &Value) -> Option<Usage> {
-    let input_tokens = value.get("promptTokenCount")?.as_u64()? as u32;
+    let prompt_tokens = value.get("promptTokenCount")?.as_u64()? as u32;
     let text_output_tokens = value.get("candidatesTokenCount")?.as_u64()? as u32;
+    let cached_input_tokens = value
+        .get("cachedContentTokenCount")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32)
+        .unwrap_or(0);
     let reasoning_tokens = value
         .get("thoughtsTokenCount")
         .and_then(Value::as_u64)
@@ -552,13 +557,18 @@ fn parse_google_usage(value: &Value) -> Option<Usage> {
         .get("totalTokenCount")
         .and_then(Value::as_u64)
         .map(|v| v as u32)
-        .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
-    Some(Usage {
-        input_tokens,
-        output_tokens,
-        reasoning_tokens,
-        total_tokens,
-    })
+        .unwrap_or_else(|| prompt_tokens.saturating_add(output_tokens));
+    Some(
+        Usage::from_totals(
+            prompt_tokens,
+            output_tokens,
+            reasoning_tokens,
+            Some(total_tokens),
+        )
+        .with_input_cache_split(cached_input_tokens, 0)
+        .with_output_split(text_output_tokens, reasoning_tokens)
+        .with_raw_usage(value.clone()),
+    )
 }
 
 fn thought_signature_from_provider_metadata(provider_metadata: Option<&Value>) -> Option<String> {

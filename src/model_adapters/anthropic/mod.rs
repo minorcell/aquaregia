@@ -629,14 +629,50 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
 }
 
 fn parse_anthropic_usage(value: &Value) -> Option<Usage> {
-    let input_tokens = value.get("input_tokens")?.as_u64()? as u32;
-    let output_tokens = value.get("output_tokens")?.as_u64()? as u32;
-    Some(Usage {
-        input_tokens,
-        output_tokens,
-        reasoning_tokens: 0,
-        total_tokens: input_tokens.saturating_add(output_tokens),
-    })
+    let base_input_tokens = value.get("input_tokens")?.as_u64()? as u32;
+    let base_output_tokens = value.get("output_tokens")?.as_u64()? as u32;
+
+    let (no_cache_input_tokens, output_tokens) =
+        parse_anthropic_iteration_totals(value).unwrap_or((base_input_tokens, base_output_tokens));
+
+    let cache_read_tokens = value
+        .get("cache_read_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+    let cache_write_tokens = value
+        .get("cache_creation_input_tokens")
+        .and_then(Value::as_u64)
+        .map(|v| v as u32)
+        .unwrap_or(0);
+
+    let input_tokens = no_cache_input_tokens
+        .saturating_add(cache_read_tokens)
+        .saturating_add(cache_write_tokens);
+
+    Some(
+        Usage::from_totals(input_tokens, output_tokens, 0, None)
+            .with_input_cache_split(cache_read_tokens, cache_write_tokens)
+            .with_output_split(output_tokens, 0)
+            .with_raw_usage(value.clone()),
+    )
+}
+
+fn parse_anthropic_iteration_totals(value: &Value) -> Option<(u32, u32)> {
+    let iterations = value.get("iterations")?.as_array()?;
+    if iterations.is_empty() {
+        return None;
+    }
+
+    let mut input_total = 0u32;
+    let mut output_total = 0u32;
+    for item in iterations {
+        let input = item.get("input_tokens")?.as_u64()? as u32;
+        let output = item.get("output_tokens")?.as_u64()? as u32;
+        input_total = input_total.saturating_add(input);
+        output_total = output_total.saturating_add(output);
+    }
+    Some((input_total, output_total))
 }
 
 fn map_anthropic_finish_reason(reason: &str) -> FinishReason {

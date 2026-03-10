@@ -594,6 +594,12 @@ fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, Error> {
 fn parse_openai_usage(value: &Value) -> Option<Usage> {
     let input_tokens = value.get("prompt_tokens")?.as_u64()? as u32;
     let output_tokens = value.get("completion_tokens")?.as_u64()? as u32;
+    let cached_input_tokens = value
+        .get("prompt_tokens_details")
+        .and_then(|details| details.get("cached_tokens"))
+        .and_then(Value::as_u64)
+        .map(|n| n as u32)
+        .unwrap_or(0);
     let reasoning_tokens = value
         .get("completion_tokens_details")
         .and_then(|details| details.get("reasoning_tokens"))
@@ -604,13 +610,21 @@ fn parse_openai_usage(value: &Value) -> Option<Usage> {
         .get("total_tokens")
         .and_then(Value::as_u64)
         .map(|n| n as u32)
-        .unwrap_or(input_tokens.saturating_add(output_tokens));
-    Some(Usage {
-        input_tokens,
-        output_tokens,
-        reasoning_tokens,
-        total_tokens,
-    })
+        .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
+    Some(
+        Usage::from_totals(
+            input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            Some(total_tokens),
+        )
+        .with_input_cache_split(cached_input_tokens, 0)
+        .with_output_split(
+            output_tokens.saturating_sub(reasoning_tokens),
+            reasoning_tokens,
+        )
+        .with_raw_usage(value.clone()),
+    )
 }
 
 fn map_openai_finish_reason(reason: &str) -> FinishReason {

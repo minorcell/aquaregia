@@ -787,34 +787,169 @@ pub enum FinishReason {
 pub struct Usage {
     /// Prompt/input tokens.
     pub input_tokens: u32,
+    #[serde(default)]
+    /// Non-cached input tokens (best effort when provider exposes cache split).
+    pub input_no_cache_tokens: u32,
+    #[serde(default)]
+    /// Cached input tokens read from provider cache (best effort).
+    pub input_cache_read_tokens: u32,
+    #[serde(default)]
+    /// Input tokens used to create/write cache entries (best effort).
+    pub input_cache_write_tokens: u32,
     /// Completion/output tokens.
     pub output_tokens: u32,
+    #[serde(default)]
+    /// Output text tokens when provider exposes text/reasoning split.
+    pub output_text_tokens: u32,
     #[serde(default)]
     /// Provider-reported reasoning tokens (if available).
     pub reasoning_tokens: u32,
     /// Total tokens (`input + output + reasoning` when reported).
     pub total_tokens: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Raw provider usage payload for debugging and future extensions.
+    pub raw_usage: Option<Value>,
 }
 
 impl std::ops::Add for Usage {
     type Output = Usage;
 
     fn add(self, rhs: Self) -> Self::Output {
-        Usage {
+        let mut usage = Usage {
             input_tokens: self.input_tokens.saturating_add(rhs.input_tokens),
+            input_no_cache_tokens: self
+                .input_no_cache_tokens
+                .saturating_add(rhs.input_no_cache_tokens),
+            input_cache_read_tokens: self
+                .input_cache_read_tokens
+                .saturating_add(rhs.input_cache_read_tokens),
+            input_cache_write_tokens: self
+                .input_cache_write_tokens
+                .saturating_add(rhs.input_cache_write_tokens),
             output_tokens: self.output_tokens.saturating_add(rhs.output_tokens),
+            output_text_tokens: self
+                .output_text_tokens
+                .saturating_add(rhs.output_text_tokens),
             reasoning_tokens: self.reasoning_tokens.saturating_add(rhs.reasoning_tokens),
             total_tokens: self.total_tokens.saturating_add(rhs.total_tokens),
-        }
+            raw_usage: None,
+        };
+        usage.normalize_usage_fields();
+        usage
     }
 }
 
 impl std::ops::AddAssign for Usage {
     fn add_assign(&mut self, rhs: Self) {
+        let rhs_has_raw_usage = rhs.raw_usage.is_some();
+        let lhs_was_zero = self.is_zero_numeric();
+
         self.input_tokens = self.input_tokens.saturating_add(rhs.input_tokens);
+        self.input_no_cache_tokens = self
+            .input_no_cache_tokens
+            .saturating_add(rhs.input_no_cache_tokens);
+        self.input_cache_read_tokens = self
+            .input_cache_read_tokens
+            .saturating_add(rhs.input_cache_read_tokens);
+        self.input_cache_write_tokens = self
+            .input_cache_write_tokens
+            .saturating_add(rhs.input_cache_write_tokens);
         self.output_tokens = self.output_tokens.saturating_add(rhs.output_tokens);
+        self.output_text_tokens = self
+            .output_text_tokens
+            .saturating_add(rhs.output_text_tokens);
         self.reasoning_tokens = self.reasoning_tokens.saturating_add(rhs.reasoning_tokens);
         self.total_tokens = self.total_tokens.saturating_add(rhs.total_tokens);
+        self.raw_usage = if lhs_was_zero {
+            rhs.raw_usage.or_else(|| self.raw_usage.take())
+        } else if rhs_has_raw_usage {
+            None
+        } else {
+            self.raw_usage.take()
+        };
+        self.normalize_usage_fields();
+    }
+}
+
+impl Usage {
+    /// Builds usage from provider totals and back-fills derived counters.
+    pub fn from_totals(
+        input_tokens: u32,
+        output_tokens: u32,
+        reasoning_tokens: u32,
+        total_tokens: Option<u32>,
+    ) -> Self {
+        let mut usage = Self {
+            input_tokens,
+            input_no_cache_tokens: input_tokens,
+            input_cache_read_tokens: 0,
+            input_cache_write_tokens: 0,
+            output_tokens,
+            output_text_tokens: output_tokens.saturating_sub(reasoning_tokens),
+            reasoning_tokens,
+            total_tokens: total_tokens
+                .unwrap_or_else(|| input_tokens.saturating_add(output_tokens)),
+            raw_usage: None,
+        };
+        usage.normalize_usage_fields();
+        usage
+    }
+
+    /// Sets input cache split and recomputes no-cache input tokens.
+    pub fn with_input_cache_split(
+        mut self,
+        cache_read_tokens: u32,
+        cache_write_tokens: u32,
+    ) -> Self {
+        self.input_cache_read_tokens = cache_read_tokens;
+        self.input_cache_write_tokens = cache_write_tokens;
+        self.input_no_cache_tokens = self
+            .input_tokens
+            .saturating_sub(cache_read_tokens.saturating_add(cache_write_tokens));
+        self.normalize_usage_fields();
+        self
+    }
+
+    /// Sets output text/reasoning split and recomputes total output tokens.
+    pub fn with_output_split(mut self, output_text_tokens: u32, reasoning_tokens: u32) -> Self {
+        self.output_text_tokens = output_text_tokens;
+        self.reasoning_tokens = reasoning_tokens;
+        self.output_tokens = output_text_tokens.saturating_add(reasoning_tokens);
+        self.normalize_usage_fields();
+        self
+    }
+
+    /// Attaches raw provider usage payload.
+    pub fn with_raw_usage(mut self, raw_usage: Value) -> Self {
+        self.raw_usage = Some(raw_usage);
+        self
+    }
+
+    fn normalize_usage_fields(&mut self) {
+        let cache_total = self
+            .input_cache_read_tokens
+            .saturating_add(self.input_cache_write_tokens);
+        let no_cache_floor = self.input_tokens.saturating_sub(cache_total);
+        self.input_no_cache_tokens = self.input_no_cache_tokens.max(no_cache_floor);
+
+        let output_text_floor = self.output_tokens.saturating_sub(self.reasoning_tokens);
+        self.output_text_tokens = self.output_text_tokens.max(output_text_floor);
+
+        let computed_total = self.input_tokens.saturating_add(self.output_tokens);
+        if self.total_tokens == 0 {
+            self.total_tokens = computed_total;
+        }
+    }
+
+    fn is_zero_numeric(&self) -> bool {
+        self.input_tokens == 0
+            && self.input_no_cache_tokens == 0
+            && self.input_cache_read_tokens == 0
+            && self.input_cache_write_tokens == 0
+            && self.output_tokens == 0
+            && self.output_text_tokens == 0
+            && self.reasoning_tokens == 0
+            && self.total_tokens == 0
     }
 }
 

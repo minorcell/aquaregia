@@ -101,9 +101,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             StreamEvent::TextDelta { text } => print!("{text}"),
             StreamEvent::Usage { usage } => {
                 eprintln!(
-                    "\nusage: in={} out={} reasoning={} total={}",
+                    "\nusage: in={} (no_cache={} cache_read={} cache_write={}) out={} (text={} reasoning={}) total={}",
                     usage.input_tokens,
+                    usage.input_no_cache_tokens,
+                    usage.input_cache_read_tokens,
+                    usage.input_cache_write_tokens,
                     usage.output_tokens,
+                    usage.output_text_tokens,
                     usage.reasoning_tokens,
                     usage.total_tokens
                 );
@@ -144,16 +148,22 @@ Unified output fields:
 
 - `GenerateTextResponse.reasoning_text`: flattened reasoning text (convenience field).
 - `GenerateTextResponse.reasoning_parts`: structured reasoning blocks with optional provider metadata.
+- `Usage.input_tokens`: total input tokens reported by provider.
+- `Usage.input_no_cache_tokens`: non-cached input tokens (best effort).
+- `Usage.input_cache_read_tokens` / `Usage.input_cache_write_tokens`: cache read/write split when available.
+- `Usage.output_tokens`: total output tokens.
+- `Usage.output_text_tokens`: output text token split when available.
 - `Usage.reasoning_tokens`: provider-reported reasoning tokens when available.
+- `Usage.raw_usage`: raw provider usage payload for debugging/future extension.
 - `Message.parts`: assistant messages can include `ContentPart::Reasoning(...)` for transcript replay.
 
 Provider mapping:
 
-| Provider | Reasoning Content | Reasoning Tokens |
+| Provider | Reasoning Content | Usage Mapping |
 | --- | --- | --- |
-| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`) in sync + stream | `completion_tokens_details.reasoning_tokens` |
-| Anthropic | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | currently not reported by adapter (defaults to `0`) |
-| Google | parts with `thought: true`, optional `thoughtSignature` metadata | `thoughtsTokenCount` |
+| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`) in sync + stream | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
+| Anthropic | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning token split unavailable |
+| Google | parts with `thought: true`, optional `thoughtSignature` metadata | parses `cachedContentTokenCount` + `thoughtsTokenCount` |
 
 ### Error Handling
 
