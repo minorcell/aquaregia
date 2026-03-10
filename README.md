@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 `StreamEvent` covers all variants:
 `ReasoningStarted`, `ReasoningDelta`, `ReasoningDone`, `TextDelta`, `ToolCallReady`, `Usage`, and `Done`.
 
-### Reasoning (AI SDK-style)
+### Reasoning
 
 Reasoning is exposed in both non-streaming and streaming APIs.
 

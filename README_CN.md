@@ -123,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 如果你需要完整事件，`StreamEvent` 已覆盖：
 `ReasoningStarted / ReasoningDelta / ReasoningDone / TextDelta / ToolCallReady / Usage / Done`。
 
-### Reasoning（对齐 AI SDK 风格）
+### Reasoning
 
 reasoning 在非流式与流式 API 中都可用。
 
