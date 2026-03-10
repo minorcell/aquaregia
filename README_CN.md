@@ -101,9 +101,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             StreamEvent::TextDelta { text } => print!("{text}"),
             StreamEvent::Usage { usage } => {
                 eprintln!(
-                    "\nusage: in={} out={} reasoning={} total={}",
+                    "\nusage: in={} (no_cache={} cache_read={} cache_write={}) out={} (text={} reasoning={}) total={}",
                     usage.input_tokens,
+                    usage.input_no_cache_tokens,
+                    usage.input_cache_read_tokens,
+                    usage.input_cache_write_tokens,
                     usage.output_tokens,
+                    usage.output_text_tokens,
                     usage.reasoning_tokens,
                     usage.total_tokens
                 );
@@ -119,7 +123,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 如果你需要完整事件，`StreamEvent` 已覆盖：
 `ReasoningStarted / ReasoningDelta / ReasoningDone / TextDelta / ToolCallReady / Usage / Done`。
 
-### Reasoning（对齐 AI SDK 风格）
+### Reasoning
 
 reasoning 在非流式与流式 API 中都可用。
 
@@ -144,16 +148,22 @@ for part in &out.reasoning_parts {
 
 - `GenerateTextResponse.reasoning_text`：扁平化 reasoning 文本（便捷字段）。
 - `GenerateTextResponse.reasoning_parts`：结构化 reasoning 分块，包含可选 provider 元数据。
+- `Usage.input_tokens`：provider 返回的输入 token 总量。
+- `Usage.input_no_cache_tokens`：非缓存输入 token（尽力推导）。
+- `Usage.input_cache_read_tokens` / `Usage.input_cache_write_tokens`：缓存读取/写入 token（可用时）。
+- `Usage.output_tokens`：输出 token 总量。
+- `Usage.output_text_tokens`：输出文本 token（可用时）。
 - `Usage.reasoning_tokens`：provider 若返回推理 token，将映射到该字段。
+- `Usage.raw_usage`：provider 原始 usage 负载，便于调试与后续扩展。
 - `Message.parts`：assistant 消息可包含 `ContentPart::Reasoning(...)`，可用于 transcript 回放。
 
 Provider 映射：
 
-| Provider | Reasoning 内容来源 | Reasoning Token 来源 |
+| Provider | Reasoning 内容来源 | Usage 映射 |
 | --- | --- | --- |
-| OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`） | `completion_tokens_details.reasoning_tokens` |
-| Anthropic | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 当前适配器未单独上报（默认为 `0`） |
-| Google | `thought: true` 的 part，支持 `thoughtSignature` 元数据 | `thoughtsTokenCount` |
+| OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`） | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
+| Anthropic | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`；reasoning token 细分暂不可用 |
+| Google | `thought: true` 的 part，支持 `thoughtSignature` 元数据 | 解析 `cachedContentTokenCount` + `thoughtsTokenCount` |
 
 ### 错误处理
 

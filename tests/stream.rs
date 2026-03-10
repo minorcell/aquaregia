@@ -10,7 +10,7 @@ async fn anthropic_stream_emits_text_usage_done() {
     let server = MockServer::start().await;
     let sse_body = concat!(
         "data: {\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n\n",
-        "data: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1}}\n\n",
+        "data: {\"type\":\"message_delta\",\"usage\":{\"input_tokens\":3,\"output_tokens\":1,\"cache_creation_input_tokens\":1,\"cache_read_input_tokens\":2,\"iterations\":[{\"type\":\"compaction\",\"input_tokens\":4,\"output_tokens\":2},{\"type\":\"message\",\"input_tokens\":3,\"output_tokens\":1}]}}\n\n",
         "data: {\"type\":\"message_stop\"}\n\n"
     );
 
@@ -56,7 +56,14 @@ async fn anthropic_stream_emits_text_usage_done() {
                 }
             }
             StreamEvent::Usage { usage } => {
-                if usage.input_tokens == 3 && usage.output_tokens == 1 {
+                if usage.input_tokens == 10
+                    && usage.input_no_cache_tokens == 7
+                    && usage.input_cache_read_tokens == 2
+                    && usage.input_cache_write_tokens == 1
+                    && usage.output_tokens == 3
+                    && usage.output_text_tokens == 3
+                    && usage.total_tokens == 13
+                {
                     saw_usage = true;
                 }
             }
@@ -78,7 +85,7 @@ async fn openai_stream_accepts_eof_without_done_marker() {
     let server = MockServer::start().await;
     let sse_body = concat!(
         "data: {\"id\":\"chunk-1\",\"choices\":[{\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}],\"usage\":null}\n\n",
-        "data: {\"id\":\"chunk-2\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}\n\n"
+        "data: {\"id\":\"chunk-2\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":1},\"completion_tokens\":3,\"completion_tokens_details\":{\"reasoning_tokens\":1},\"total_tokens\":5}}\n\n"
     );
 
     Mock::given(method("POST"))
@@ -122,7 +129,13 @@ async fn openai_stream_accepts_eof_without_done_marker() {
                 }
             }
             StreamEvent::Usage { usage } => {
-                if usage.total_tokens == 3 {
+                if usage.total_tokens == 5
+                    && usage.input_cache_read_tokens == 1
+                    && usage.input_no_cache_tokens == 1
+                    && usage.output_tokens == 3
+                    && usage.output_text_tokens == 2
+                    && usage.reasoning_tokens == 1
+                {
                     saw_usage = true;
                 }
             }
@@ -144,7 +157,7 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
     let server = MockServer::start().await;
     let sse_body = concat!(
         "data: {\"id\":\"chunk-1\",\"choices\":[{\"delta\":{\"content\":\"Hi\"},\"finish_reason\":null}],\"usage\":null}\n\n",
-        "data: {\"id\":\"chunk-2\",\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}\n\n"
+        "data: {\"id\":\"chunk-2\",\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"prompt_tokens_details\":{\"cached_tokens\":1},\"completion_tokens\":3,\"completion_tokens_details\":{\"reasoning_tokens\":1},\"total_tokens\":5}}\n\n"
     );
 
     Mock::given(method("POST"))
@@ -188,7 +201,13 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
                 }
             }
             StreamEvent::Usage { usage } => {
-                if usage.total_tokens == 3 {
+                if usage.total_tokens == 5
+                    && usage.input_cache_read_tokens == 1
+                    && usage.input_no_cache_tokens == 1
+                    && usage.output_tokens == 3
+                    && usage.output_text_tokens == 2
+                    && usage.reasoning_tokens == 1
+                {
                     saw_usage = true;
                 }
             }
