@@ -10,6 +10,9 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
+use crate::model_adapters::think_tag_parser::{
+    ThinkTagSegment, ThinkTagStreamParser, split_think_tags,
+};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -29,6 +32,8 @@ pub struct OpenAiCompatibleAdapterSettings {
     headers: HashMap<String, String>,
     query_params: HashMap<String, String>,
     chat_completions_path: String,
+    think_tag_parsing_enabled: bool,
+    think_tag_case_insensitive: bool,
 }
 
 impl OpenAiCompatibleAdapterSettings {
@@ -40,6 +45,8 @@ impl OpenAiCompatibleAdapterSettings {
             headers: HashMap::new(),
             query_params: HashMap::new(),
             chat_completions_path: DEFAULT_PATH.to_string(),
+            think_tag_parsing_enabled: false,
+            think_tag_case_insensitive: true,
         }
     }
 
@@ -73,6 +80,23 @@ impl OpenAiCompatibleAdapterSettings {
         self
     }
 
+    /// Enables or disables `<think>/<thinking>` parsing from `content`.
+    ///
+    /// Disabled by default to avoid changing output for providers that intentionally
+    /// return literal XML-like text.
+    pub fn think_tag_parsing(mut self, enabled: bool) -> Self {
+        self.think_tag_parsing_enabled = enabled;
+        self
+    }
+
+    /// Controls case sensitivity for think tag parsing.
+    ///
+    /// Enabled by default (`true`) to accept `<think>`, `<THINK>`, and mixed-case forms.
+    pub fn think_tag_case_insensitive(mut self, case_insensitive: bool) -> Self {
+        self.think_tag_case_insensitive = case_insensitive;
+        self
+    }
+
     pub(crate) fn set_api_key(&mut self, api_key: impl Into<String>) {
         self.api_key = Some(api_key.into());
     }
@@ -92,6 +116,14 @@ impl OpenAiCompatibleAdapterSettings {
     pub(crate) fn set_chat_completions_path(&mut self, path: impl Into<String>) {
         self.chat_completions_path = path.into();
     }
+
+    pub(crate) fn set_think_tag_parsing_enabled(&mut self, enabled: bool) {
+        self.think_tag_parsing_enabled = enabled;
+    }
+
+    pub(crate) fn set_think_tag_case_insensitive(&mut self, case_insensitive: bool) {
+        self.think_tag_case_insensitive = case_insensitive;
+    }
 }
 
 /// OpenAI-compatible adapter implementation.
@@ -101,6 +133,8 @@ pub struct OpenAiCompatibleAdapter {
     headers: HashMap<String, String>,
     query_params: HashMap<String, String>,
     chat_completions_path: String,
+    think_tag_parsing_enabled: bool,
+    think_tag_case_insensitive: bool,
     http: Arc<reqwest::Client>,
 }
 
@@ -116,6 +150,8 @@ impl OpenAiCompatibleAdapter {
             headers: settings.headers,
             query_params: settings.query_params,
             chat_completions_path: settings.chat_completions_path,
+            think_tag_parsing_enabled: settings.think_tag_parsing_enabled,
+            think_tag_case_insensitive: settings.think_tag_case_insensitive,
             http,
         }
     }
@@ -192,6 +228,49 @@ fn merge_endpoint_path(base_path: &str, endpoint_path: &str) -> String {
     format!("/{}", merged_segments.join("/"))
 }
 
+fn map_think_segments_to_stream_events(
+    segments: Vec<ThinkTagSegment>,
+    reasoning_active: &mut bool,
+    reasoning_block_id: &str,
+) -> Vec<StreamEvent> {
+    let mut events = Vec::new();
+    for segment in segments {
+        match segment {
+            ThinkTagSegment::Reasoning(text) => {
+                if text.is_empty() {
+                    continue;
+                }
+                if !*reasoning_active {
+                    events.push(StreamEvent::ReasoningStarted {
+                        block_id: reasoning_block_id.to_string(),
+                        provider_metadata: None,
+                    });
+                    *reasoning_active = true;
+                }
+                events.push(StreamEvent::ReasoningDelta {
+                    block_id: reasoning_block_id.to_string(),
+                    text,
+                    provider_metadata: None,
+                });
+            }
+            ThinkTagSegment::Text(text) => {
+                if text.is_empty() {
+                    continue;
+                }
+                if *reasoning_active {
+                    events.push(StreamEvent::ReasoningDone {
+                        block_id: reasoning_block_id.to_string(),
+                        provider_metadata: None,
+                    });
+                    *reasoning_active = false;
+                }
+                events.push(StreamEvent::TextDelta { text });
+            }
+        }
+    }
+    events
+}
+
 #[async_trait]
 impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
     async fn generate_text(
@@ -219,7 +298,11 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
             .json()
             .await
             .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
-        normalize_openai_response(body)
+        normalize_openai_response(
+            body,
+            self.think_tag_parsing_enabled,
+            self.think_tag_case_insensitive,
+        )
     }
 
     async fn stream_text(
@@ -245,6 +328,8 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
         };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
+        let think_tag_parsing_enabled = self.think_tag_parsing_enabled;
+        let think_tag_case_insensitive = self.think_tag_case_insensitive;
 
         let stream = try_stream! {
             let mut buffer = String::new();
@@ -252,6 +337,9 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
             let mut done = false;
             let mut saw_payload_frame = false;
             let mut reasoning_active = false;
+            let mut saw_standard_reasoning = false;
+            let mut think_tag_parser = think_tag_parsing_enabled
+                .then(|| ThinkTagStreamParser::new(think_tag_case_insensitive));
             let reasoning_block_id = "reasoning-0".to_string();
 
             while let Some(chunk) = byte_stream.next().await {
@@ -268,6 +356,17 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                     saw_payload_frame = true;
                     let data = frame.data.trim();
                     if data == "[DONE]" {
+                        if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
+                        {
+                            let events = map_think_segments_to_stream_events(
+                                parser.finish(),
+                                &mut reasoning_active,
+                                &reasoning_block_id,
+                            );
+                            for event in events {
+                                yield event;
+                            }
+                        }
                         if reasoning_active {
                             yield StreamEvent::ReasoningDone {
                                 block_id: reasoning_block_id.clone(),
@@ -295,6 +394,7 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(Value::as_str)
                     {
                         if !reasoning_delta.is_empty() {
+                            saw_standard_reasoning = true;
                             if !reasoning_active {
                                 yield StreamEvent::ReasoningStarted {
                                     block_id: reasoning_block_id.clone(),
@@ -319,16 +419,29 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(Value::as_str)
                     {
                         if !text_delta.is_empty() {
-                            if reasoning_active {
-                                yield StreamEvent::ReasoningDone {
-                                    block_id: reasoning_block_id.clone(),
-                                    provider_metadata: None,
+                            if let Some(parser) =
+                                think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
+                            {
+                                let events = map_think_segments_to_stream_events(
+                                    parser.feed(text_delta),
+                                    &mut reasoning_active,
+                                    &reasoning_block_id,
+                                );
+                                for event in events {
+                                    yield event;
+                                }
+                            } else {
+                                if reasoning_active {
+                                    yield StreamEvent::ReasoningDone {
+                                        block_id: reasoning_block_id.clone(),
+                                        provider_metadata: None,
+                                    };
+                                    reasoning_active = false;
+                                }
+                                yield StreamEvent::TextDelta {
+                                    text: text_delta.to_string(),
                                 };
-                                reasoning_active = false;
                             }
-                            yield StreamEvent::TextDelta {
-                                text: text_delta.to_string(),
-                            };
                         }
                     }
 
@@ -340,6 +453,17 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
                         .and_then(|delta| delta.get("tool_calls"))
                         .and_then(Value::as_array)
                     {
+                        if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
+                        {
+                            let events = map_think_segments_to_stream_events(
+                                parser.finish(),
+                                &mut reasoning_active,
+                                &reasoning_block_id,
+                            );
+                            for event in events {
+                                yield event;
+                            }
+                        }
                         if reasoning_active {
                             yield StreamEvent::ReasoningDone {
                                 block_id: reasoning_block_id.clone(),
@@ -397,6 +521,17 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
 
                 if done {
                     break;
+                }
+            }
+
+            if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning) {
+                let events = map_think_segments_to_stream_events(
+                    parser.finish(),
+                    &mut reasoning_active,
+                    &reasoning_block_id,
+                );
+                for event in events {
+                    yield event;
                 }
             }
 
@@ -614,7 +749,11 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
         .join("")
 }
 
-fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_openai_response(
+    body: Value,
+    think_tag_parsing_enabled: bool,
+    think_tag_case_insensitive: bool,
+) -> Result<GenerateTextResponse, Error> {
     let Some(choice) = body
         .get("choices")
         .and_then(Value::as_array)
@@ -630,17 +769,24 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
         .get("message")
         .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing message"))?;
 
-    let output_text = message
+    let raw_output_text = message
         .get("content")
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let reasoning_text = message
+    let raw_reasoning_text = message
         .get("reasoning_content")
         .or_else(|| message.get("reasoning"))
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
+    let (output_text, reasoning_text) =
+        if raw_reasoning_text.is_empty() && think_tag_parsing_enabled {
+            let split = split_think_tags(&raw_output_text, think_tag_case_insensitive);
+            (split.text, split.reasoning)
+        } else {
+            (raw_output_text, raw_reasoning_text)
+        };
     let reasoning_parts = if reasoning_text.is_empty() {
         Vec::new()
     } else {

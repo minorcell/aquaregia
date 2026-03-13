@@ -314,6 +314,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
     .chat_completions_path("/v1/chat/completions")
+    .think_tag_parsing(true)
+    .think_tag_case_insensitive(true)
     .build()?;
 ```
 
