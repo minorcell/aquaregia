@@ -232,6 +232,23 @@ impl ClientBuilder<OpenAiCompatible> {
         self.settings.set_chat_completions_path(path);
         self
     }
+
+    /// Enables or disables `<think>/<thinking>` parsing from `content`.
+    ///
+    /// Disabled by default.
+    pub fn think_tag_parsing(mut self, enabled: bool) -> Self {
+        self.settings.set_think_tag_parsing_enabled(enabled);
+        self
+    }
+
+    /// Controls case sensitivity for think tag parsing.
+    ///
+    /// Enabled by default (`true`) and only used when think tag parsing is enabled.
+    pub fn think_tag_case_insensitive(mut self, case_insensitive: bool) -> Self {
+        self.settings
+            .set_think_tag_case_insensitive(case_insensitive);
+        self
+    }
 }
 
 /// Reusable provider-bound client used for `generate`, `stream`, and agent loops.

@@ -14,6 +14,7 @@ pub mod google;
 pub mod openai;
 /// OpenAI-compatible provider adapter implementation.
 pub mod openai_compatible;
+pub(crate) mod think_tag_parser;
 
 /// Provider adapter contract used by [`crate::BoundClient`].
 ///

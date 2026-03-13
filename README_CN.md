@@ -159,11 +159,11 @@ for part in &out.reasoning_parts {
 
 Provider 映射：
 
-| Provider | Reasoning 内容来源 | Usage 映射 |
-| --- | --- | --- |
-| OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`） | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
-| Anthropic | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`；reasoning token 细分暂不可用 |
-| Google | `thought: true` 的 part，支持 `thoughtSignature` 元数据 | 解析 `cachedContentTokenCount` + `thoughtsTokenCount` |
+| Provider                   | Reasoning 内容来源                                                          | Usage 映射                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`）                         | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`    |
+| Anthropic                  | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`；reasoning token 细分暂不可用 |
+| Google                     | `thought: true` 的 part，支持 `thoughtSignature` 元数据                     | 解析 `cachedContentTokenCount` + `thoughtsTokenCount`                                        |
 
 ### 错误处理
 
@@ -314,6 +314,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
     .chat_completions_path("/v1/chat/completions")
+    .think_tag_parsing(true)
+    .think_tag_case_insensitive(true)
     .build()?;
 ```
 
@@ -341,12 +343,6 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 cargo test --features telemetry
 cargo clippy -- -D warnings
-```
-
-仅在 `ai-sdk/` 子工程开发时运行：
-
-```bash
-cd ai-sdk && pnpm build && pnpm lint && pnpm type-check
 ```
 
 ## 贡献与许可

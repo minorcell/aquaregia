@@ -159,11 +159,11 @@ Unified output fields:
 
 Provider mapping:
 
-| Provider | Reasoning Content | Usage Mapping |
-| --- | --- | --- |
-| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`) in sync + stream | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
-| Anthropic | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning token split unavailable |
-| Google | parts with `thought: true`, optional `thoughtSignature` metadata | parses `cachedContentTokenCount` + `thoughtsTokenCount` |
+| Provider                   | Reasoning Content                                                             | Usage Mapping                                                                                       |
+| -------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`) in sync + stream                         | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`         |
+| Anthropic                  | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning token split unavailable |
+| Google                     | parts with `thought: true`, optional `thoughtSignature` metadata              | parses `cachedContentTokenCount` + `thoughtsTokenCount`                                             |
 
 ### Error Handling
 
@@ -314,6 +314,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
     .chat_completions_path("/v1/chat/completions")
+    .think_tag_parsing(true)
+    .think_tag_case_insensitive(true)
     .build()?;
 ```
 
@@ -341,12 +343,6 @@ cargo check --no-default-features --features anthropic
 cargo check --features axum
 cargo test --features telemetry
 cargo clippy -- -D warnings
-```
-
-For `ai-sdk/` workspace only:
-
-```bash
-cd ai-sdk && pnpm build && pnpm lint && pnpm type-check
 ```
 
 ## Contributing
