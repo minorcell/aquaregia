@@ -4,7 +4,7 @@
 
 Aquaregia is a provider-agnostic Rust toolkit for building AI applications and tool-using agents.
 
-It provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services, with first-class support for reasoning-aware output, streaming events, and multi-step tool execution.
+It provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services, with first-class support for reasoning-aware output, streaming events, multi-step tool execution, and vision/image inputs.
 
 Read the [API docs](https://docs.rs/aquaregia), browse [examples](./examples/README.md), or switch to [中文文档](./README_CN.md).
 
@@ -165,10 +165,76 @@ Provider mapping:
 | Anthropic                  | `thinking` / `redacted_thinking`, stream `thinking_delta` + `signature_delta` | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning token split unavailable |
 | Google                     | parts with `thought: true`, optional `thoughtSignature` metadata              | parses `cachedContentTokenCount` + `thoughtsTokenCount`                                             |
 
-### Error Handling
+### Multimodal Vision
+
+Send images to vision-capable models alongside text using `ImagePart` / `MediaData`.
+All three formats (URL, base64, raw bytes) are supported across Anthropic, OpenAI, Google, and OpenAI-compatible providers.
 
 ```rust
-use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?)
+        .build()?;
+
+    // Image URL + text in one message
+    let out = client
+        .generate(
+            GenerateTextRequest::builder("claude-sonnet-4-5")
+                .message(Message::user_text_and_image_url(
+                    "What's in this image?",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg",
+                ))
+                .build()?,
+        )
+        .await?;
+
+    println!("{}", out.output_text);
+    Ok(())
+}
+```
+
+Three convenience constructors cover common cases:
+
+| Constructor | Description |
+|---|---|
+| `Message::user_image_url(url)` | Single image from a URL |
+| `Message::user_image_bytes(bytes, mime)` | Single image from raw bytes |
+| `Message::user_text_and_image_url(text, url)` | Text + image URL in one message |
+
+For full control, build the parts directly:
+
+```rust
+use aquaregia::{ContentPart, ImagePart, MediaData, Message, MessageRole};
+
+// Base64-encoded image
+let msg = Message::new(
+    MessageRole::User,
+    vec![
+        ContentPart::Text("Describe this chart:".into()),
+        ContentPart::Image(ImagePart {
+            data: MediaData::Base64("<base64-data>".into()),
+            media_type: Some("image/png".into()),
+            provider_metadata: None,
+        }),
+    ],
+)?;
+
+// Raw bytes (e.g. read from a file)
+let bytes = std::fs::read("chart.png")?;
+let msg = Message::user_image_bytes(bytes, "image/png");
+```
+
+Provider image format mapping:
+
+| Provider | URL | Base64 / Bytes |
+|---|---|---|
+| Anthropic | `source.type: url` | `source.type: base64` |
+| OpenAI / Compatible | `image_url` with remote URL | `image_url` with `data:<mime>;base64,…` |
+| Google | `fileData.fileUri` | `inlineData.data` |
+
+### Error Handling
 
 match client
     .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "hello"))
@@ -330,6 +396,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 | Dynamic hooks                       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`            |
 | Compatible custom path/query/header | `cargo run --example openai_compatible_custom` | custom headers / query params / path       |
 | Mini terminal code agent            | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + local tools |
+| Multimodal image                    | `cargo run --example multimodal_image`         | `Message::user_text_and_image_url` + vision |
 
 ## Development
 

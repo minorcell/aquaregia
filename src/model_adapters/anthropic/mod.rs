@@ -40,6 +40,8 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
@@ -48,8 +50,8 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    Anthropic, ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message,
-    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Anthropic, ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart,
+    MediaData, Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -487,6 +489,9 @@ fn to_anthropic_message(message: &Message) -> Value {
                         "type": "text",
                         "text": text,
                     })),
+                    ContentPart::Image(image) => {
+                        content.push(anthropic_image_block(image));
+                    }
                     ContentPart::Reasoning(reasoning) => {
                         let signature = reasoning
                             .provider_metadata
@@ -563,6 +568,30 @@ fn to_anthropic_message(message: &Message) -> Value {
             "role": "user",
             "content": [],
         }),
+    }
+}
+
+fn anthropic_image_block(image: &ImagePart) -> Value {
+    match &image.data {
+        MediaData::Url(url) => json!({
+            "type": "image",
+            "source": { "type": "url", "url": url }
+        }),
+        MediaData::Base64(b64) => {
+            let media_type = image.media_type.as_deref().unwrap_or("image/jpeg");
+            json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": media_type, "data": b64 }
+            })
+        }
+        MediaData::Bytes(bytes) => {
+            let data = STANDARD.encode(bytes);
+            let media_type = image.media_type.as_deref().unwrap_or("image/jpeg");
+            json!({
+                "type": "image",
+                "source": { "type": "base64", "media_type": media_type, "data": data }
+            })
+        }
     }
 }
 

@@ -39,6 +39,8 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
@@ -47,8 +49,8 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Message, MessageRole,
-    OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    Message, MessageRole, OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -433,7 +435,7 @@ fn to_openai_message(message: &Message) -> Value {
         }),
         MessageRole::User => json!({
             "role": "user",
-            "content": text_content_from_parts(&message.parts),
+            "content": openai_user_content(&message.parts),
         }),
         MessageRole::Assistant => {
             let reasoning_content = reasoning_content_from_parts(&message.parts);
@@ -523,6 +525,39 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
         })
         .collect::<Vec<_>>()
         .join("")
+}
+
+fn openai_user_content(parts: &[ContentPart]) -> Value {
+    let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
+    if has_images {
+        Value::Array(
+            parts
+                .iter()
+                .filter_map(|part| match part {
+                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text })),
+                    ContentPart::Image(img) => Some(openai_image_content_part(img)),
+                    _ => None,
+                })
+                .collect(),
+        )
+    } else {
+        text_content_from_parts(parts)
+    }
+}
+
+fn openai_image_content_part(image: &ImagePart) -> Value {
+    let url = match &image.data {
+        MediaData::Url(url) => url.clone(),
+        MediaData::Base64(b64) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            format!("data:{};base64,{}", mt, b64)
+        }
+        MediaData::Bytes(bytes) => {
+            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
+            format!("data:{};base64,{}", mt, STANDARD.encode(bytes))
+        }
+    };
+    json!({ "type": "image_url", "image_url": { "url": url } })
 }
 
 fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {

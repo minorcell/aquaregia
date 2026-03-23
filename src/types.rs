@@ -3,7 +3,7 @@
 //! This module defines the core data structures used throughout the Aquaregia SDK:
 //!
 //! - **Provider Markers**: Type-level markers for provider-specific typing (`OpenAi`, `Anthropic`, `Google`, `OpenAiCompatible`)
-//! - **Messages**: Provider-agnostic chat message types with support for text, reasoning, and tool content
+//! - **Messages**: Provider-agnostic chat message types with support for text, images, reasoning, and tool content
 //! - **Requests/Responses**: Structured generation request and response types
 //! - **Streaming**: Event types emitted during streaming generation
 //! - **Agent Types**: Event types and plan structures for multi-step agent loops
@@ -394,17 +394,85 @@ impl Message {
             name: None,
         }
     }
+
+    /// Creates a user message with a single image URL.
+    pub fn user_image_url(url: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![ContentPart::Image(ImagePart {
+                data: MediaData::Url(url.into()),
+                media_type: None,
+                provider_metadata: None,
+            })],
+            name: None,
+        }
+    }
+
+    /// Creates a user message with image bytes and MIME type.
+    pub fn user_image_bytes(bytes: Vec<u8>, media_type: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![ContentPart::Image(ImagePart {
+                data: MediaData::Bytes(bytes),
+                media_type: Some(media_type.into()),
+                provider_metadata: None,
+            })],
+            name: None,
+        }
+    }
+
+    /// Creates a user message with text and an image URL.
+    pub fn user_text_and_image_url(text: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            role: MessageRole::User,
+            parts: vec![
+                ContentPart::Text(text.into()),
+                ContentPart::Image(ImagePart {
+                    data: MediaData::Url(url.into()),
+                    media_type: None,
+                    provider_metadata: None,
+                }),
+            ],
+            name: None,
+        }
+    }
+}
+
+/// Raw media data for image content parts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum MediaData {
+    /// Remote URL or data URL.
+    Url(String),
+    /// Raw base64 string (no `data:` prefix).
+    Base64(String),
+    /// Raw bytes; adapters will base64-encode as needed.
+    Bytes(Vec<u8>),
+}
+
+/// Image content block for vision inputs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImagePart {
+    /// Image data.
+    pub data: MediaData,
+    /// MIME type (e.g. `"image/jpeg"`).
+    /// Required for Bytes/Base64; optional for Url.
+    pub media_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    /// Optional provider-specific metadata.
+    pub provider_metadata: Option<Value>,
 }
 
 /// Content block used in a message.
 ///
 /// This enum represents the different types of content that can appear
 /// in a message, enabling rich multi-modal conversations with support
-/// for text, reasoning traces, and tool interactions.
+/// for text, reasoning traces, tool interactions, and images.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
     /// Plain text content.
     Text(String),
+    /// Image content for vision inputs.
+    Image(ImagePart),
     /// Provider reasoning content (chain-of-thought traces).
     Reasoning(ReasoningPart),
     /// Tool call requested by the model.

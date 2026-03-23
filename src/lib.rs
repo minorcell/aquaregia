@@ -3,7 +3,8 @@
 //! A provider-agnostic Rust toolkit for building AI applications and tool-using agents.
 //!
 //! Aquaregia provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services,
-//! with first-class support for reasoning-aware output, streaming events, and multi-step tool execution.
+//! with first-class support for reasoning-aware output, streaming events, multi-step tool execution,
+//! and vision/image inputs.
 //!
 //! ## Features
 //!
@@ -12,6 +13,7 @@
 //! - **Streaming & Non-Streaming**: Both `generate` and `stream` APIs with consistent event handling.
 //! - **Reasoning Support**: First-class reasoning content extraction and streaming events.
 //! - **Tool-Using Agents**: Multi-step agent loops with configurable tool execution and error handling.
+//! - **Multimodal Vision**: Send images to vision-capable models via URL, base64, or raw bytes.
 //! - **Cancellation**: All requests and agent runs support cancellation via `CancellationToken`.
 //! - **Telemetry**: Optional `tracing` spans for generate, stream, and agent operations.
 //!
@@ -128,7 +130,9 @@ pub use types::{
     GenerateTextRequest,
     GenerateTextResponse,
     Google,
+    ImagePart,
     IntoModelRef,
+    MediaData,
     Message,
     MessageRole,
     ModelRef,

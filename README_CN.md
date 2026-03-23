@@ -4,7 +4,7 @@
 
 Aquaregia 是一个 provider-agnostic 的 Rust AI 工具包，用于构建 AI 应用与可调用工具的 Agent。
 
-它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），并内置 reasoning 感知输出、流式事件和多步工具执行循环能力。
+它提供统一的多供应商 API（OpenAI、Anthropic、Google、OpenAI-compatible），并内置 reasoning 感知输出、流式事件、多步工具执行循环和视觉图像输入能力。
 
 查看 [API 文档](https://docs.rs/aquaregia)、[示例指南](./examples/README.md)，或切换到 [English README](./README.md)。
 
@@ -164,6 +164,75 @@ Provider 映射：
 | OpenAI / OpenAI-compatible | 同步/流式中的 `reasoning_content`（或 `reasoning`）                         | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`    |
 | Anthropic                  | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta` | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`；reasoning token 细分暂不可用 |
 | Google                     | `thought: true` 的 part，支持 `thoughtSignature` 元数据                     | 解析 `cachedContentTokenCount` + `thoughtsTokenCount`                                        |
+
+### 多模态视觉（图像输入）
+
+通过 `ImagePart` / `MediaData` 向支持视觉的模型发送图像。
+Anthropic、OpenAI、Google 及 OpenAI-compatible 均支持 URL、base64、原始字节三种格式。
+
+```rust
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?)
+        .build()?;
+
+    // 文字 + 图像 URL，合为一条消息
+    let out = client
+        .generate(
+            GenerateTextRequest::builder("claude-sonnet-4-5")
+                .message(Message::user_text_and_image_url(
+                    "这张图里有什么？",
+                    "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg",
+                ))
+                .build()?,
+        )
+        .await?;
+
+    println!("{}", out.output_text);
+    Ok(())
+}
+```
+
+三个便捷构造器覆盖常见场景：
+
+| 构造器 | 说明 |
+|---|---|
+| `Message::user_image_url(url)` | 单张图像，来自 URL |
+| `Message::user_image_bytes(bytes, mime)` | 单张图像，来自原始字节 |
+| `Message::user_text_and_image_url(text, url)` | 文字 + 图像 URL 合为一条消息 |
+
+如需完整控制，可直接构造 `ContentPart`：
+
+```rust
+use aquaregia::{ContentPart, ImagePart, MediaData, Message, MessageRole};
+
+// base64 编码图像
+let msg = Message::new(
+    MessageRole::User,
+    vec![
+        ContentPart::Text("请描述这张图表：".into()),
+        ContentPart::Image(ImagePart {
+            data: MediaData::Base64("<base64数据>".into()),
+            media_type: Some("image/png".into()),
+            provider_metadata: None,
+        }),
+    ],
+)?;
+
+// 原始字节（例如从文件读取）
+let bytes = std::fs::read("chart.png")?;
+let msg = Message::user_image_bytes(bytes, "image/png");
+```
+
+各 Provider 图像格式映射：
+
+| Provider | URL | Base64 / 字节 |
+|---|---|---|
+| Anthropic | `source.type: url` | `source.type: base64` |
+| OpenAI / Compatible | `image_url`（远程 URL） | `image_url`（`data:<mime>;base64,…`） |
+| Google | `fileData.fileUri` | `inlineData.data` |
 
 ### 错误处理
 
@@ -330,6 +399,7 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 | 动态 hooks       | `cargo run --example prepare_hooks`            | `prepare_call` / `prepare_step`         |
 | 兼容接口深度定制 | `cargo run --example openai_compatible_custom` | 自定义 headers / query params / path    |
 | 终端代码 Agent   | `cargo run --example mini_claude_code`         | `Agent::builder` + `#[tool]` + 本地工具 |
+| 多模态图像       | `cargo run --example multimodal_image`         | `Message::user_text_and_image_url` 视觉 |
 
 ## 本地开发检查
 

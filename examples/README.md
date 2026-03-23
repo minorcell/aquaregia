@@ -6,7 +6,8 @@
 
 按示例设置对应环境变量（只需配置你要运行的那个示例）：
 
-- `DEEPSEEK_API_KEY`（所有示例必需）
+- `DEEPSEEK_API_KEY`（大多数示例必需）
+- `ANTHROPIC_API_KEY`（`multimodal_image` 示例必需）
 - `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com`）
 - `DEEPSEEK_MODEL`（可选，默认 `deepseek-chat`）
 
@@ -52,6 +53,12 @@
 - 场景：动态控制每次调用和每一步执行（对齐 AI SDK 的 `prepareCall/prepareStep`）。
 - 重点：`prepare_call`、`prepare_step`、在 step 前动态改消息/工具/采样参数。
 
+9. `multimodal_image.rs`
+
+- 场景：向视觉模型发送图像（URL / base64 / 原始字节）。
+- 重点：`Message::user_text_and_image_url`、`Message::user_image_bytes`、`ImagePart`、`MediaData`。
+- 运行：`ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image`
+
 ## 建议阅读顺序
 
 1. `basic_generate.rs`
@@ -61,3 +68,4 @@
 5. `openai_compatible_custom.rs`
 6. `mini_claude_code.rs`
 7. `prepare_hooks.rs`
+8. `multimodal_image.rs`
