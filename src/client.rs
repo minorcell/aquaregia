@@ -428,6 +428,8 @@ impl<P: ProviderMarker> BoundClient<P> {
         let mut messages = messages;
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
+        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
+        let mut cached_tools: Vec<crate::tool::Tool> = tools.clone();
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
@@ -469,6 +471,17 @@ impl<P: ProviderMarker> BoundClient<P> {
                     stop_sequences: stop_sequences.clone(),
                     previous_steps: step_results.clone(),
                 });
+                // Rebuild registry only when prepare_step changed the tool list.
+                if prepared_step.tools.len() != cached_tools.len()
+                    || prepared_step
+                        .tools
+                        .iter()
+                        .zip(cached_tools.iter())
+                        .any(|(a, b)| a.descriptor.name != b.descriptor.name)
+                {
+                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
+                    cached_tools = prepared_step.tools.clone();
+                }
             }
 
             validate_messages(&prepared_step.messages)?;
@@ -537,7 +550,6 @@ impl<P: ProviderMarker> BoundClient<P> {
                 return Ok(final_response);
             }
 
-            let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
             let executed_tool_calls = execute_tool_calls(
                 &tool_registry,
                 &response.tool_calls,
