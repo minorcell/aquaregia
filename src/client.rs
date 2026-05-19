@@ -419,6 +419,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             on_finish,
             stop_when,
             tool_error_policy,
+            tool_concurrency,
             cancellation_token,
         } = req;
 
@@ -542,6 +543,7 @@ impl<P: ProviderMarker> BoundClient<P> {
                 &response.tool_calls,
                 step,
                 tool_error_policy,
+                tool_concurrency,
                 on_tool_call_start.as_ref(),
                 on_tool_call_finish.as_ref(),
             )
@@ -688,6 +690,7 @@ async fn execute_tool_calls(
     calls: &[ToolCall],
     step: u8,
     policy: ToolErrorPolicy,
+    concurrency: usize,
     on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
     on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
 ) -> Result<Vec<ExecutedToolCall>, Error> {
@@ -754,7 +757,15 @@ async fn execute_tool_calls(
         });
     }
 
-    let results = join_all(tasks).await;
+    let results = if concurrency == 1 {
+            let mut sequential = Vec::with_capacity(tasks.len());
+            for task in tasks {
+                sequential.push(task.await);
+            }
+            sequential
+        } else {
+            join_all(tasks).await
+        };
     for (call, result, duration_ms) in results {
         let (output_json, is_error) = match result {
             Ok(output_json) => (output_json, false),

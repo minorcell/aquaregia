@@ -671,6 +671,7 @@ pub(crate) struct RunTools<P: ProviderMarker> {
     pub(crate) on_finish: Option<Hook<AgentFinish>>,
     pub(crate) stop_when: Option<StopPredicate>,
     pub(crate) tool_error_policy: ToolErrorPolicy,
+    pub(crate) tool_concurrency: usize,
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
@@ -694,6 +695,7 @@ impl<P: ProviderMarker> RunTools<P> {
             on_finish: None,
             stop_when: None,
             tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
+            tool_concurrency: 0,
             cancellation_token: None,
         }
     }
@@ -807,6 +809,15 @@ impl<P: ProviderMarker> RunTools<P> {
 
     pub(crate) fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
+        self
+    }
+
+    /// Sets the maximum number of tool calls to execute concurrently.
+    ///
+    /// A value of `0` (default) means unlimited concurrency via [`futures_util::future::join_all`].
+    /// A value of `1` forces sequential execution.
+    pub(crate) fn tool_concurrency(mut self, concurrency: usize) -> Self {
+        self.tool_concurrency = concurrency;
         self
     }
 
