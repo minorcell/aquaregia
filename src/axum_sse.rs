@@ -16,11 +16,14 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{axum_sse::stream_to_sse, GenerateTextRequest, LlmClient};
+//! use aquaregia::{
+//!     axum_sse::stream_to_sse, GenerateTextRequest, LlmClient,
+//!     types::OpenAi, BoundClient,
+//! };
 //! use axum::{routing::post, Router};
 //!
 //! async fn stream_handler(
-//!     axum::extract::State(client): axum::extract::State<std::sync::Arc<LlmClient>>,
+//!     axum::extract::State(client): axum::extract::State<std::sync::Arc<BoundClient<OpenAi>>>,
 //! ) -> impl axum::response::IntoResponse {
 //!     let stream = client
 //!         .stream(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
@@ -30,7 +33,12 @@
 //! }
 //!
 //! # fn main() -> Router {
-//! Router::new().route("/stream", post(stream_handler))
+//! let client = std::sync::Arc::new(
+//!     LlmClient::openai("sk-...").build().unwrap()
+//! );
+//! Router::new()
+//!     .route("/stream", post(stream_handler))
+//!     .with_state(client)
 //! # }
 //! ```
 
