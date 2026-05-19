@@ -88,12 +88,17 @@ pub(crate) async fn check_response_status(
         return Ok(response);
     }
 
-    let request_id = response
-        .headers()
+    let headers = response.headers();
+    let request_id = headers
         .get("x-request-id")
-        .or_else(|| response.headers().get("request-id"))
+        .or_else(|| headers.get("request-id"))
         .and_then(|v| v.to_str().ok())
         .map(ToOwned::to_owned);
+
+    let retry_after_secs = headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok());
 
     let body = response.text().await.ok();
     Err(crate::error::provider_http_error(
@@ -101,6 +106,7 @@ pub(crate) async fn check_response_status(
         status.as_u16(),
         body,
         request_id,
+        retry_after_secs,
     ))
 }
 

@@ -614,7 +614,10 @@ impl<P: ProviderMarker> BoundClient<P> {
                         return Err(err);
                     }
                     attempt = attempt.saturating_add(1);
-                    let delay = backoff_delay(attempt);
+                    let delay = err
+                        .retry_after_secs
+                        .map(Duration::from_secs)
+                        .unwrap_or_else(|| backoff_delay(attempt));
                     sleep(delay).await;
                 }
             }
@@ -626,7 +629,16 @@ fn backoff_delay(attempt: u8) -> Duration {
     let base_ms = 200u64;
     let cap_ms = 2_000u64;
     let exp = 2u64.saturating_pow(attempt as u32);
-    Duration::from_millis((base_ms.saturating_mul(exp)).min(cap_ms))
+    let ms = (base_ms.saturating_mul(exp)).min(cap_ms);
+    // Simple jitter: stagger by ±25% to avoid thundering herd.
+    let jitter = (ms as f64 * 0.25) as i64;
+    let offset = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos() as i64)
+        % (jitter * 2 + 1)
+        - jitter;
+    Duration::from_millis((ms as i64 + offset).max(0) as u64)
 }
 
 fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {

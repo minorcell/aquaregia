@@ -152,6 +152,8 @@ pub struct Error {
     pub request_id: Option<String>,
     /// Raw provider error body (best effort).
     pub raw_body: Option<String>,
+    /// Seconds to wait before retrying, from a Retry-After header.
+    pub retry_after_secs: Option<u64>,
 }
 
 impl Error {
@@ -174,6 +176,7 @@ impl Error {
             retryable: is_retryable(code_value),
             request_id: None,
             raw_body: None,
+            retry_after_secs: None,
         }
     }
 
@@ -279,16 +282,19 @@ pub(crate) fn provider_http_error(
     status: u16,
     body: Option<String>,
     request_id: Option<String>,
+    retry_after_secs: Option<u64>,
 ) -> Error {
     let code = classify_http_error(status);
     let message = body
         .clone()
         .unwrap_or_else(|| format!("provider returned HTTP status {}", status));
-    Error::new(code, message)
+    let mut err = Error::new(code, message)
         .with_provider(provider_id)
         .with_status(status)
         .with_raw_body(body)
-        .with_request_id(request_id)
+        .with_request_id(request_id);
+    err.retry_after_secs = retry_after_secs;
+    err
 }
 
 /// Creates an error from a transport-level failure.
