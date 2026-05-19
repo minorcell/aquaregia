@@ -91,6 +91,9 @@ pub trait ProviderBinding: ProviderMarker {
         settings: Self::Settings,
         http: Arc<reqwest::Client>,
     ) -> Arc<dyn ModelAdapter<Self>>;
+
+    /// Validates provider settings (e.g. non-empty api_key / base_url).
+    fn validate_settings(settings: &Self::Settings) -> Result<(), Error>;
 }
 
 impl ProviderBinding for OpenAi {
@@ -101,6 +104,16 @@ impl ProviderBinding for OpenAi {
         http: Arc<reqwest::Client>,
     ) -> Arc<dyn ModelAdapter<Self>> {
         Arc::new(OpenAiAdapter::from_settings(settings, http))
+    }
+
+    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
+        if settings.api_key.trim().is_empty() {
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -113,6 +126,16 @@ impl ProviderBinding for Anthropic {
     ) -> Arc<dyn ModelAdapter<Self>> {
         Arc::new(AnthropicAdapter::from_settings(settings, http))
     }
+
+    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
+        if settings.api_key.trim().is_empty() {
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl ProviderBinding for Google {
@@ -124,6 +147,16 @@ impl ProviderBinding for Google {
     ) -> Arc<dyn ModelAdapter<Self>> {
         Arc::new(GoogleAdapter::from_settings(settings, http))
     }
+
+    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
+        if settings.api_key.trim().is_empty() {
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl ProviderBinding for OpenAiCompatible {
@@ -134,6 +167,16 @@ impl ProviderBinding for OpenAiCompatible {
         http: Arc<reqwest::Client>,
     ) -> Arc<dyn ModelAdapter<Self>> {
         Arc::new(OpenAiCompatibleAdapter::from_settings(settings, http))
+    }
+
+    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
+        if settings.base_url.trim().is_empty() {
+            return Err(Error::new(
+                ErrorCode::InvalidRequest,
+                "base_url must not be empty",
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -212,6 +255,7 @@ impl<P: ProviderBinding> ClientBuilder<P> {
     /// Builds a provider-bound client with validated settings.
     pub fn build(self) -> Result<BoundClient<P>, Error> {
         validate_max_steps(self.default_max_steps)?;
+        P::validate_settings(&self.settings)?;
         let http = Arc::new(
             reqwest::Client::builder()
                 .timeout(self.timeout)

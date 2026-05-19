@@ -72,7 +72,7 @@ pub const DEFAULT_PATH: &str = "/v1/chat/completions";
 
 /// Runtime settings for OpenAI-compatible endpoints.
 pub struct OpenAiCompatibleAdapterSettings {
-    base_url: String,
+    pub base_url: String,
     api_key: Option<String>,
     headers: HashMap<String, String>,
     query_params: HashMap<String, String>,
