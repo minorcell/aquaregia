@@ -816,6 +816,7 @@ impl<P: ProviderMarker> RunTools<P> {
     ///
     /// A value of `0` (default) means unlimited concurrency via [`futures_util::future::join_all`].
     /// A value of `1` forces sequential execution.
+    #[allow(dead_code)]
     pub(crate) fn tool_concurrency(mut self, concurrency: usize) -> Self {
         self.tool_concurrency = concurrency;
         self

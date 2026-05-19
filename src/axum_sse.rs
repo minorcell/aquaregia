@@ -20,7 +20,6 @@
 //!     axum_sse::stream_to_sse, GenerateTextRequest, LlmClient,
 //!     types::OpenAi, BoundClient,
 //! };
-//! use axum::{routing::post, Router};
 //!
 //! async fn stream_handler(
 //!     axum::extract::State(client): axum::extract::State<std::sync::Arc<BoundClient<OpenAi>>>,
@@ -32,14 +31,9 @@
 //!     stream_to_sse(stream)
 //! }
 //!
-//! # fn main() -> Router {
-//! let client = std::sync::Arc::new(
-//!     LlmClient::openai("sk-...").build().unwrap()
-//! );
-//! Router::new()
-//!     .route("/stream", post(stream_handler))
-//!     .with_state(client)
-//! # }
+//! # let _client = std::sync::Arc::new(
+//! #     LlmClient::openai("sk-...").build().unwrap()
+//! # );
 //! ```
 
 use std::convert::Infallible;
