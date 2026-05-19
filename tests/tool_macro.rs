@@ -1,9 +1,19 @@
 use aquaregia::tool;
-use serde_json::{Value, json};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::json;
 
-#[tool(description = "Echo weather args")]
-async fn macro_weather(city: String) -> Result<Value, String> {
-    Ok(json!({ "city": city, "temp_c": 23 }))
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherArgs {
+    city: String,
+}
+
+fn macro_weather() -> aquaregia::Tool {
+    tool("macro_weather")
+        .description("Echo weather args")
+        .execute(|args: WeatherArgs| async move {
+            Ok(json!({ "city": args.city, "temp_c": 23 }))
+        })
 }
 
 #[tokio::test]

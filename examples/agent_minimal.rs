@@ -1,12 +1,22 @@
-use aquaregia::{Agent, LlmClient, tool};
+use aquaregia::{Agent, LlmClient, Tool, tool};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
 
-#[tool(description = "Get weather by city")]
-async fn get_weather(city: String) -> Result<Value, String> {
-    Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherArgs {
+    city: String,
+}
+
+fn get_weather() -> Tool {
+    tool("get_weather")
+        .description("Get weather by city")
+        .execute(|args: WeatherArgs| async move {
+            Ok(json!({ "city": args.city, "temp_c": 23, "condition": "sunny" }))
+        })
 }
 
 /// 场景：20~30 行级别的最小 Agent（带 1 个工具）。

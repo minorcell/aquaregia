@@ -29,7 +29,6 @@ dependencies = [
 name = "aquaregia"
 version = "0.1.6"
 dependencies = [
- "aquaregia-macros",
  "async-stream",
  "async-trait",
  "axum",
@@ -48,15 +47,6 @@ dependencies = [
  "tracing",
  "url",
  "wiremock",
-]
-
-[[package]]
-name = "aquaregia-macros"
-version = "0.1.6"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
 ]
 
 [[package]]

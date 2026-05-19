@@ -26,7 +26,7 @@
 3. `agent_minimal.rs`
 
 - 场景：最小 Agent + 单工具。
-- 重点：`Agent::builder(client, model)`、`#[tool]` 宏、`tools([...])` 批量注册、`max_steps(...)`。
+- 重点：`Agent::builder(client, model)`、`tool()` builder、`tools([...])` 批量注册、`max_steps(...)`。
 
 4. `tools_max_steps.rs`
 
@@ -46,7 +46,7 @@
 7. `mini_claude_code.rs`
 
 - 场景：最小终端 Code Agent（TUI + 系统提示词 + 工具循环）。
-- 重点：`Agent::builder`、`#[tool]`、`on_step_finish`、`bash/read/write/edit` 工具组合。
+- 重点：`Agent::builder`、`tool()` builder、`on_step_finish`、`bash/read/write/edit` 工具组合。
 
 8. `prepare_hooks.rs`
 

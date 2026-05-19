@@ -1,4 +1,6 @@
-use aquaregia::{Agent, AgentStep, LlmClient, Message, tool};
+use aquaregia::{Agent, AgentStep, LlmClient, Message, Tool, tool};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{self, Write};
@@ -101,112 +103,183 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[tool(description = "Execute a shell command in current workspace")]
-async fn bash(command: String) -> Result<Value, String> {
-    if is_dangerous_command(&command) {
-        return Err(format!("blocked dangerous command: {}", command));
-    }
-
-    let output = Command::new("sh")
-        .arg("-lc")
-        .arg(&command)
-        .output()
-        .map_err(|e| format!("bash execution failed: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-    let merged = format!(
-        "{}{}",
-        stdout,
-        if stderr.is_empty() {
-            String::new()
-        } else {
-            format!("\n[stderr]\n{}", stderr)
-        }
-    );
-
-    Ok(json!({
-        "command": command,
-        "exit_code": output.status.code().unwrap_or(-1),
-        "output": truncate_text(merged.trim(), MAX_TOOL_OUTPUT_CHARS)
-    }))
+#[derive(Debug, Deserialize, JsonSchema)]
+struct BashArgs {
+    command: String,
 }
 
-#[tool(description = "Read a file with optional line window")]
-async fn read(path: String, offset: Option<u64>, limit: Option<u64>) -> Result<Value, String> {
-    let offset = offset.unwrap_or(0) as usize;
-    let limit = limit.unwrap_or(200);
-    if limit == 0 || limit > MAX_READ_LIMIT {
-        return Err(format!("`limit` must be in [1, {}]", MAX_READ_LIMIT));
-    }
-    let safe_path = resolve_safe_path(&path)?;
+fn bash() -> Tool {
+    tool("bash")
+        .description("Execute a shell command in current workspace")
+        .execute(|args: BashArgs| async move {
+            if is_dangerous_command(&args.command) {
+                return Err(aquaregia::ToolExecError::Execution(format!(
+                    "blocked dangerous command: {}",
+                    args.command
+                )));
+            }
 
-    let text =
-        fs::read_to_string(&safe_path).map_err(|e| format!("read failed for `{}`: {}", path, e))?;
-    let lines = text.lines().collect::<Vec<_>>();
+            let output = Command::new("sh")
+                .arg("-lc")
+                .arg(&args.command)
+                .output()
+                .map_err(|e| {
+                    aquaregia::ToolExecError::Execution(format!("bash execution failed: {}", e))
+                })?;
 
-    let start = offset.min(lines.len());
-    let end = start.saturating_add(limit as usize).min(lines.len());
-    let body = lines[start..end]
-        .iter()
-        .enumerate()
-        .map(|(i, line)| format!("{}\t{}", start + i + 1, line))
-        .collect::<Vec<_>>()
-        .join("\n");
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let merged = format!(
+                "{}{}",
+                stdout,
+                if stderr.is_empty() {
+                    String::new()
+                } else {
+                    format!("\n[stderr]\n{}", stderr)
+                }
+            );
 
-    Ok(json!({
-        "path": path,
-        "line_start": start + 1,
-        "line_end": end,
-        "total_lines": lines.len(),
-        "content": truncate_text(&body, MAX_TOOL_OUTPUT_CHARS)
-    }))
+            Ok(json!({
+                "command": args.command,
+                "exit_code": output.status.code().unwrap_or(-1),
+                "output": truncate_text(merged.trim(), MAX_TOOL_OUTPUT_CHARS)
+            }))
+        })
 }
 
-#[tool(description = "Write full file content (create parent dirs automatically)")]
-async fn write(path: String, content: String) -> Result<Value, String> {
-    let safe_path = resolve_safe_path(&path)?;
-
-    if let Some(parent) = safe_path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("create parent dirs failed for `{}`: {}", path, e))?;
-    }
-
-    fs::write(&safe_path, content.as_bytes())
-        .map_err(|e| format!("write failed for `{}`: {}", path, e))?;
-
-    Ok(json!({
-        "path": path,
-        "bytes_written": content.len()
-    }))
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReadArgs {
+    path: String,
+    offset: Option<u64>,
+    limit: Option<u64>,
 }
 
-#[tool(description = "Edit file by replacing one unique old_string with new_string")]
-async fn edit(path: String, old_string: String, new_string: String) -> Result<Value, String> {
-    let safe_path = resolve_safe_path(&path)?;
+fn read() -> Tool {
+    tool("read")
+        .description("Read a file with optional line window")
+        .execute(|args: ReadArgs| async move {
+            let offset = args.offset.unwrap_or(0) as usize;
+            let limit = args.limit.unwrap_or(200);
+            if limit == 0 || limit > MAX_READ_LIMIT {
+                return Err(aquaregia::ToolExecError::Execution(format!(
+                    "`limit` must be in [1, {}]",
+                    MAX_READ_LIMIT
+                )));
+            }
+            let safe_path = resolve_safe_path(&args.path)
+                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
 
-    let original =
-        fs::read_to_string(&safe_path).map_err(|e| format!("read failed for `{}`: {}", path, e))?;
-    let occurrences = original.matches(&old_string).count();
+            let text = fs::read_to_string(&safe_path).map_err(|e| {
+                aquaregia::ToolExecError::Execution(format!(
+                    "read failed for `{}`: {}",
+                    args.path, e
+                ))
+            })?;
+            let lines = text.lines().collect::<Vec<_>>();
 
-    if occurrences == 0 {
-        return Err(format!("old_string not found in `{}`", path));
-    }
-    if occurrences > 1 {
-        return Err(format!(
-            "old_string appears {} times in `{}`, please provide a unique snippet",
-            occurrences, path
-        ));
-    }
+            let start = offset.min(lines.len());
+            let end = start.saturating_add(limit as usize).min(lines.len());
+            let body = lines[start..end]
+                .iter()
+                .enumerate()
+                .map(|(i, line)| format!("{}\t{}", start + i + 1, line))
+                .collect::<Vec<_>>()
+                .join("\n");
 
-    let updated = original.replacen(&old_string, &new_string, 1);
-    fs::write(&safe_path, updated.as_bytes())
-        .map_err(|e| format!("write failed for `{}`: {}", path, e))?;
+            Ok(json!({
+                "path": args.path,
+                "line_start": start + 1,
+                "line_end": end,
+                "total_lines": lines.len(),
+                "content": truncate_text(&body, MAX_TOOL_OUTPUT_CHARS)
+            }))
+        })
+}
 
-    Ok(json!({
-        "path": path,
-        "replaced": true
-    }))
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WriteArgs {
+    path: String,
+    content: String,
+}
+
+fn write() -> Tool {
+    tool("write")
+        .description("Write full file content (create parent dirs automatically)")
+        .execute(|args: WriteArgs| async move {
+            let safe_path = resolve_safe_path(&args.path)
+                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
+
+            if let Some(parent) = safe_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    aquaregia::ToolExecError::Execution(format!(
+                        "create parent dirs failed for `{}`: {}",
+                        args.path, e
+                    ))
+                })?;
+            }
+
+            fs::write(&safe_path, args.content.as_bytes()).map_err(|e| {
+                aquaregia::ToolExecError::Execution(format!(
+                    "write failed for `{}`: {}",
+                    args.path, e
+                ))
+            })?;
+
+            Ok(json!({
+                "path": args.path,
+                "bytes_written": args.content.len()
+            }))
+        })
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct EditArgs {
+    path: String,
+    old_string: String,
+    new_string: String,
+}
+
+fn edit() -> Tool {
+    tool("edit")
+        .description("Edit file by replacing one unique old_string with new_string")
+        .execute(|args: EditArgs| async move {
+            let safe_path = resolve_safe_path(&args.path)
+                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
+
+            let original = fs::read_to_string(&safe_path).map_err(|e| {
+                aquaregia::ToolExecError::Execution(format!(
+                    "read failed for `{}`: {}",
+                    args.path, e
+                ))
+            })?;
+            let occurrences = original.matches(&args.old_string).count();
+
+            if occurrences == 0 {
+                return Err(aquaregia::ToolExecError::Execution(format!(
+                    "old_string not found in `{}`",
+                    args.path
+                )));
+            }
+            if occurrences > 1 {
+                return Err(aquaregia::ToolExecError::Execution(format!(
+                    "old_string appears {} times in `{}`, please provide a unique snippet",
+                    occurrences, args.path
+                )));
+            }
+
+            let updated = original.replacen(&args.old_string, &args.new_string, 1);
+            fs::write(&safe_path, updated.as_bytes()).map_err(|e| {
+                aquaregia::ToolExecError::Execution(format!(
+                    "write failed for `{}`: {}",
+                    args.path, e
+                ))
+            })?;
+
+            Ok(json!({
+                "path": args.path,
+                "replaced": true
+            }))
+        })
 }
 
 fn resolve_safe_path(input_path: &str) -> Result<PathBuf, String> {

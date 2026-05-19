@@ -7,23 +7,7 @@
 //! - [`ToolExecutor`]: Async trait for tool execution
 //! - [`ToolRegistry`]: Validated registry of tools keyed by name
 //! - [`tool()`]: Builder for creating tools with typed arguments
-//! - [`macro@tool`]: Procedural macro for concise tool definitions
-//!
 //! ## Defining Tools
-//!
-//! ### Using the `#[tool]` Macro (Recommended)
-//!
-//! ```rust,no_run
-//! use aquaregia::tool;
-//! use serde_json::{Value, json};
-//!
-//! #[tool(description = "Get weather by city")]
-//! async fn get_weather(city: String) -> Result<Value, String> {
-//!     Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
-//! }
-//! ```
-//!
-//! ### Using the Tool Builder
 //!
 //! ```rust,no_run
 //! use aquaregia::tool;

@@ -79,24 +79,7 @@ pub mod types;
 /// streaming responses to be converted into Server-Sent Events (SSE) for HTTP streaming.
 pub mod axum_sse;
 
-#[doc(hidden)]
-/// Re-export of `schemars` for use in procedural macros.
-///
-/// This is an internal re-export used by the `#[tool]` macro to generate
-/// JSON Schema implementations without requiring users to add `schemars`
-/// as a direct dependency.
-pub use schemars as __aquaregia_schemars;
-
-#[doc(hidden)]
-/// Re-export of `serde` for use in procedural macros.
-///
-/// This is an internal re-export used by the `#[tool]` macro to generate
-/// Deserialize implementations without requiring users to add `serde`
-/// as a direct dependency.
-pub use serde as __aquaregia_serde;
-
 pub use agent::{Agent, AgentBuilder, AgentRunPlan};
-pub use aquaregia_macros::tool;
 pub use client::{BoundClient, ClientBuilder, LlmClient};
 pub use error::{Error, ErrorCode};
 pub use model_adapters::ModelAdapter;
