@@ -679,6 +679,7 @@ async fn execute_tool_calls(
     on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
     on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
 ) -> Result<Vec<ExecutedToolCall>, Error> {
+    let mut executions = Vec::with_capacity(calls.len());
     let mut tasks = Vec::with_capacity(calls.len());
     for call in calls {
         let Some(registered) = registry.resolve(&call.tool_name) else {
@@ -688,18 +689,38 @@ async fn execute_tool_calls(
             ));
         };
 
-        registered
-            .validator
-            .validate(&call.args_json)
-            .map_err(|e| {
-                Error::new(
+        if let Err(validation_err) = registered.validator.validate(&call.args_json) {
+            if policy == ToolErrorPolicy::FailFast {
+                return Err(Error::new(
                     ErrorCode::InvalidToolArgs,
                     format!(
                         "tool args for `{}` failed schema validation: {}",
-                        call.tool_name, e
+                        call.tool_name, validation_err
                     ),
-                )
-            })?;
+                ));
+            }
+            let tool_result = ToolResult {
+                call_id: call.call_id.clone(),
+                output_json: serde_json::json!({ "error": validation_err.to_string() }),
+                is_error: true,
+            };
+            if let Some(callback) = on_tool_call_start {
+                callback(&AgentToolCallStart {
+                    step,
+                    tool_call: call.clone(),
+                });
+            }
+            if let Some(callback) = on_tool_call_finish {
+                callback(&AgentToolCallFinish {
+                    step,
+                    tool_call: call.clone(),
+                    tool_result: tool_result.clone(),
+                    duration_ms: 0,
+                });
+            }
+            executions.push(ExecutedToolCall { result: tool_result });
+            continue;
+        }
 
         if let Some(callback) = on_tool_call_start {
             callback(&AgentToolCallStart {
@@ -722,7 +743,6 @@ async fn execute_tool_calls(
     }
 
     let results = join_all(tasks).await;
-    let mut executions = Vec::with_capacity(results.len());
     for (call, result, duration_ms) in results {
         let (output_json, is_error) = match result {
             Ok(output_json) => (output_json, false),
