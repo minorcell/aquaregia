@@ -172,6 +172,21 @@ impl<P: ProviderMarker> Agent<P> {
         self.model.id()
     }
 
+    /// Prepends instructions as a system message if configured and no system
+    /// message already exists in the message list.
+    fn inject_instructions(&self, mut messages: Vec<Message>) -> Vec<Message> {
+        let has_system = messages
+            .first()
+            .map(|m| m.role() == crate::types::MessageRole::System)
+            .unwrap_or(false);
+        if !has_system {
+            if let Some(instructions) = &self.instructions {
+                messages.insert(0, Message::system_text(instructions.clone()));
+            }
+        }
+        messages
+    }
+
     /// Runs the agent with a single user prompt.
     ///
     /// If `instructions` were configured, they are inserted as an initial system message.
@@ -179,20 +194,20 @@ impl<P: ProviderMarker> Agent<P> {
         &self,
         prompt: impl Into<String>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        let mut messages = Vec::new();
-        if let Some(instructions) = &self.instructions {
-            messages.push(Message::system_text(instructions.clone()));
-        }
-        messages.push(Message::user_text(prompt));
-        self.run_messages_inner(messages, None).await
+        let messages = vec![Message::user_text(prompt)];
+        self.run_messages_inner(self.inject_instructions(messages), None).await
     }
 
     /// Runs the agent with an explicit message list.
+    ///
+    /// If `instructions` were configured and the message list does not already
+    /// contain a system message, the instructions are inserted as a system
+    /// message at the front of the list.
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(messages, None).await
+        self.run_messages_inner(self.inject_instructions(messages), None).await
     }
 
     /// Runs the agent with a prompt and cancellation support.
@@ -201,21 +216,21 @@ impl<P: ProviderMarker> Agent<P> {
         prompt: impl Into<String>,
         token: CancellationToken,
     ) -> Result<AgentResponse, crate::error::Error> {
-        let mut messages = Vec::new();
-        if let Some(instructions) = &self.instructions {
-            messages.push(Message::system_text(instructions.clone()));
-        }
-        messages.push(Message::user_text(prompt));
-        self.run_messages_cancellable(messages, token).await
+        let messages = vec![Message::user_text(prompt)];
+        self.run_messages_cancellable(self.inject_instructions(messages), token).await
     }
 
     /// Runs the agent with explicit messages and cancellation support.
+    ///
+    /// If `instructions` were configured and the message list does not already
+    /// contain a system message, the instructions are inserted as a system
+    /// message at the front of the list.
     pub async fn run_messages_cancellable(
         &self,
         messages: Vec<Message>,
         token: CancellationToken,
     ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(messages, Some(token)).await
+        self.run_messages_inner(self.inject_instructions(messages), Some(token)).await
     }
 
     async fn run_messages_inner(
