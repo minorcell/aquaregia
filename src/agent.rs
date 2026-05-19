@@ -17,15 +17,16 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Agent, LlmClient, tool};
+//! use aquaregia::{Agent, LlmClient, ToolBuilder};
 //! use serde_json::{Value, json};
 //!
-//! #[tool(description = "Get weather by city")]
-//! async fn get_weather(city: String) -> Result<Value, String> {
-//!     Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
-//! }
-//!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+//! let get_weather = ToolBuilder::new("get_weather")
+//!     .description("Get weather by city")
+//!     .execute(|city: String| async move {
+//!         Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+//!     });
+//!
 //! let client = LlmClient::openai("api-key").build()?;
 //!
 //! let agent = Agent::builder(client, "gpt-4o")
