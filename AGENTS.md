@@ -1,58 +1,70 @@
-# Repository Guidelines
+# CLAUDE.md
 
-## Project Structure & Module Organization
+Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
 
-- `src/`: Rust library code. Keep shared logic in core modules and provider mappings in `src/model_adapters/*`.
-- `tests/`: integration tests by behavior (`generate`, `stream`, `tools`, `providers`, `agent`, `error_mapping`).
-- `examples/`: runnable reference programs.
-- `ai-sdk/`: separate TypeScript/pnpm workspace.
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
 
-## Build, Test, and Development Commands
+## 1. Think Before Coding
 
-- `cargo fmt`: format Rust code with standard style.
-- `cargo test`: run the full Rust test suite.
-- `cargo check --examples`: verify all examples compile.
-- `cargo check --no-default-features`: validate the minimal feature set.
-- `cargo check --no-default-features --features openai` (or `anthropic`): verify provider-specific paths.
-- `cargo check --features axum`: validate optional SSE integration.
-- `cargo run --example basic_stream`: run a local example.
+**Don't assume. Don't hide confusion. Surface tradeoffs.**
 
-For `ai-sdk/` work only:
+Before implementing:
 
-- `cd ai-sdk && pnpm build && pnpm lint && pnpm type-check`
+- State your assumptions explicitly. If uncertain, ask.
+- If multiple interpretations exist, present them - don't pick silently.
+- If a simpler approach exists, say so. Push back when warranted.
+- If something is unclear, stop. Name what's confusing. Ask.
 
-## Coding Style & Naming Conventions
+## 2. Simplicity First
 
-- Rust edition is `2024`; follow `rustfmt` defaults (4-space indentation, trailing commas where applicable).
-- Use `snake_case` for files/modules/functions, `PascalCase` for structs/enums/traits, and `SCREAMING_SNAKE_CASE` for constants.
-- Keep provider-neutral behavior in shared layers and isolate provider-specific mapping in adapters.
-- Prefer small, focused functions and explicit error mapping to `AiErrorCode`.
+**Minimum code that solves the problem. Nothing speculative.**
 
-## Documentation Standards
+- No features beyond what was asked.
+- No abstractions for single-use code.
+- No "flexibility" or "configurability" that wasn't requested.
+- No error handling for impossible scenarios.
+- If you write 200 lines and it could be 50, rewrite it.
 
-- Keep docs aligned with code changes in the same PR.
-- Update `README.md`, `README_CN.md`, `examples/README.md`, or `docs/` whenever APIs or behavior changes.
-- Prefer short, task-oriented text with runnable commands and required environment variables.
-- Add migration notes for breaking changes.
+Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
 
-## Open-Source Commenting Norms
+## 3. Surgical Changes
 
-- Write comments and docstrings in clear English for global contributor readability.
-- Explain `why` and constraints, not obvious `what`.
-- Add Rust doc comments (`///`) for public APIs; include usage notes when non-trivial.
-- Fix stale comments in the same PR.
+**Touch only what you must. Clean up only your own mess.**
 
-## Testing Guidelines
+When editing existing code:
 
-- Use `#[tokio::test]` for async flows and `wiremock` to simulate provider APIs.
-- Add integration tests for any behavior change; place them in the closest domain file.
-- Integration tests should be comprehensive: cover happy path, error mapping (`401/429/5xx`), and multi-step tool or stream flows when relevant.
-- Use descriptive names such as `openai_401_maps_to_auth_failed`.
-- No strict coverage threshold is enforced, but feature/bug PRs should include regression tests.
+- Don't "improve" adjacent code, comments, or formatting.
+- Don't refactor things that aren't broken.
+- Match existing style, even if you'd do it differently.
+- If you notice unrelated dead code, mention it - don't delete it.
 
-## Commit & Pull Request Guidelines
+When your changes create orphans:
 
-- Follow Conventional Commit style (`feat: ...`, `docs: ...`, `fix: ...`).
-- Keep commits and PRs scoped to one logical change.
-- PRs should include purpose, behavior changes, linked issue(s), and test evidence.
-- Update `README.md` and/or `examples/` when public API behavior changes.
+- Remove imports/variables/functions that YOUR changes made unused.
+- Don't remove pre-existing dead code unless asked.
+
+The test: Every changed line should trace directly to the user's request.
+
+## 4. Goal-Driven Execution
+
+**Define success criteria. Loop until verified.**
+
+Transform tasks into verifiable goals:
+
+- "Add validation" → "Write tests for invalid inputs, then make them pass"
+- "Fix the bug" → "Write a test that reproduces it, then make it pass"
+- "Refactor X" → "Ensure tests pass before and after"
+
+For multi-step tasks, state a brief plan:
+
+```
+1. [Step] → verify: [check]
+2. [Step] → verify: [check]
+3. [Step] → verify: [check]
+```
+
+Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+
+---
+
+**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
