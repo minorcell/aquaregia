@@ -1333,10 +1333,9 @@ pub(crate) fn validate_max_steps(max_steps: u8) -> Result<(), Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        GenerateTextRequest, Message, ModelRef, OpenAi, ProviderKind, validate_max_steps,
-        validate_model_ref,
-    };
+    use super::*;
+
+    // ─── ModelRef / IntoModelRef ──────────────────────────────────────────
 
     #[test]
     fn builds_openai_model() {
@@ -1357,26 +1356,595 @@ mod tests {
     }
 
     #[test]
+    fn model_ref_display_matches_model_id() {
+        let model = ModelRef::<OpenAi>::new("gpt-4o-mini");
+        assert_eq!(model.to_string(), "openai/gpt-4o-mini");
+    }
+
+    #[test]
+    fn model_ref_serialization_roundtrip() {
+        let model = ModelRef::<OpenAi>::new("gpt-4o");
+        let json = serde_json::to_string(&model).unwrap();
+        let deserialized: ModelRef<OpenAi> = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.model(), "gpt-4o");
+        assert_eq!(deserialized.id(), "openai/gpt-4o");
+    }
+
+    #[test]
+    fn into_model_ref_from_string() {
+        let model: ModelRef<OpenAi> = "gpt-4o".into_model_ref();
+        assert_eq!(model.model(), "gpt-4o");
+    }
+
+    #[test]
+    fn into_model_ref_from_owned_string() {
+        let model: ModelRef<OpenAi> = String::from("o1").into_model_ref();
+        assert_eq!(model.model(), "o1");
+    }
+
+    #[test]
+    fn into_model_ref_from_model_ref_is_identity() {
+        let original = ModelRef::<OpenAi>::new("gpt-4o");
+        let converted = original.clone().into_model_ref();
+        assert_eq!(converted.model(), "gpt-4o");
+    }
+
+    // ─── ProviderKind ────────────────────────────────────────────────────
+
+    #[test]
+    fn provider_kind_from_slug_all_variants() {
+        assert_eq!(ProviderKind::from_slug("openai"), Some(ProviderKind::OpenAi));
+        assert_eq!(
+            ProviderKind::from_slug("ANTHROPIC"),
+            Some(ProviderKind::Anthropic)
+        );
+        assert_eq!(ProviderKind::from_slug("Google"), Some(ProviderKind::Google));
+        assert_eq!(
+            ProviderKind::from_slug("OpenAI-Compatible"),
+            Some(ProviderKind::OpenAiCompatible)
+        );
+    }
+
+    #[test]
+    fn provider_kind_from_slug_unknown() {
+        assert_eq!(ProviderKind::from_slug("unknown"), None);
+        assert_eq!(ProviderKind::from_slug(""), None);
+    }
+
+    #[test]
+    fn provider_kind_as_slug() {
+        assert_eq!(ProviderKind::OpenAi.as_slug(), "openai");
+        assert_eq!(ProviderKind::Anthropic.as_slug(), "anthropic");
+        assert_eq!(ProviderKind::Google.as_slug(), "google");
+        assert_eq!(ProviderKind::OpenAiCompatible.as_slug(), "openai-compatible");
+    }
+
+    #[test]
+    fn provider_marker_kind_constants() {
+        assert_eq!(OpenAi::KIND, ProviderKind::OpenAi);
+        assert_eq!(Anthropic::KIND, ProviderKind::Anthropic);
+        assert_eq!(Google::KIND, ProviderKind::Google);
+        assert_eq!(OpenAiCompatible::KIND, ProviderKind::OpenAiCompatible);
+    }
+
+    // ─── Message validation ──────────────────────────────────────────────
+
+    #[test]
+    fn message_new_rejects_empty_parts() {
+        let err = Message::new(MessageRole::User, vec![]).expect_err("empty parts should fail");
+        assert!(err.message.contains("cannot be empty"));
+    }
+
+    #[test]
+    fn message_new_rejects_tool_role_without_tool_result() {
+        let err = Message::new(MessageRole::Tool, vec![ContentPart::Text("x".into())])
+            .expect_err("tool role without ToolResult should fail");
+        assert!(err.message.contains("ToolResult"));
+    }
+
+    #[test]
+    fn message_tool_role_with_tool_result_is_valid() {
+        let msg = Message::new(
+            MessageRole::Tool,
+            vec![ContentPart::ToolResult(ToolResult {
+                call_id: "c1".into(),
+                output_json: serde_json::json!({"ok": true}),
+                is_error: false,
+            })],
+        )
+        .expect("tool role with ToolResult should be valid");
+        assert_eq!(msg.role(), MessageRole::Tool);
+    }
+
+    #[test]
+    fn message_system_text_constructor() {
+        let msg = Message::system_text("be helpful");
+        assert_eq!(msg.role(), MessageRole::System);
+        assert_eq!(msg.parts().len(), 1);
+    }
+
+    #[test]
+    fn message_user_text_constructor() {
+        let msg = Message::user_text("hello");
+        assert_eq!(msg.role(), MessageRole::User);
+    }
+
+    #[test]
+    fn message_assistant_text_constructor() {
+        let msg = Message::assistant_text("hi");
+        assert_eq!(msg.role(), MessageRole::Assistant);
+    }
+
+    #[test]
+    fn message_tool_result_constructor() {
+        let result = ToolResult {
+            call_id: "c1".into(),
+            output_json: serde_json::json!({"temp": 23}),
+            is_error: false,
+        };
+        let msg = Message::tool_result(result.clone());
+        assert_eq!(msg.role(), MessageRole::Tool);
+    }
+
+    #[test]
+    fn message_with_name() {
+        let msg = Message::user_text("hello").with_name("alice");
+        assert_eq!(msg.name(), Some("alice"));
+    }
+
+    #[test]
+    fn message_name_none_by_default() {
+        let msg = Message::user_text("hello");
+        assert_eq!(msg.name(), None);
+    }
+
+    #[test]
+    fn message_user_image_url() {
+        let msg = Message::user_image_url("https://example.com/img.jpg");
+        assert_eq!(msg.role(), MessageRole::User);
+    }
+
+    #[test]
+    fn message_user_image_bytes() {
+        let msg = Message::user_image_bytes(vec![0xFF, 0xD8], "image/jpeg");
+        assert_eq!(msg.role(), MessageRole::User);
+    }
+
+    #[test]
+    fn message_user_text_and_image_url() {
+        let msg =
+            Message::user_text_and_image_url("caption", "https://example.com/img.jpg");
+        assert_eq!(msg.role(), MessageRole::User);
+        assert_eq!(msg.parts().len(), 2);
+    }
+
+    #[test]
+    fn message_assistant_with_parts() {
+        let msg = Message::assistant_with_parts(vec![ContentPart::Text("output".into())]);
+        assert_eq!(msg.role(), MessageRole::Assistant);
+    }
+
+    // ─── ContentPart / MediaData / ImagePart / ReasoningPart serialization
+
+    #[test]
+    fn content_part_text_serialization() {
+        let part = ContentPart::Text("hello".into());
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ContentPart::Text(ref t) if t == "hello"));
+    }
+
+    #[test]
+    fn content_part_image_serialization() {
+        let part = ContentPart::Image(ImagePart {
+            data: MediaData::Url("https://x.com/i.jpg".into()),
+            media_type: Some("image/png".into()),
+            provider_metadata: None,
+        });
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ContentPart::Image(_)));
+    }
+
+    #[test]
+    fn content_part_reasoning_serialization() {
+        let part = ContentPart::Reasoning(ReasoningPart {
+            text: "chain-of-thought".into(),
+            provider_metadata: Some(serde_json::json!({"sig": "abc"})),
+        });
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ContentPart::Reasoning(ref r) if r.text == "chain-of-thought"));
+    }
+
+    #[test]
+    fn content_part_tool_call_serialization() {
+        let part = ContentPart::ToolCall(ToolCall {
+            call_id: "call_1".into(),
+            tool_name: "get_weather".into(),
+            args_json: serde_json::json!({"city": "NYC"}),
+        });
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ContentPart::ToolCall(_)));
+    }
+
+    #[test]
+    fn content_part_tool_result_serialization() {
+        let part = ContentPart::ToolResult(ToolResult {
+            call_id: "call_1".into(),
+            output_json: serde_json::json!({"temp": 23}),
+            is_error: false,
+        });
+        let json = serde_json::to_string(&part).unwrap();
+        let back: ContentPart = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, ContentPart::ToolResult(_)));
+    }
+
+    #[test]
+    fn media_data_base64_serialization() {
+        let data = MediaData::Base64("aGVsbG8=".into());
+        let json = serde_json::to_string(&data).unwrap();
+        let back: MediaData = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, MediaData::Base64(ref s) if s == "aGVsbG8="));
+    }
+
+    #[test]
+    fn media_data_bytes_serialization() {
+        let data = MediaData::Bytes(vec![1, 2, 3]);
+        let json = serde_json::to_string(&data).unwrap();
+        let back: MediaData = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, MediaData::Bytes(ref b) if b == &vec![1u8, 2, 3]));
+    }
+
+    // ─── Usage Add / AddAssign ───────────────────────────────────────────
+
+    #[test]
+    fn usage_add_accumulates_fields() {
+        let a = Usage::from_totals(10, 5, 0, Some(15));
+        let b = Usage::from_totals(20, 10, 3, Some(30));
+        let total = a + b;
+        assert_eq!(total.input_tokens, 30);
+        assert_eq!(total.output_tokens, 15);
+        assert_eq!(total.total_tokens, 45);
+        assert_eq!(total.reasoning_tokens, 3);
+    }
+
+    #[test]
+    fn usage_add_handles_overflow() {
+        let a = Usage {
+            input_tokens: u32::MAX,
+            output_tokens: 1,
+            total_tokens: u32::MAX,
+            ..Default::default()
+        };
+        let b = Usage {
+            input_tokens: 1,
+            output_tokens: 1,
+            total_tokens: 1,
+            ..Default::default()
+        };
+        let total = a + b;
+        assert_eq!(total.input_tokens, u32::MAX);
+        assert_eq!(total.output_tokens, 2);
+    }
+
+    #[test]
+    fn usage_add_drops_raw_usage() {
+        let mut a = Usage::from_totals(1, 1, 0, None);
+        a.raw_usage = Some(serde_json::json!({"a": 1}));
+        let mut b = Usage::from_totals(1, 1, 0, None);
+        b.raw_usage = Some(serde_json::json!({"b": 1}));
+        let total = a + b;
+        assert!(total.raw_usage.is_none());
+    }
+
+    #[test]
+    fn usage_add_assign_accumulates() {
+        let mut a = Usage::from_totals(10, 5, 0, Some(15));
+        let b = Usage::from_totals(20, 10, 3, Some(30));
+        a += b;
+        assert_eq!(a.input_tokens, 30);
+        assert_eq!(a.total_tokens, 45);
+    }
+
+    #[test]
+    fn usage_add_assign_preserves_first_raw_usage() {
+        let mut a = Usage::from_totals(10, 5, 0, Some(15));
+        a.raw_usage = Some(serde_json::json!({"first": true}));
+        let b = Usage::from_totals(20, 10, 0, None);
+        a += b;
+        assert_eq!(a.raw_usage, Some(serde_json::json!({"first": true})));
+    }
+
+    #[test]
+    fn usage_add_assign_with_second_raw_usage_drops_to_none() {
+        let mut a = Usage::from_totals(10, 5, 0, Some(15));
+        a.raw_usage = Some(serde_json::json!({"first": true}));
+        let mut b = Usage::from_totals(20, 10, 0, None);
+        b.raw_usage = Some(serde_json::json!({"second": true}));
+        a += b;
+        assert!(a.raw_usage.is_none());
+    }
+
+    #[test]
+    fn usage_from_totals_backfills_fields() {
+        let usage = Usage::from_totals(100, 50, 10, None);
+        assert_eq!(usage.input_tokens, 100);
+        assert_eq!(usage.output_tokens, 50);
+        assert_eq!(usage.reasoning_tokens, 10);
+        assert_eq!(usage.output_text_tokens, 40);
+        assert_eq!(usage.total_tokens, 150);
+    }
+
+    #[test]
+    fn usage_with_input_cache_split_recomputes_no_cache() {
+        let usage = Usage::from_totals(100, 50, 0, None).with_input_cache_split(30, 20);
+        assert_eq!(usage.input_cache_read_tokens, 30);
+        assert_eq!(usage.input_cache_write_tokens, 20);
+        assert_eq!(usage.input_no_cache_tokens, 50);
+    }
+
+    #[test]
+    fn usage_with_output_split_recomputes_output_tokens() {
+        let usage =
+            Usage::from_totals(100, 50, 0, None).with_output_split(30, 20);
+        assert_eq!(usage.output_text_tokens, 30);
+        assert_eq!(usage.reasoning_tokens, 20);
+        assert_eq!(usage.output_tokens, 50);
+    }
+
+    #[test]
+    fn usage_with_raw_usage_attaches_payload() {
+        let raw = serde_json::json!({"vendor": "custom"});
+        let usage = Usage::from_totals(1, 1, 0, None).with_raw_usage(raw.clone());
+        assert_eq!(usage.raw_usage, Some(raw));
+    }
+
+    #[test]
+    fn usage_normalize_enforces_floor() {
+        let mut usage = Usage {
+            input_tokens: 5,
+            input_no_cache_tokens: 0,
+            input_cache_read_tokens: 3,
+            input_cache_write_tokens: 3,
+            output_tokens: 10,
+            output_text_tokens: 0,
+            reasoning_tokens: 12,
+            total_tokens: 0,
+            ..Default::default()
+        };
+        usage.normalize_usage_fields();
+        assert_eq!(usage.input_no_cache_tokens, 0);
+        assert_eq!(usage.output_text_tokens, 0);
+        assert_eq!(usage.total_tokens, 15);
+    }
+
+    #[test]
+    fn usage_is_zero_numeric_detects_all_zero() {
+        assert!(Usage::default().is_zero_numeric());
+    }
+
+    #[test]
+    fn usage_is_zero_numeric_detects_nonzero() {
+        let usage = Usage::from_totals(1, 0, 0, None);
+        assert!(!usage.is_zero_numeric());
+    }
+
+    // ─── ToolErrorPolicy / FinishReason ──────────────────────────────────
+
+    #[test]
+    fn tool_error_policy_default_is_continue_as_tool_result() {
+        assert_eq!(
+            ToolErrorPolicy::default(),
+            ToolErrorPolicy::ContinueAsToolResult
+        );
+    }
+
+    #[test]
+    fn finish_reason_serialization_roundtrip() {
+        let reasons = [
+            FinishReason::Stop,
+            FinishReason::Length,
+            FinishReason::ToolCalls,
+            FinishReason::ContentFilter,
+            FinishReason::Unknown("custom".into()),
+        ];
+        for reason in reasons {
+            let json = serde_json::to_string(&reason).unwrap();
+            let back: FinishReason = serde_json::from_str(&json).unwrap();
+            assert_eq!(reason, back);
+        }
+    }
+
+    // ─── StreamEvent serialization ───────────────────────────────────────
+
+    #[test]
+    fn stream_event_text_delta_serialization() {
+        let event = StreamEvent::TextDelta {
+            text: "hello".into(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("TextDelta"));
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, StreamEvent::TextDelta { text } if text == "hello"));
+    }
+
+    #[test]
+    fn stream_event_done_serialization() {
+        let event = StreamEvent::Done;
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, StreamEvent::Done));
+    }
+
+    #[test]
+    fn stream_event_reasoning_serialization() {
+        let event = StreamEvent::ReasoningStarted {
+            block_id: "r1".into(),
+            provider_metadata: Some(serde_json::json!({"k": "v"})),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: StreamEvent = serde_json::from_str(&json).unwrap();
+        assert!(matches!(back, StreamEvent::ReasoningStarted { .. }));
+    }
+
+    // ─── Agent event types ──────────────────────────────────────────────
+
+    #[test]
+    fn agent_prepare_step_to_prepared() {
+        let step = AgentPrepareStep::<OpenAi> {
+            step: 1,
+            model: ModelRef::new("gpt-4o"),
+            messages: vec![Message::user_text("hi")],
+            tools: vec![],
+            temperature: Some(0.5),
+            max_output_tokens: Some(100),
+            stop_sequences: vec!["END".into()],
+            previous_steps: vec![],
+        };
+        let prepared = step.to_prepared();
+        assert_eq!(prepared.model.model(), "gpt-4o");
+        assert_eq!(prepared.temperature, Some(0.5));
+        assert_eq!(prepared.max_output_tokens, Some(100));
+        assert_eq!(prepared.messages.len(), 1);
+    }
+
+    #[test]
+    fn agent_start_serialization() {
+        let event = AgentStart {
+            model_id: "openai/gpt-4o".into(),
+            messages: vec![Message::user_text("hi")],
+            tool_count: 3,
+            max_steps: 8,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: AgentStart = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.model_id, "openai/gpt-4o");
+        assert_eq!(back.tool_count, 3);
+    }
+
+    #[test]
+    fn agent_step_start_serialization() {
+        let event = AgentStepStart {
+            step: 2,
+            messages: vec![Message::user_text("hi")],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: AgentStepStart = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.step, 2);
+    }
+
+    #[test]
+    fn agent_tool_call_start_serialization() {
+        let event = AgentToolCallStart {
+            step: 1,
+            tool_call: ToolCall {
+                call_id: "c1".into(),
+                tool_name: "weather".into(),
+                args_json: serde_json::json!({"city": "NYC"}),
+            },
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: AgentToolCallStart = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.step, 1);
+    }
+
+    #[test]
+    fn agent_tool_call_finish_serialization() {
+        let event = AgentToolCallFinish {
+            step: 1,
+            tool_call: ToolCall {
+                call_id: "c1".into(),
+                tool_name: "weather".into(),
+                args_json: serde_json::json!({}),
+            },
+            tool_result: ToolResult {
+                call_id: "c1".into(),
+                output_json: serde_json::json!({"temp": 23}),
+                is_error: false,
+            },
+            duration_ms: 42,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let back: AgentToolCallFinish = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.duration_ms, 42);
+    }
+
+    #[test]
+    fn agent_step_serialization() {
+        let step = AgentStep {
+            step: 1,
+            output_text: "done".into(),
+            reasoning_text: "think".into(),
+            reasoning_parts: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage::default(),
+            tool_calls: vec![],
+            tool_results: vec![],
+        };
+        let json = serde_json::to_string(&step).unwrap();
+        let back: AgentStep = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.step, 1);
+        assert_eq!(back.output_text, "done");
+    }
+
+    #[test]
+    fn agent_finish_serialization() {
+        let finish = AgentFinish {
+            output_text: "final".into(),
+            step_count: 3,
+            finish_reason: FinishReason::Stop,
+            usage_total: Usage::default(),
+            transcript: vec![],
+            step_results: vec![],
+        };
+        let json = serde_json::to_string(&finish).unwrap();
+        let back: AgentFinish = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.step_count, 3);
+    }
+
+    #[test]
+    fn agent_response_serialization() {
+        let response = AgentResponse {
+            output_text: "answer".into(),
+            steps: 2,
+            transcript: vec![],
+            usage_total: Usage::default(),
+            step_results: vec![],
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let back: AgentResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.steps, 2);
+    }
+
+    // ─── GenerateTextRequest / GenerateTextResponse ─────────────────────
+
+    #[test]
     fn builds_request_from_prompt() {
         let request =
             GenerateTextRequest::from_user_prompt(ModelRef::<OpenAi>::new("gpt-4o-mini"), "hello");
-
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.model.model(), "gpt-4o-mini");
     }
 
     #[test]
-    fn rejects_invalid_max_steps() {
-        let err = validate_max_steps(0).expect_err("0 should fail");
-        assert!(err.message.contains("1..=32"));
+    fn generate_text_response_serialization() {
+        let response = GenerateTextResponse {
+            output_text: "hello".into(),
+            reasoning_text: String::new(),
+            reasoning_parts: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: Usage::default(),
+            tool_calls: vec![],
+            raw_provider_response: Some(serde_json::json!({"raw": true})),
+        };
+        let json = serde_json::to_string(&response).unwrap();
+        let back: GenerateTextResponse = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.output_text, "hello");
     }
 
-    #[test]
-    fn model_ref_display_matches_model_id() {
-        let model = ModelRef::<OpenAi>::new("gpt-4o-mini");
-
-        assert_eq!(model.to_string(), "openai/gpt-4o-mini");
-    }
+    // ─── Request builder ─────────────────────────────────────────────────
 
     #[test]
     fn request_builder_rejects_invalid_top_p() {
@@ -1385,7 +1953,207 @@ mod tests {
             .top_p(1.1)
             .build()
             .expect_err("invalid top_p should fail");
-
         assert!(err.message.contains("top_p"));
+    }
+
+    #[test]
+    fn request_builder_rejects_invalid_temperature() {
+        let err = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .message(Message::user_text("hello"))
+            .temperature(2.1)
+            .build()
+            .expect_err("invalid temperature should fail");
+        assert!(err.message.contains("temperature"));
+    }
+
+    #[test]
+    fn request_builder_rejects_empty_messages() {
+        let err = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .build()
+            .expect_err("empty messages should fail");
+        assert!(err.message.contains("cannot be empty"));
+    }
+
+    #[test]
+    fn request_builder_accepts_messages_method() {
+        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .messages(vec![Message::user_text("h1"), Message::user_text("h2")])
+            .build()
+            .expect("request should build");
+        assert_eq!(req.messages.len(), 2);
+    }
+
+    #[test]
+    fn request_builder_user_prompt_replaces_messages() {
+        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .message(Message::user_text("old"))
+            .user_prompt("replaced")
+            .build()
+            .expect("request should build");
+        assert_eq!(req.messages.len(), 1);
+    }
+
+    #[test]
+    fn request_builder_sets_all_fields() {
+        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .message(Message::user_text("hi"))
+            .temperature(0.7)
+            .top_p(0.9)
+            .max_output_tokens(100)
+            .stop_sequences(["END", "STOP"])
+            .cancellation_token(tokio_util::sync::CancellationToken::new())
+            .build()
+            .expect("request should build");
+        assert_eq!(req.temperature, Some(0.7));
+        assert_eq!(req.top_p, Some(0.9));
+        assert_eq!(req.max_output_tokens, Some(100));
+        assert_eq!(req.stop_sequences.len(), 2);
+        assert!(req.cancellation_token.is_some());
+    }
+
+    #[test]
+    fn request_builder_empty_tools_is_none() {
+        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .message(Message::user_text("hi"))
+            .tools(Vec::<crate::tool::ToolDescriptor>::new())
+            .build()
+            .expect("request should build");
+        assert!(req.tools.is_none());
+    }
+
+    #[test]
+    fn request_builder_valid_temperature_boundary() {
+        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+            .message(Message::user_text("hi"))
+            .temperature(2.0)
+            .top_p(0.0)
+            .build()
+            .expect("request should build");
+        assert_eq!(req.temperature, Some(2.0));
+        assert_eq!(req.top_p, Some(0.0));
+    }
+
+    // ─── Validate functions ──────────────────────────────────────────────
+
+    #[test]
+    fn rejects_invalid_max_steps() {
+        let err = validate_max_steps(0).expect_err("0 should fail");
+        assert!(err.message.contains("1..=32"));
+    }
+
+    #[test]
+    fn rejects_max_steps_33() {
+        let err = validate_max_steps(33).expect_err("33 should fail");
+        assert!(err.message.contains("1..=32"));
+    }
+
+    #[test]
+    fn accepts_valid_max_steps() {
+        assert!(validate_max_steps(1).is_ok());
+        assert!(validate_max_steps(32).is_ok());
+        assert!(validate_max_steps(16).is_ok());
+    }
+
+    #[test]
+    fn validate_sampling_rejects_negative_temperature() {
+        let err = validate_sampling(Some(-0.1), None).expect_err("negative temp should fail");
+        assert!(err.message.contains("temperature"));
+    }
+
+    #[test]
+    fn validate_sampling_rejects_negative_top_p() {
+        let err = validate_sampling(None, Some(-0.1)).expect_err("negative top_p should fail");
+        assert!(err.message.contains("top_p"));
+    }
+
+    #[test]
+    fn validate_sampling_accepts_none() {
+        assert!(validate_sampling(None, None).is_ok());
+    }
+
+    #[test]
+    fn validate_messages_rejects_empty_list() {
+        let err = validate_messages(&[]).expect_err("empty list should fail");
+        assert!(err.message.contains("cannot be empty"));
+    }
+
+    #[test]
+    fn validate_messages_rejects_message_with_empty_parts() {
+        let err = validate_messages(&[Message {
+            role: MessageRole::User,
+            parts: vec![],
+            name: None,
+        }])
+        .expect_err("message with empty parts should fail");
+        assert!(err.message.contains("cannot be empty"));
+    }
+
+    // ─── RunTools builder ────────────────────────────────────────────────
+
+    #[test]
+    fn run_tools_builds_with_valid_config() {
+        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+            .messages([Message::user_text("hello")])
+            .tools(Vec::<crate::tool::Tool>::new())
+            .max_steps(5)
+            .temperature(0.5)
+            .top_p(0.9)
+            .max_output_tokens(256)
+            .stop_sequences(["END"])
+            .tool_error_policy(ToolErrorPolicy::FailFast)
+            .cancellation_token(tokio_util::sync::CancellationToken::new())
+            .build()
+            .expect("run tools should build");
+        assert_eq!(rt.max_steps, Some(5));
+    }
+
+    #[test]
+    fn run_tools_build_rejects_invalid_max_steps() {
+        match RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+            .messages([Message::user_text("hello")])
+            .max_steps(0)
+            .build()
+        {
+            Err(err) => assert!(err.message.contains("1..=32")),
+            Ok(_) => panic!("should have failed"),
+        }
+    }
+
+    #[test]
+    fn run_tools_build_rejects_invalid_model() {
+        match RunTools::<OpenAi>::new(ModelRef::new("  "))
+            .messages([Message::user_text("hello")])
+            .build()
+        {
+            Err(err) => assert!(err.message.contains("cannot be empty")),
+            Ok(_) => panic!("should have failed"),
+        }
+    }
+
+    #[test]
+    fn run_tools_default_max_steps_is_none() {
+        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+            .messages([Message::user_text("hello")])
+            .build()
+            .expect("run tools should build");
+        assert_eq!(rt.max_steps, None);
+    }
+
+    #[test]
+    fn run_tools_default_tool_error_policy() {
+        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+            .messages([Message::user_text("hello")])
+            .build()
+            .expect("run tools should build");
+        assert_eq!(rt.tool_error_policy, ToolErrorPolicy::ContinueAsToolResult);
+    }
+
+    #[test]
+    fn run_tools_default_tool_concurrency() {
+        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+            .messages([Message::user_text("hello")])
+            .build()
+            .expect("run tools should build");
+        assert_eq!(rt.tool_concurrency, 0);
     }
 }

@@ -299,7 +299,7 @@ mod tests {
     use serde::Deserialize;
     use serde_json::json;
 
-    use super::{Tool, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
+    use super::{IntoTool, Tool, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool};
 
     struct EchoTool;
 
@@ -381,5 +381,169 @@ mod tests {
             .await
             .expect("tool should execute");
         assert_eq!(output, json!({ "x": "ok" }));
+    }
+
+    // ─── ToolRegistry ───────────────────────────────────────────────────
+
+    #[test]
+    fn registry_get_returns_tool_by_name() {
+        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
+        let tool = registry.get("echo").unwrap();
+        assert_eq!(tool.descriptor.name, "echo");
+    }
+
+    #[test]
+    fn registry_get_returns_none_for_unknown_name() {
+        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
+        assert!(registry.get("unknown").is_none());
+    }
+
+    #[test]
+    fn registry_names_returns_all_tool_names() {
+        let registry =
+            ToolRegistry::from_tools(vec![make_tool("alpha"), make_tool("beta")]).unwrap();
+        let mut names = registry.names();
+        names.sort();
+        assert_eq!(names, vec!["alpha", "beta"]);
+    }
+
+    #[test]
+    fn registry_empty_names() {
+        let registry = ToolRegistry::from_tools(vec![]).unwrap();
+        assert!(registry.names().is_empty());
+    }
+
+    #[test]
+    fn registry_rejects_invalid_tool_name_special_chars() {
+        let tools = vec![make_tool("bad name")];
+        let result = ToolRegistry::from_tools(tools);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn registry_rejects_empty_tool_name() {
+        let tools = vec![make_tool("")];
+        let result = ToolRegistry::from_tools(tools);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn registry_rejects_too_long_tool_name() {
+        let name = "a".repeat(65);
+        let tools = vec![make_tool(&name)];
+        let result = ToolRegistry::from_tools(tools);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn registry_rejects_invalid_json_schema() {
+        let tool = Tool {
+            descriptor: ToolDescriptor {
+                name: "bad".to_string(),
+                description: String::new(),
+                input_schema: json!({"type": "invalid_type"}),
+            },
+            executor: Arc::new(EchoTool),
+        };
+        let result = ToolRegistry::from_tools(vec![tool]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn registry_accepts_max_length_tool_name() {
+        let name = "a".repeat(64);
+        let tools = vec![make_tool(&name)];
+        let result = ToolRegistry::from_tools(tools);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn registry_resolve_missing_tool() {
+        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
+        assert!(registry.resolve("missing").is_none());
+    }
+
+    // ─── Tool / ToolBuilder ──────────────────────────────────────────────
+
+    #[test]
+    fn tool_from_parts() {
+        let descriptor = ToolDescriptor {
+            name: "test".into(),
+            description: "desc".into(),
+            input_schema: json!({"type": "object"}),
+        };
+        let executor: Arc<dyn ToolExecutor> = Arc::new(EchoTool);
+        let tool = Tool::from_parts(descriptor.clone(), executor);
+        assert_eq!(tool.descriptor.name, "test");
+    }
+
+    #[test]
+    fn tool_debug_format() {
+        let tool = make_tool("echo");
+        let debug = format!("{:?}", tool);
+        assert!(debug.contains("echo"));
+        assert!(debug.contains("Tool"));
+    }
+
+    #[test]
+    fn tool_builder_default_schema() {
+        let t = tool("my_tool")
+            .description("a tool")
+            .execute_raw(|args| async move { Ok(args) });
+        let schema = &t.descriptor.input_schema;
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["additionalProperties"], true);
+    }
+
+    #[test]
+    fn tool_builder_raw_schema_overrides_default() {
+        let t = tool("my_tool")
+            .raw_schema(json!({"type": "object", "properties": {"a": {"type": "string"}}}))
+            .execute_raw(|args| async move { Ok(args) });
+        assert!(t.descriptor.input_schema["properties"]["a"]["type"] == "string");
+    }
+
+    #[test]
+    fn tool_builder_description() {
+        let t = tool("my_tool")
+            .description("Does something useful")
+            .execute_raw(|args| async move { Ok(args) });
+        assert_eq!(t.descriptor.description, "Does something useful");
+    }
+
+    // ─── IntoTool ───────────────────────────────────────────────────────
+
+    #[test]
+    fn into_tool_for_tool_is_identity() {
+        let t = make_tool("echo");
+        let into: Tool = t.into_tool();
+        assert_eq!(into.descriptor.name, "echo");
+    }
+
+    #[test]
+    fn into_tool_for_closure_calls_closure() {
+        let t = make_tool("echo");
+        let into: Tool = (move || t.clone()).into_tool();
+        assert_eq!(into.descriptor.name, "echo");
+    }
+
+    // ─── ToolExecError ──────────────────────────────────────────────────
+
+    #[test]
+    fn tool_exec_error_display_execution() {
+        let err = ToolExecError::Execution("boom".into());
+        assert!(format!("{}", err).contains("boom"));
+    }
+
+    #[test]
+    fn tool_exec_error_display_timeout() {
+        let err = ToolExecError::Timeout;
+        assert!(format!("{}", err).contains("timeout"));
+    }
+
+    #[test]
+    fn tool_exec_error_debug() {
+        let err = ToolExecError::Execution("boom".into());
+        assert!(format!("{:?}", err).contains("boom"));
     }
 }

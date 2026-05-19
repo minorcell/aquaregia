@@ -314,3 +314,293 @@ pub(crate) fn transport_error(provider_id: &str, err: reqwest::Error) -> Error {
     };
     Error::new(code, err.to_string()).with_provider(provider_id)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ─── Error construction ──────────────────────────────────────────────
+
+    #[test]
+    fn error_new_derives_retryable() {
+        let err = Error::new(ErrorCode::RateLimited, "too many requests");
+        assert!(err.retryable);
+        assert_eq!(err.code, ErrorCode::RateLimited);
+        assert_eq!(err.message, "too many requests");
+        assert!(err.provider.is_none());
+        assert!(err.status.is_none());
+        assert!(err.request_id.is_none());
+        assert!(err.raw_body.is_none());
+        assert!(err.retry_after_secs.is_none());
+    }
+
+    #[test]
+    fn error_new_non_retryable() {
+        let err = Error::new(ErrorCode::InvalidRequest, "bad request");
+        assert!(!err.retryable);
+    }
+
+    #[test]
+    fn error_with_provider() {
+        let err = Error::new(ErrorCode::AuthFailed, "unauthorized").with_provider("openai");
+        assert_eq!(err.provider, Some("openai".into()));
+    }
+
+    #[test]
+    fn error_with_status() {
+        let err = Error::new(ErrorCode::AuthFailed, "unauthorized").with_status(401);
+        assert_eq!(err.status, Some(401));
+    }
+
+    #[test]
+    fn error_with_request_id_some() {
+        let err = Error::new(ErrorCode::Transport, "timeout")
+            .with_request_id(Some("req-123".into()));
+        assert_eq!(err.request_id, Some("req-123".into()));
+    }
+
+    #[test]
+    fn error_with_request_id_none() {
+        let err = Error::new(ErrorCode::Transport, "timeout").with_request_id(None);
+        assert_eq!(err.request_id, None);
+    }
+
+    #[test]
+    fn error_with_raw_body_some() {
+        let err =
+            Error::new(ErrorCode::ProviderServerError, "error").with_raw_body(Some("body".into()));
+        assert_eq!(err.raw_body, Some("body".into()));
+    }
+
+    #[test]
+    fn error_with_raw_body_none() {
+        let err = Error::new(ErrorCode::ProviderServerError, "error").with_raw_body(None);
+        assert_eq!(err.raw_body, None);
+    }
+
+    #[test]
+    fn error_display_format() {
+        let err = Error::new(ErrorCode::RateLimited, "rate limit exceeded");
+        let display = format!("{}", err);
+        assert!(display.contains("RateLimited"));
+        assert!(display.contains("rate limit exceeded"));
+    }
+
+    #[test]
+    fn error_clone() {
+        let err = Error::new(ErrorCode::Timeout, "timeout")
+            .with_provider("google")
+            .with_status(504);
+        let cloned = err.clone();
+        assert_eq!(cloned.code, ErrorCode::Timeout);
+        assert_eq!(cloned.provider, Some("google".into()));
+        assert_eq!(cloned.status, Some(504));
+    }
+
+    #[test]
+    fn error_serialization_roundtrip() {
+        let mut err = Error::new(ErrorCode::RateLimited, "rate limited")
+            .with_provider("openai")
+            .with_status(429)
+            .with_request_id(Some("req-abc".into()))
+            .with_raw_body(Some("{}".into()));
+        err.retry_after_secs = Some(30);
+        let json = serde_json::to_string(&err).unwrap();
+        let back: Error = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.code, ErrorCode::RateLimited);
+        assert_eq!(back.message, "rate limited");
+        assert_eq!(back.provider, Some("openai".into()));
+        assert_eq!(back.status, Some(429));
+        assert_eq!(back.retry_after_secs, Some(30));
+        assert!(back.retryable);
+    }
+
+    // ─── classify_http_error ─────────────────────────────────────────────
+
+    #[test]
+    fn classify_http_401_is_auth_failed() {
+        assert_eq!(classify_http_error(401), ErrorCode::AuthFailed);
+    }
+
+    #[test]
+    fn classify_http_403_is_auth_failed() {
+        assert_eq!(classify_http_error(403), ErrorCode::AuthFailed);
+    }
+
+    #[test]
+    fn classify_http_429_is_rate_limited() {
+        assert_eq!(classify_http_error(429), ErrorCode::RateLimited);
+    }
+
+    #[test]
+    fn classify_http_500_is_provider_server_error() {
+        assert_eq!(classify_http_error(500), ErrorCode::ProviderServerError);
+    }
+
+    #[test]
+    fn classify_http_502_is_provider_server_error() {
+        assert_eq!(classify_http_error(502), ErrorCode::ProviderServerError);
+    }
+
+    #[test]
+    fn classify_http_503_is_provider_server_error() {
+        assert_eq!(classify_http_error(503), ErrorCode::ProviderServerError);
+    }
+
+    #[test]
+    fn classify_http_400_is_invalid_request() {
+        assert_eq!(classify_http_error(400), ErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn classify_http_404_is_invalid_request() {
+        assert_eq!(classify_http_error(404), ErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn classify_http_422_is_invalid_request() {
+        assert_eq!(classify_http_error(422), ErrorCode::InvalidRequest);
+    }
+
+    #[test]
+    fn classify_http_200_is_transport() {
+        assert_eq!(classify_http_error(200), ErrorCode::Transport);
+    }
+
+    #[test]
+    fn classify_http_300_is_transport() {
+        assert_eq!(classify_http_error(302), ErrorCode::Transport);
+    }
+
+    #[test]
+    fn classify_http_418_is_invalid_request() {
+        assert_eq!(classify_http_error(418), ErrorCode::InvalidRequest);
+    }
+
+    // ─── is_retryable ────────────────────────────────────────────────────
+
+    #[test]
+    fn retryable_rate_limited() {
+        assert!(is_retryable(ErrorCode::RateLimited));
+    }
+
+    #[test]
+    fn retryable_provider_server_error() {
+        assert!(is_retryable(ErrorCode::ProviderServerError));
+    }
+
+    #[test]
+    fn retryable_transport() {
+        assert!(is_retryable(ErrorCode::Transport));
+    }
+
+    #[test]
+    fn retryable_timeout() {
+        assert!(is_retryable(ErrorCode::Timeout));
+    }
+
+    #[test]
+    fn not_retryable_invalid_request() {
+        assert!(!is_retryable(ErrorCode::InvalidRequest));
+    }
+
+    #[test]
+    fn not_retryable_auth_failed() {
+        assert!(!is_retryable(ErrorCode::AuthFailed));
+    }
+
+    #[test]
+    fn not_retryable_cancelled() {
+        assert!(!is_retryable(ErrorCode::Cancelled));
+    }
+
+    #[test]
+    fn not_retryable_tool_execution_failed() {
+        assert!(!is_retryable(ErrorCode::ToolExecutionFailed));
+    }
+
+    #[test]
+    fn not_retryable_max_steps_exceeded() {
+        assert!(!is_retryable(ErrorCode::MaxStepsExceeded));
+    }
+
+    // ─── provider_http_error ─────────────────────────────────────────────
+
+    #[test]
+    fn provider_http_error_with_body() {
+        let err = provider_http_error("openai", 429, Some("rate limited".into()), None, None);
+        assert_eq!(err.code, ErrorCode::RateLimited);
+        assert_eq!(err.provider, Some("openai".into()));
+        assert_eq!(err.status, Some(429));
+        assert_eq!(err.raw_body, Some("rate limited".into()));
+    }
+
+    #[test]
+    fn provider_http_error_without_body_uses_default_message() {
+        let err = provider_http_error("google", 500, None, None, None);
+        assert_eq!(err.code, ErrorCode::ProviderServerError);
+        assert!(err.message.contains("500"));
+    }
+
+    #[test]
+    fn provider_http_error_with_retry_after() {
+        let err = provider_http_error(
+            "anthropic",
+            429,
+            Some("rate limited".into()),
+            Some("req-1".into()),
+            Some(60),
+        );
+        assert_eq!(err.retry_after_secs, Some(60));
+        assert_eq!(err.request_id, Some("req-1".into()));
+    }
+
+    #[test]
+    fn provider_http_error_400_invalid_request() {
+        let err = provider_http_error("openai", 400, Some("bad request".into()), None, None);
+        assert_eq!(err.code, ErrorCode::InvalidRequest);
+        assert!(!err.retryable);
+    }
+
+    // ─── transport_error ─────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn transport_error_regular() {
+        let result = reqwest::Client::new()
+            .get("http://0.0.0.0:0")
+            .send()
+            .await
+            .err()
+            .unwrap();
+        let err = transport_error("openai", result);
+        assert_eq!(err.code, ErrorCode::Transport);
+        assert_eq!(err.provider, Some("openai".into()));
+        assert!(err.retryable);
+    }
+
+    // ─── ErrorCode serialization ─────────────────────────────────────────
+
+    #[test]
+    fn error_code_serialization_roundtrip() {
+        let codes = [
+            ErrorCode::InvalidRequest,
+            ErrorCode::AuthFailed,
+            ErrorCode::RateLimited,
+            ErrorCode::ProviderServerError,
+            ErrorCode::Transport,
+            ErrorCode::Timeout,
+            ErrorCode::StreamProtocol,
+            ErrorCode::UnknownTool,
+            ErrorCode::InvalidToolArgs,
+            ErrorCode::ToolExecutionFailed,
+            ErrorCode::MaxStepsExceeded,
+            ErrorCode::InvalidResponse,
+            ErrorCode::Cancelled,
+        ];
+        for code in codes {
+            let json = serde_json::to_string(&code).unwrap();
+            let back: ErrorCode = serde_json::from_str(&json).unwrap();
+            assert_eq!(code, back);
+        }
+    }
+}
