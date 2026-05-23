@@ -13,7 +13,7 @@
 
 </div>
 
-一个 crate 就能在任一 provider 上构建 LLM 应用与 Agent —— OpenAI、Anthropic、Google、或任何 OpenAI-compatible 端点（DeepSeek、vLLM、Ollama……）。
+一个 crate 就能在任一 provider 上构建 LLM 应用与 Agent —— OpenAI、Anthropic、Google、或任何 OpenAI-compatible 端点。
 
 ---
 
