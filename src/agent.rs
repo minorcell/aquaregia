@@ -455,10 +455,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let err = match Agent::builder(client, "gpt-4o-mini")
-            .top_p(1.5)
-            .build()
-        {
+        let err = match Agent::builder(client, "gpt-4o-mini").top_p(1.5).build() {
             Ok(_) => panic!("agent build should fail"),
             Err(err) => err,
         };

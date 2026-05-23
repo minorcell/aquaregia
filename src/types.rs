@@ -1081,7 +1081,11 @@ impl Usage {
     }
 
     /// Sets output text/reasoning split and recomputes total output tokens.
-    pub(crate) fn with_output_split(mut self, output_text_tokens: u32, reasoning_tokens: u32) -> Self {
+    pub(crate) fn with_output_split(
+        mut self,
+        output_text_tokens: u32,
+        reasoning_tokens: u32,
+    ) -> Self {
         self.output_text_tokens = output_text_tokens;
         self.reasoning_tokens = reasoning_tokens;
         self.output_tokens = output_text_tokens.saturating_add(reasoning_tokens);

@@ -71,9 +71,7 @@ pub use model_adapters::openai::OpenAiAdapterSettings;
 pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
 pub use tokio_util::sync::CancellationToken;
 
-pub use tool::{
-    IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, tool,
-};
+pub use tool::{IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, tool};
 pub use types::{
     AgentFinish,
     AgentPrepareStep,

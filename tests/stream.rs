@@ -48,22 +48,19 @@ async fn anthropic_stream_emits_text_usage_done() {
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should parse");
         match event {
-            StreamEvent::TextDelta { text } => {
-                if text == "Hello" {
-                    saw_text = true;
-                }
+            StreamEvent::TextDelta { text } if text == "Hello" => {
+                saw_text = true;
             }
-            StreamEvent::Usage { usage } => {
+            StreamEvent::Usage { usage }
                 if usage.input_tokens == 10
                     && usage.input_no_cache_tokens == 7
                     && usage.input_cache_read_tokens == 2
                     && usage.input_cache_write_tokens == 1
                     && usage.output_tokens == 3
                     && usage.output_text_tokens == 3
-                    && usage.total_tokens == 13
-                {
-                    saw_usage = true;
-                }
+                    && usage.total_tokens == 13 =>
+            {
+                saw_usage = true;
             }
             StreamEvent::Done => {
                 saw_done = true;
@@ -121,21 +118,18 @@ async fn openai_stream_accepts_eof_without_done_marker() {
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should parse");
         match event {
-            StreamEvent::TextDelta { text } => {
-                if text == "Hello" {
-                    saw_text = true;
-                }
+            StreamEvent::TextDelta { text } if text == "Hello" => {
+                saw_text = true;
             }
-            StreamEvent::Usage { usage } => {
+            StreamEvent::Usage { usage }
                 if usage.total_tokens == 5
                     && usage.input_cache_read_tokens == 1
                     && usage.input_no_cache_tokens == 1
                     && usage.output_tokens == 3
                     && usage.output_text_tokens == 2
-                    && usage.reasoning_tokens == 1
-                {
-                    saw_usage = true;
-                }
+                    && usage.reasoning_tokens == 1 =>
+            {
+                saw_usage = true;
             }
             StreamEvent::Done => {
                 saw_done = true;
@@ -193,21 +187,18 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should parse");
         match event {
-            StreamEvent::TextDelta { text } => {
-                if text == "Hi" {
-                    saw_text = true;
-                }
+            StreamEvent::TextDelta { text } if text == "Hi" => {
+                saw_text = true;
             }
-            StreamEvent::Usage { usage } => {
+            StreamEvent::Usage { usage }
                 if usage.total_tokens == 5
                     && usage.input_cache_read_tokens == 1
                     && usage.input_no_cache_tokens == 1
                     && usage.output_tokens == 3
                     && usage.output_text_tokens == 2
-                    && usage.reasoning_tokens == 1
-                {
-                    saw_usage = true;
-                }
+                    && usage.reasoning_tokens == 1 =>
+            {
+                saw_usage = true;
             }
             StreamEvent::Done => {
                 saw_done = true;
