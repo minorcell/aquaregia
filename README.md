@@ -25,7 +25,6 @@ One crate to build LLM applications and agents on a single, provider-agnostic fo
 - **Production reliability** — built-in retries with exponential backoff and `Retry-After` parsing, `CancellationToken` checkpoints, optional `tracing` spans.
 - **Multi-turn out of the box** — `AgentResponse.transcript` round-trips back into `agent.run_messages(...)` for free.
 - **Multimodal vision** — URL / base64 / raw bytes, mapped to each provider's native image format.
-- **Axum SSE bridge** — `axum_sse::stream_to_sse(stream)` converts any `TextStream` into named SSE events.
 
 ---
 
@@ -72,7 +71,6 @@ You also need a Tokio runtime in your project.
 | ----------- | -------------------------------------------------------------------- |
 | `openai`    | OpenAI adapter — default                                             |
 | `anthropic` | Anthropic adapter — default                                          |
-| `axum`      | `axum_sse` module: convert `TextStream` into Axum SSE responses      |
 | `telemetry` | `tracing` spans for `generate`, `stream`, agent steps, and tools     |
 
 Google and OpenAI-compatible adapters are always available.
@@ -519,21 +517,54 @@ Aquaregia emits — but does not configure — `tracing` spans. Bring your own s
 
 ---
 
-## Axum SSE bridge
+## Framework integration example (Axum)
 
-Enable the `axum` feature, then pipe any `TextStream` straight into an `Sse` response:
+Aquaregia intentionally keeps web framework adapters out of the crate. If you're building on Axum, adapt `TextStream` in your application layer:
 
 ```rust
-use aquaregia::{axum_sse::stream_to_sse, BoundClient, GenerateTextRequest, OpenAiCompatible};
-use axum::{extract::State, response::IntoResponse, routing::get, Router};
-use std::sync::Arc;
+use aquaregia::{BoundClient, GenerateTextRequest, OpenAiCompatible, StreamEvent, TextStream};
+use axum::{
+    extract::State,
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
+    routing::get,
+    Router,
+};
+use futures_util::StreamExt;
+use std::{convert::Infallible, sync::Arc};
+
+fn to_axum_sse(
+    stream: TextStream,
+) -> impl IntoResponse {
+    Sse::new(stream.map(|item| {
+        let event = match item {
+            Ok(StreamEvent::ReasoningStarted { .. }) => {
+                Event::default().event("reasoning_start").data("{}")
+            }
+            Ok(StreamEvent::ReasoningDelta { text, .. }) => {
+                Event::default().event("reasoning_token").data(text)
+            }
+            Ok(StreamEvent::ReasoningDone { .. }) => {
+                Event::default().event("reasoning_end").data("{}")
+            }
+            Ok(StreamEvent::TextDelta { text }) => Event::default().event("token").data(text),
+            Ok(StreamEvent::ToolCallReady { .. }) => Event::default().event("tool_call").data("{}"),
+            Ok(StreamEvent::Usage { .. }) => Event::default().event("usage").data("{}"),
+            Ok(StreamEvent::Done) => Event::default().event("done").data("{}"),
+            Err(err) => Event::default().event("error").data(err.message),
+        };
+        Ok::<Event, Infallible>(event)
+    }))
+}
 
 async fn chat(State(client): State<Arc<BoundClient<OpenAiCompatible>>>) -> impl IntoResponse {
     let stream = client
         .stream(GenerateTextRequest::from_user_prompt("deepseek-chat", "Hello."))
         .await
         .unwrap();
-    stream_to_sse(stream)
+    to_axum_sse(stream)
 }
 
 let app: Router = Router::new()
@@ -541,18 +572,9 @@ let app: Router = Router::new()
     .with_state(Arc::new(client));
 ```
 
-The bridge maps each `StreamEvent` to a named SSE event so browser clients can route by name:
+The example keeps non-text payloads minimal; in a real app, serialize tool calls, usage, and reasoning metadata into whatever wire format your frontend expects.
 
-| `StreamEvent`        | SSE `event:`      |
-| -------------------- | ----------------- |
-| `ReasoningStarted`   | `reasoning_start` |
-| `ReasoningDelta`     | `reasoning_token` |
-| `ReasoningDone`      | `reasoning_end`   |
-| `TextDelta`          | `token`           |
-| `ToolCallReady`      | `tool_call`       |
-| `Usage`              | `usage`           |
-| `Done`               | `done`            |
-| stream error         | `error`           |
+Map the `StreamEvent` variants you care about to named SSE events, websocket messages, or any other transport format your app uses.
 
 ---
 
@@ -613,7 +635,6 @@ cargo check --examples
 cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic
-cargo check --features axum
 cargo test --features telemetry
 cargo clippy -- -D warnings
 ```

@@ -16,7 +16,6 @@ path = "src/lib.rs"
 default = ["openai", "anthropic"]
 openai = []
 anthropic = []
-axum = ["dep:axum"]
 telemetry = ["dep:tracing"]
 
 [dependencies]
@@ -24,7 +23,6 @@ telemetry = ["dep:tracing"]
 async-stream = "0.3"
 base64 = "0.22"
 async-trait = "0.1"
-axum = { version = "0.8", optional = true }
 futures-core = "0.3"
 futures-util = "0.3"
 jsonschema = { version = "0.30", default-features = false }
@@ -41,7 +39,5 @@ url = "2.5"
 
 [dev-dependencies]
 http = "1"
-http-body = "1"
-http-body-util = "0.1"
 tokio = { version = "1.44", features = ["macros", "rt-multi-thread"] }
 wiremock = "0.6"

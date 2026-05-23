@@ -69,3 +69,9 @@
 6. `mini_claude_code.rs`
 7. `prepare_hooks.rs`
 8. `multimodal_image.rs`
+
+## Web 框架集成说明
+
+Aquaregia 不在主 crate 中内置 Axum、Actix、Warp 等 Web 框架适配层。
+如果你需要把流式输出接到 SSE / WebSocket，请在应用层基于 `TextStream` 与 `StreamEvent` 做一层转换。
+Axum 的示例写法可参考顶层 [`README.md`](../README.md)。

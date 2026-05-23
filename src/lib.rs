@@ -47,7 +47,6 @@
 //! | `openai`    | OpenAI adapter (default)                                             |
 //! | `anthropic` | Anthropic adapter (default)                                          |
 //! | `telemetry` | `tracing` spans for `generate`, `stream`, agent steps and tool calls |
-//! | `axum`      | Axum SSE bridge for converting streams into SSE responses            |
 //!
 //! ## Architecture
 //!
@@ -71,13 +70,6 @@ pub mod stream;
 pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
-
-#[cfg(feature = "axum")]
-/// Axum SSE bridge for converting [`TextStream`] into SSE responses.
-///
-/// This module provides integration with the Axum web framework, allowing
-/// streaming responses to be converted into Server-Sent Events (SSE) for HTTP streaming.
-pub mod axum_sse;
 
 pub use agent::{Agent, AgentBuilder, AgentRunPlan};
 pub use client::{BoundClient, ClientBuilder, LlmClient};
