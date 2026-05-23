@@ -7,6 +7,20 @@ license = "MIT"
 readme = "README.md"
 repository = "https://github.com/minorcell/aquaregia"
 documentation = "https://docs.rs/aquaregia"
+exclude = [
+    ".gitignore",
+    ".github/**",
+    "scripts/**",
+    "codecov.yml",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    "README_CN.md",
+    "tests/**",
+    "examples/**",
+    "**/AGENTS.md",
+    "**/CLAUDE.md",
+]
 
 [lib]
 name = "aquaregia"
