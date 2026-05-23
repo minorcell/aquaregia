@@ -745,7 +745,9 @@ async fn execute_tool_calls(
                     duration_ms: 0,
                 });
             }
-            executions.push(ExecutedToolCall { result: tool_result });
+            executions.push(ExecutedToolCall {
+                result: tool_result,
+            });
             continue;
         }
 
@@ -770,14 +772,14 @@ async fn execute_tool_calls(
     }
 
     let results = if concurrency == 1 {
-            let mut sequential = Vec::with_capacity(tasks.len());
-            for task in tasks {
-                sequential.push(task.await);
-            }
-            sequential
-        } else {
-            join_all(tasks).await
-        };
+        let mut sequential = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            sequential.push(task.await);
+        }
+        sequential
+    } else {
+        join_all(tasks).await
+    };
     for (call, result, duration_ms) in results {
         let (output_json, is_error) = match result {
             Ok(output_json) => (output_json, false),

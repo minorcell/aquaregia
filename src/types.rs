@@ -1393,12 +1393,18 @@ mod tests {
 
     #[test]
     fn provider_kind_from_slug_all_variants() {
-        assert_eq!(ProviderKind::from_slug("openai"), Some(ProviderKind::OpenAi));
+        assert_eq!(
+            ProviderKind::from_slug("openai"),
+            Some(ProviderKind::OpenAi)
+        );
         assert_eq!(
             ProviderKind::from_slug("ANTHROPIC"),
             Some(ProviderKind::Anthropic)
         );
-        assert_eq!(ProviderKind::from_slug("Google"), Some(ProviderKind::Google));
+        assert_eq!(
+            ProviderKind::from_slug("Google"),
+            Some(ProviderKind::Google)
+        );
         assert_eq!(
             ProviderKind::from_slug("OpenAI-Compatible"),
             Some(ProviderKind::OpenAiCompatible)
@@ -1416,7 +1422,10 @@ mod tests {
         assert_eq!(ProviderKind::OpenAi.as_slug(), "openai");
         assert_eq!(ProviderKind::Anthropic.as_slug(), "anthropic");
         assert_eq!(ProviderKind::Google.as_slug(), "google");
-        assert_eq!(ProviderKind::OpenAiCompatible.as_slug(), "openai-compatible");
+        assert_eq!(
+            ProviderKind::OpenAiCompatible.as_slug(),
+            "openai-compatible"
+        );
     }
 
     #[test]
@@ -1512,8 +1521,7 @@ mod tests {
 
     #[test]
     fn message_user_text_and_image_url() {
-        let msg =
-            Message::user_text_and_image_url("caption", "https://example.com/img.jpg");
+        let msg = Message::user_text_and_image_url("caption", "https://example.com/img.jpg");
         assert_eq!(msg.role(), MessageRole::User);
         assert_eq!(msg.parts().len(), 2);
     }
@@ -1687,8 +1695,7 @@ mod tests {
 
     #[test]
     fn usage_with_output_split_recomputes_output_tokens() {
-        let usage =
-            Usage::from_totals(100, 50, 0, None).with_output_split(30, 20);
+        let usage = Usage::from_totals(100, 50, 0, None).with_output_split(30, 20);
         assert_eq!(usage.output_text_tokens, 30);
         assert_eq!(usage.reasoning_tokens, 20);
         assert_eq!(usage.output_tokens, 50);

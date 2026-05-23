@@ -1,6 +1,6 @@
 use aquaregia::{
-    ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, StreamEvent,
-    anthropic, google, openai, openai_compatible,
+    ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic,
+    google, openai,
 };
 use futures_util::StreamExt;
 use serde_json::json;
@@ -12,14 +12,10 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 #[tokio::test]
 async fn google_stream_emits_text_usage_done() {
     let server = MockServer::start().await;
-    let sse_body = concat!(
-        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":1,\"totalTokenCount\":6}}\n\n"
-    );
+    let sse_body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":1,\"totalTokenCount\":6}}\n\n";
 
     Mock::given(method("POST"))
-        .and(path(
-            "/models/gemini-2.0-flash:streamGenerateContent",
-        ))
+        .and(path("/models/gemini-2.0-flash:streamGenerateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(
             ResponseTemplate::new(200)
@@ -35,10 +31,7 @@ async fn google_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt(
-        google("gemini-2.0-flash"),
-        "hello",
-    );
+    let req = GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello");
 
     let mut stream = client
         .stream(req)
@@ -78,14 +71,10 @@ async fn google_stream_emits_text_usage_done() {
 #[tokio::test]
 async fn google_stream_with_reasoning() {
     let server = MockServer::start().await;
-    let sse_body = concat!(
-        "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I think...\",\"thought\":true},{\"text\":\"Answer\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":3,\"totalTokenCount\":8}}\n\n"
-    );
+    let sse_body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I think...\",\"thought\":true},{\"text\":\"Answer\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":3,\"totalTokenCount\":8}}\n\n";
 
     Mock::given(method("POST"))
-        .and(path(
-            "/models/gemini-2.0-flash:streamGenerateContent",
-        ))
+        .and(path("/models/gemini-2.0-flash:streamGenerateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(
             ResponseTemplate::new(200)
@@ -101,10 +90,7 @@ async fn google_stream_with_reasoning() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt(
-        google("gemini-2.0-flash"),
-        "hello",
-    );
+    let req = GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello");
 
     let mut stream = client
         .stream(req)
@@ -285,11 +271,13 @@ async fn google_generate_with_thought_signature() {
         .expect("request should succeed");
 
     assert_eq!(response.reasoning_text, "reasoning");
-    assert!(response
-        .reasoning_parts
-        .first()
-        .and_then(|p| p.provider_metadata.as_ref())
-        .is_some());
+    assert!(
+        response
+            .reasoning_parts
+            .first()
+            .and_then(|p| p.provider_metadata.as_ref())
+            .is_some()
+    );
 }
 
 // ─── Google error responses ─────────────────────────────────────────────
@@ -691,7 +679,10 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
         .expect("request should succeed");
 
     assert_eq!(response.output_text, "Checking...");
-    assert_eq!(response.reasoning_parts.first().unwrap().text, "Let me check the weather");
+    assert_eq!(
+        response.reasoning_parts.first().unwrap().text,
+        "Let me check the weather"
+    );
     assert_eq!(response.finish_reason, FinishReason::ToolCalls);
     assert_eq!(response.tool_calls.len(), 1);
 }

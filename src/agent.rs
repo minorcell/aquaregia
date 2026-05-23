@@ -180,10 +180,8 @@ impl<P: ProviderMarker> Agent<P> {
             .first()
             .map(|m| m.role() == crate::types::MessageRole::System)
             .unwrap_or(false);
-        if !has_system {
-            if let Some(instructions) = &self.instructions {
-                messages.insert(0, Message::system_text(instructions.clone()));
-            }
+        if !has_system && let Some(instructions) = &self.instructions {
+            messages.insert(0, Message::system_text(instructions.clone()));
         }
         messages
     }
@@ -196,7 +194,8 @@ impl<P: ProviderMarker> Agent<P> {
         prompt: impl Into<String>,
     ) -> Result<AgentResponse, crate::error::Error> {
         let messages = vec![Message::user_text(prompt)];
-        self.run_messages_inner(self.inject_instructions(messages), None).await
+        self.run_messages_inner(self.inject_instructions(messages), None)
+            .await
     }
 
     /// Runs the agent with an explicit message list.
@@ -208,7 +207,8 @@ impl<P: ProviderMarker> Agent<P> {
         &self,
         messages: Vec<Message>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(self.inject_instructions(messages), None).await
+        self.run_messages_inner(self.inject_instructions(messages), None)
+            .await
     }
 
     /// Runs the agent with a prompt and cancellation support.
@@ -218,7 +218,8 @@ impl<P: ProviderMarker> Agent<P> {
         token: CancellationToken,
     ) -> Result<AgentResponse, crate::error::Error> {
         let messages = vec![Message::user_text(prompt)];
-        self.run_messages_cancellable(self.inject_instructions(messages), token).await
+        self.run_messages_cancellable(self.inject_instructions(messages), token)
+            .await
     }
 
     /// Runs the agent with explicit messages and cancellation support.
@@ -231,7 +232,8 @@ impl<P: ProviderMarker> Agent<P> {
         messages: Vec<Message>,
         token: CancellationToken,
     ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(self.inject_instructions(messages), Some(token)).await
+        self.run_messages_inner(self.inject_instructions(messages), Some(token))
+            .await
     }
 
     async fn run_messages_inner(

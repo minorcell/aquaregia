@@ -7,8 +7,7 @@ use aquaregia::{GenerateTextRequest, ImagePart, LlmClient, MediaData, Message};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?)
-        .build()?;
+    let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?).build()?;
 
     let response = client
         .generate(
@@ -24,10 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{}", response.output_text);
 
     // Example: image from raw bytes (e.g. read from a file)
-    let _image_bytes_example = Message::user_image_bytes(
-        vec![/* raw JPEG bytes */],
-        "image/jpeg",
-    );
+    let _image_bytes_example = Message::user_image_bytes(vec![/* raw JPEG bytes */], "image/jpeg");
 
     // Example: image from base64
     let _image_b64_example = Message::user_image_url(

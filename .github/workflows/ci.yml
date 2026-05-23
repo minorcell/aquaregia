@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets --all-features --locked -- -D warnings
+
+      - name: Test
+        run: cargo test --all-features --locked
+
+  features:
+    name: Feature Compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore Rust cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check without default features
+        run: cargo check --locked --no-default-features
+
+      - name: Check OpenAI-only feature set
+        run: cargo check --locked --no-default-features --features openai
+
+      - name: Check Anthropic-only feature set
+        run: cargo check --locked --no-default-features --features anthropic
+
+      - name: Check telemetry feature set
+        run: cargo check --locked --features telemetry

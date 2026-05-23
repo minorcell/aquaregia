@@ -166,8 +166,8 @@ fn read() -> Tool {
                     MAX_READ_LIMIT
                 )));
             }
-            let safe_path = resolve_safe_path(&args.path)
-                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
+            let safe_path =
+                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
 
             let text = fs::read_to_string(&safe_path).map_err(|e| {
                 aquaregia::ToolExecError::Execution(format!(
@@ -206,8 +206,8 @@ fn write() -> Tool {
     tool("write")
         .description("Write full file content (create parent dirs automatically)")
         .execute(|args: WriteArgs| async move {
-            let safe_path = resolve_safe_path(&args.path)
-                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
+            let safe_path =
+                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
 
             if let Some(parent) = safe_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| {
@@ -243,8 +243,8 @@ fn edit() -> Tool {
     tool("edit")
         .description("Edit file by replacing one unique old_string with new_string")
         .execute(|args: EditArgs| async move {
-            let safe_path = resolve_safe_path(&args.path)
-                .map_err(|e| aquaregia::ToolExecError::Execution(e))?;
+            let safe_path =
+                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
 
             let original = fs::read_to_string(&safe_path).map_err(|e| {
                 aquaregia::ToolExecError::Execution(format!(

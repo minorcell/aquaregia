@@ -1,7 +1,4 @@
-use aquaregia::{
-    Agent, AgentPreparedStep, ErrorCode, LlmClient, Message,
-    ToolErrorPolicy, openai,
-};
+use aquaregia::{Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, ToolErrorPolicy, openai};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -236,10 +233,7 @@ async fn agent_continue_on_invalid_tool_args() {
         .build()
         .expect("agent should build");
 
-    let response = agent
-        .run("weather?")
-        .await
-        .expect("agent should succeed");
+    let response = agent.run("weather?").await.expect("agent should succeed");
 
     assert_eq!(response.output_text, "Recovered from error");
     assert_eq!(response.steps, 2);
@@ -276,10 +270,7 @@ async fn agent_without_tools_returns_first_response() {
         .build()
         .expect("agent should build");
 
-    let response = agent
-        .run("hello")
-        .await
-        .expect("agent should succeed");
+    let response = agent.run("hello").await.expect("agent should succeed");
 
     assert_eq!(response.output_text, "Direct answer");
     assert_eq!(response.steps, 1);
@@ -411,10 +402,7 @@ async fn agent_prepare_step_changes_tools() {
         .build()
         .expect("agent should build");
 
-    let response = agent
-        .run("hello")
-        .await
-        .expect("agent should succeed");
+    let response = agent.run("hello").await.expect("agent should succeed");
 
     assert_eq!(response.output_text, "No tools, direct answer");
     assert_eq!(response.steps, 1);

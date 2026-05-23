@@ -354,8 +354,8 @@ mod tests {
 
     #[test]
     fn error_with_request_id_some() {
-        let err = Error::new(ErrorCode::Transport, "timeout")
-            .with_request_id(Some("req-123".into()));
+        let err =
+            Error::new(ErrorCode::Transport, "timeout").with_request_id(Some("req-123".into()));
         assert_eq!(err.request_id, Some("req-123".into()));
     }
 

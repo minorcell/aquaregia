@@ -1,7 +1,7 @@
 use aquaregia::{Agent, LlmClient, Tool, tool};
 use schemars::JsonSchema;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";

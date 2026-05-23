@@ -1,6 +1,6 @@
 use aquaregia::{
-    AnthropicAdapterSettings, ErrorCode, GoogleAdapterSettings, LlmClient,
-    OpenAiAdapterSettings, OpenAiCompatibleAdapterSettings,
+    AnthropicAdapterSettings, ErrorCode, GoogleAdapterSettings, LlmClient, OpenAiAdapterSettings,
+    OpenAiCompatibleAdapterSettings,
 };
 use std::time::Duration;
 
@@ -133,7 +133,11 @@ fn anthropic_settings_default_values() {
 #[test]
 fn google_settings_default_base_url() {
     let settings = GoogleAdapterSettings::new("g-key");
-    assert!(settings.base_url.contains("generativelanguage.googleapis.com"));
+    assert!(
+        settings
+            .base_url
+            .contains("generativelanguage.googleapis.com")
+    );
     assert_eq!(settings.api_key, "g-key");
 }
 

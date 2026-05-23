@@ -87,12 +87,10 @@ async fn stream_to_sse_usage_event() {
 
 #[tokio::test]
 async fn stream_to_sse_error_event() {
-    let body = collect_sse_body(vec![
-        Err(aquaregia::Error::new(
-            aquaregia::ErrorCode::RateLimited,
-            "rate limited",
-        )),
-    ])
+    let body = collect_sse_body(vec![Err(aquaregia::Error::new(
+        aquaregia::ErrorCode::RateLimited,
+        "rate limited",
+    ))])
     .await;
     assert!(body.contains("event: error"));
     assert!(body.contains("RateLimited"));

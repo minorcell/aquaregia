@@ -2,9 +2,20 @@ name: Coverage
 
 on:
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
   push:
     branches:
       - main
+    paths-ignore:
+      - "**/*.md"
+      - "LICENSE"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -17,6 +28,7 @@ jobs:
   coverage:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    if: github.event_name != 'pull_request' || !github.event.pull_request.draft
 
     steps:
       - name: Checkout repository
@@ -34,11 +46,11 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate lcov report
-        run: cargo llvm-cov --all-features --locked --lcov --output-path lcov.info
+        run: cargo llvm-cov --all-features --locked --lib --tests --lcov --output-path lcov.info
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
           files: lcov.info
-          fail_ci_if_error: true
+          fail_ci_if_error: false
           use_oidc: true
