@@ -45,15 +45,9 @@ async fn google_stream_emits_text_usage_done() {
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should parse");
         match event {
-            StreamEvent::TextDelta { text } => {
-                if text == "Hello" {
-                    saw_text = true;
-                }
-            }
-            StreamEvent::Usage { usage } => {
-                if usage.input_tokens == 3 && usage.total_tokens == 6 {
-                    saw_usage = true;
-                }
+            StreamEvent::TextDelta { text } if text == "Hello" => saw_text = true,
+            StreamEvent::Usage { usage } if usage.input_tokens == 3 && usage.total_tokens == 6 => {
+                saw_usage = true;
             }
             StreamEvent::Done => {
                 saw_done = true;
@@ -509,10 +503,8 @@ async fn openai_stream_with_tool_calls_and_finish() {
     while let Some(event) = stream.next().await {
         let event = event.expect("stream event should parse");
         match event {
-            StreamEvent::ToolCallReady { call } => {
-                if call.tool_name == "weather" {
-                    saw_tool_call = true;
-                }
+            StreamEvent::ToolCallReady { call } if call.tool_name == "weather" => {
+                saw_tool_call = true;
             }
             StreamEvent::Done => {
                 saw_done = true;
