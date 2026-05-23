@@ -185,11 +185,7 @@ impl ThinkTagStreamParser {
 pub(crate) fn split_think_tags(input: &str, case_insensitive: bool) -> ThinkTagSplitResult {
     let mut parser = ThinkTagStreamParser::new(case_insensitive);
     let mut result = ThinkTagSplitResult::default();
-    for segment in parser
-        .feed(input)
-        .into_iter()
-        .chain(parser.finish().into_iter())
-    {
+    for segment in parser.feed(input).into_iter().chain(parser.finish()) {
         match segment {
             ThinkTagSegment::Text(text) => result.text.push_str(&text),
             ThinkTagSegment::Reasoning(text) => result.reasoning.push_str(&text),

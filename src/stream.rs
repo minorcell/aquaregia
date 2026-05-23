@@ -72,10 +72,7 @@ pub fn parse_sse_lines(input: &str) -> Vec<SseFrame> {
 /// Internal helper to drain parsed frames from a buffer.
 pub(crate) fn drain_sse_frames(buffer: &mut String) -> Vec<SseFrame> {
     let mut out = Vec::new();
-    loop {
-        let Some(idx) = buffer.find("\n\n") else {
-            break;
-        };
+    while let Some(idx) = buffer.find("\n\n") {
         let raw = buffer[..idx].to_string();
         buffer.drain(..idx + 2);
         if let Some(frame) = parse_frame(&raw) {
