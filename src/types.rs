@@ -37,28 +37,6 @@ pub enum ProviderKind {
 }
 
 impl ProviderKind {
-    /// Parses a provider slug (case-insensitive).
-    ///
-    /// This function converts a string identifier into the corresponding [`ProviderKind`] variant.
-    /// The input is normalized to lowercase before matching.
-    ///
-    /// # Arguments
-    ///
-    /// * `value` - Provider slug string (e.g., `"openai"`, `"anthropic"`, `"google"`, `"openai-compatible"`)
-    ///
-    /// # Returns
-    ///
-    /// `Some(ProviderKind)` if the slug matches, `None` otherwise.
-    pub fn from_slug(value: &str) -> Option<Self> {
-        match value.to_ascii_lowercase().as_str() {
-            "openai" => Some(Self::OpenAi),
-            "anthropic" => Some(Self::Anthropic),
-            "google" => Some(Self::Google),
-            "openai-compatible" => Some(Self::OpenAiCompatible),
-            _ => None,
-        }
-    }
-
     /// Returns the canonical provider slug.
     ///
     /// This method returns the normalized string identifier for the provider,
@@ -179,16 +157,6 @@ impl<P: ProviderMarker> ModelRef<P> {
     /// suitable for logging, display, or configuration purposes.
     pub fn id(&self) -> String {
         format!("{}/{}", P::KIND.as_slug(), self.model)
-    }
-
-    /// Returns the provider family marker for this model.
-    pub fn provider_kind(&self) -> ProviderKind {
-        P::KIND
-    }
-
-    /// Returns the provider slug for this model.
-    pub fn provider_slug(&self) -> &'static str {
-        P::KIND.as_slug()
     }
 
     /// Returns the provider-local model id.
@@ -358,19 +326,6 @@ impl Message {
         }
     }
 
-    /// Attaches an optional author/tool name to the message.
-    ///
-    /// The name field can be used for attribution purposes,
-    /// such as identifying which tool produced a result.
-    ///
-    /// # Arguments
-    ///
-    /// * `name` - The author or tool name
-    pub fn with_name(mut self, name: impl Into<String>) -> Self {
-        self.name = Some(name.into());
-        self
-    }
-
     /// Returns the message role.
     pub fn role(&self) -> MessageRole {
         self.role.clone()
@@ -379,11 +334,6 @@ impl Message {
     /// Returns message content parts.
     pub fn parts(&self) -> &[ContentPart] {
         &self.parts
-    }
-
-    /// Returns optional message name.
-    pub fn name(&self) -> Option<&str> {
-        self.name.as_deref()
     }
 
     /// Internal constructor for assistant messages with multiple content parts.
@@ -1109,7 +1059,7 @@ impl std::ops::AddAssign for Usage {
 
 impl Usage {
     /// Builds usage from provider totals and back-fills derived counters.
-    pub fn from_totals(
+    pub(crate) fn from_totals(
         input_tokens: u32,
         output_tokens: u32,
         reasoning_tokens: u32,
@@ -1132,7 +1082,7 @@ impl Usage {
     }
 
     /// Sets input cache split and recomputes no-cache input tokens.
-    pub fn with_input_cache_split(
+    pub(crate) fn with_input_cache_split(
         mut self,
         cache_read_tokens: u32,
         cache_write_tokens: u32,
@@ -1147,7 +1097,7 @@ impl Usage {
     }
 
     /// Sets output text/reasoning split and recomputes total output tokens.
-    pub fn with_output_split(mut self, output_text_tokens: u32, reasoning_tokens: u32) -> Self {
+    pub(crate) fn with_output_split(mut self, output_text_tokens: u32, reasoning_tokens: u32) -> Self {
         self.output_text_tokens = output_text_tokens;
         self.reasoning_tokens = reasoning_tokens;
         self.output_tokens = output_text_tokens.saturating_add(reasoning_tokens);
@@ -1156,7 +1106,7 @@ impl Usage {
     }
 
     /// Attaches raw provider usage payload.
-    pub fn with_raw_usage(mut self, raw_usage: Value) -> Self {
+    pub(crate) fn with_raw_usage(mut self, raw_usage: Value) -> Self {
         self.raw_usage = Some(raw_usage);
         self
     }
@@ -1340,7 +1290,6 @@ mod tests {
     #[test]
     fn builds_openai_model() {
         let model = ModelRef::<OpenAi>::new("gpt-4o-mini");
-        assert_eq!(model.provider_kind(), ProviderKind::OpenAi);
         assert_eq!(model.model(), "gpt-4o-mini");
     }
 
@@ -1390,32 +1339,6 @@ mod tests {
     }
 
     // ─── ProviderKind ────────────────────────────────────────────────────
-
-    #[test]
-    fn provider_kind_from_slug_all_variants() {
-        assert_eq!(
-            ProviderKind::from_slug("openai"),
-            Some(ProviderKind::OpenAi)
-        );
-        assert_eq!(
-            ProviderKind::from_slug("ANTHROPIC"),
-            Some(ProviderKind::Anthropic)
-        );
-        assert_eq!(
-            ProviderKind::from_slug("Google"),
-            Some(ProviderKind::Google)
-        );
-        assert_eq!(
-            ProviderKind::from_slug("OpenAI-Compatible"),
-            Some(ProviderKind::OpenAiCompatible)
-        );
-    }
-
-    #[test]
-    fn provider_kind_from_slug_unknown() {
-        assert_eq!(ProviderKind::from_slug("unknown"), None);
-        assert_eq!(ProviderKind::from_slug(""), None);
-    }
 
     #[test]
     fn provider_kind_as_slug() {
@@ -1493,18 +1416,6 @@ mod tests {
         };
         let msg = Message::tool_result(result.clone());
         assert_eq!(msg.role(), MessageRole::Tool);
-    }
-
-    #[test]
-    fn message_with_name() {
-        let msg = Message::user_text("hello").with_name("alice");
-        assert_eq!(msg.name(), Some("alice"));
-    }
-
-    #[test]
-    fn message_name_none_by_default() {
-        let msg = Message::user_text("hello");
-        assert_eq!(msg.name(), None);
     }
 
     #[test]

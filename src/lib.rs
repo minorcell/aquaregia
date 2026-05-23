@@ -55,8 +55,7 @@ pub mod client;
 pub mod error;
 /// Provider adapter traits and concrete provider implementations.
 pub mod model_adapters;
-/// SSE frame parsing helpers used by streaming adapters.
-pub mod stream;
+pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
 pub mod tool;
 /// Shared request/response and event types.
@@ -73,7 +72,7 @@ pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
 pub use tokio_util::sync::CancellationToken;
 
 pub use tool::{
-    IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool,
+    IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, tool,
 };
 pub use types::{
     AgentFinish,

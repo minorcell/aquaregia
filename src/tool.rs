@@ -86,7 +86,7 @@ impl std::fmt::Debug for Tool {
 
 impl Tool {
     /// Creates a tool from explicit parts.
-    pub fn from_parts(descriptor: ToolDescriptor, executor: Arc<dyn ToolExecutor>) -> Self {
+    pub(crate) fn from_parts(descriptor: ToolDescriptor, executor: Arc<dyn ToolExecutor>) -> Self {
         Self {
             descriptor,
             executor,
@@ -236,13 +236,13 @@ pub(crate) struct RegisteredTool {
 }
 
 /// Validated registry keyed by tool name.
-pub struct ToolRegistry {
+pub(crate) struct ToolRegistry {
     entries: HashMap<String, RegisteredTool>,
 }
 
 impl ToolRegistry {
     /// Builds a registry and validates names and JSON Schemas.
-    pub fn from_tools(tools: Vec<Tool>) -> Result<Self, Error> {
+    pub(crate) fn from_tools(tools: Vec<Tool>) -> Result<Self, Error> {
         let mut entries = HashMap::new();
         let name_re = Regex::new(r"^[a-zA-Z0-9_-]{1,64}$")
             .expect("tool name regex must be valid at compile time");
@@ -273,16 +273,6 @@ impl ToolRegistry {
         }
 
         Ok(Self { entries })
-    }
-
-    /// Returns a registered tool by name.
-    pub fn get(&self, name: &str) -> Option<&Tool> {
-        self.entries.get(name).map(|entry| &entry.tool)
-    }
-
-    /// Returns all registered tool names.
-    pub fn names(&self) -> Vec<&str> {
-        self.entries.keys().map(String::as_str).collect()
     }
 
     pub(crate) fn resolve(&self, name: &str) -> Option<&RegisteredTool> {
@@ -384,34 +374,6 @@ mod tests {
     }
 
     // ─── ToolRegistry ───────────────────────────────────────────────────
-
-    #[test]
-    fn registry_get_returns_tool_by_name() {
-        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
-        let tool = registry.get("echo").unwrap();
-        assert_eq!(tool.descriptor.name, "echo");
-    }
-
-    #[test]
-    fn registry_get_returns_none_for_unknown_name() {
-        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
-        assert!(registry.get("unknown").is_none());
-    }
-
-    #[test]
-    fn registry_names_returns_all_tool_names() {
-        let registry =
-            ToolRegistry::from_tools(vec![make_tool("alpha"), make_tool("beta")]).unwrap();
-        let mut names = registry.names();
-        names.sort();
-        assert_eq!(names, vec!["alpha", "beta"]);
-    }
-
-    #[test]
-    fn registry_empty_names() {
-        let registry = ToolRegistry::from_tools(vec![]).unwrap();
-        assert!(registry.names().is_empty());
-    }
 
     #[test]
     fn registry_rejects_invalid_tool_name_special_chars() {
