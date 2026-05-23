@@ -17,17 +17,6 @@
 
 ---
 
-## 核心特性
-
-- **类型化的 provider markers** —— `LlmClient::openai(...)` 返回 `BoundClient<OpenAi>`；把 `ModelRef<P>` 传错 provider 是编译错误，而不是运行时 400。
-- **文本 · 流 · 推理 · 视觉 · 工具 统一接口** —— 跨四类 provider 共用同一份 `GenerateTextRequest`、`StreamEvent` 与 `Usage`。
-- **AI SDK 风格的 Agent 钩子** —— `prepare_call`、`prepare_step`，以及完整事件链（`on_start` → `on_step_start` → `on_tool_call_*` → `on_step_finish` → `on_finish`)。
-- **生产级可靠性** —— 内置指数退避重试与 `Retry-After` 解析、`CancellationToken` 检查点。
-- **多轮对话开箱即用** —— `AgentResponse.transcript` 直接回灌到 `agent.run_messages(...)`，无需手工组装。
-- **多模态视觉** —— URL / base64 / 原始字节，均映射到各 provider 的原生图像格式。
-
----
-
 ## 快速上手
 
 ```rust

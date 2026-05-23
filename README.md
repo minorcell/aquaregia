@@ -17,17 +17,6 @@ One crate to build LLM applications and agents on a single, provider-agnostic fo
 
 ---
 
-## Highlights
-
-- **Typed provider markers** — `LlmClient::openai(...)` returns a `BoundClient<OpenAi>`; a mismatched `ModelRef<P>` is a compile-time error, not a 400.
-- **Unified text · stream · reasoning · vision · tools** — same `GenerateTextRequest`, same `StreamEvent`, same `Usage`, across all four provider families.
-- **Agents with AI SDK-style hooks** — `prepare_call`, `prepare_step`, plus a full event chain (`on_start` → `on_step_start` → `on_tool_call_*` → `on_step_finish` → `on_finish`).
-- **Production reliability** — built-in retries with exponential backoff and `Retry-After` parsing, `CancellationToken` checkpoints.
-- **Multi-turn out of the box** — `AgentResponse.transcript` round-trips back into `agent.run_messages(...)` for free.
-- **Multimodal vision** — URL / base64 / raw bytes, mapped to each provider's native image format.
-
----
-
 ## Quick start
 
 ```rust
