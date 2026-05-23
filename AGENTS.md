@@ -65,6 +65,24 @@ For multi-step tasks, state a brief plan:
 
 Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
 
+## 5. Use AI Responsibly
+
+**AI is allowed. Judgment is not outsourced.**
+
+- AI assistance is allowed and encouraged for exploration, drafting, and implementation.
+- The person or agent making the change must still understand what changed, why it changed, and how it was validated.
+- Do not ship code, tests, or documentation that you cannot explain, review, or debug.
+- Use AI to accelerate execution, not to replace engineering judgment.
+
+## 6. Write Durable Guidance, Not Checklists
+
+**Agent-facing documentation should age slowly.**
+
+- Files such as `AGENTS.md` and `CLAUDE.md` should capture stable principles, constraints, and decision rules.
+- Avoid long inventories of internal APIs, file lists, or implementation-specific checklists that will drift from the code.
+- Prefer guidance that explains how to reason about the system over guidance that attempts to mirror the system exhaustively.
+- If examples are needed, keep them short and illustrative rather than comprehensive.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

@@ -612,6 +612,14 @@ cargo clippy -- -D warnings
 
 ---
 
+## AI-Assisted Development
+
+AI-assisted development is welcome in this project, but the contributor remains responsible for the final result. If code, tests, docs, or API changes are proposed with AI help, the person submitting them is still expected to understand, review, and validate them.
+
+This repository also keeps agent-facing guidance principle-based on purpose. Files such as `AGENTS.md` and `CLAUDE.md` should describe durable constraints and decision rules, not long checklists of internal APIs that drift away from the code.
+
+---
+
 ## Contributing & License
 
 Contributions are welcome. For behavior changes, include integration tests (happy path + error mapping + tool/stream flows where relevant).
