@@ -22,7 +22,7 @@
 - **类型化的 provider markers** —— `LlmClient::openai(...)` 返回 `BoundClient<OpenAi>`；把 `ModelRef<P>` 传错 provider 是编译错误，而不是运行时 400。
 - **文本 · 流 · 推理 · 视觉 · 工具 统一接口** —— 跨四类 provider 共用同一份 `GenerateTextRequest`、`StreamEvent` 与 `Usage`。
 - **AI SDK 风格的 Agent 钩子** —— `prepare_call`、`prepare_step`，以及完整事件链（`on_start` → `on_step_start` → `on_tool_call_*` → `on_step_finish` → `on_finish`)。
-- **生产级可靠性** —— 内置指数退避重试与 `Retry-After` 解析、`CancellationToken` 检查点、可选 `tracing` span。
+- **生产级可靠性** —— 内置指数退避重试与 `Retry-After` 解析、`CancellationToken` 检查点。
 - **多轮对话开箱即用** —— `AgentResponse.transcript` 直接回灌到 `agent.run_messages(...)`，无需手工组装。
 - **多模态视觉** —— URL / base64 / 原始字节，均映射到各 provider 的原生图像格式。
 
@@ -66,10 +66,6 @@ cargo add aquaregia
 ```
 
 项目还需要 Tokio 异步运行时。
-
-| Feature     | 说明                                                              |
-| ----------- | ----------------------------------------------------------------- |
-| `telemetry` | 为 `generate`、`stream`、Agent 步骤与工具调用注入 `tracing` span  |
 
 ---
 
@@ -493,23 +489,6 @@ Aquaregia 会在瞬时错误（`RateLimited`、`ProviderServerError`、`Transpor
 
 每个 `Error` 都带 `retryable: bool` 字段，标识与内置重试相同的判定，你可以在外层自行叠加自己的重试 / 熔断策略。
 
-### Telemetry
-
-启用 `telemetry` feature：
-
-```toml
-aquaregia = { version = "*", features = ["telemetry"] }
-```
-
-Aquaregia 只发出 `tracing` span，不替你配置 subscriber。请自行接入（`tracing-subscriber`、`tracing-opentelemetry` 等）：
-
-| Span                  | 字段                |
-| --------------------- | ------------------- |
-| `aquaregia::generate` | `model`、`provider` |
-| `aquaregia::stream`   | `model`             |
-| `agent_step`          | `step`              |
-| `tool_call`           | `tool.name`         |
-
 ---
 
 ## 框架集成示例（Axum）
@@ -627,7 +606,6 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 cargo fmt
 cargo test
 cargo check --examples
-cargo test --features telemetry
 cargo clippy -- -D warnings
 ```
 

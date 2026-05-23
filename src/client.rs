@@ -361,13 +361,6 @@ pub struct BoundClient<P: ProviderMarker> {
 }
 
 impl<P: ProviderMarker> BoundClient<P> {
-    #[cfg_attr(
-        feature = "telemetry",
-        tracing::instrument(
-            skip_all,
-            fields(model = %req.model.model(), provider = %P::KIND.as_slug())
-        )
-    )]
     /// Runs a non-streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
@@ -382,13 +375,6 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    #[cfg_attr(
-        feature = "telemetry",
-        tracing::instrument(
-            skip_all,
-            fields(model = %req.model.model())
-        )
-    )]
     /// Runs a streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
@@ -448,9 +434,6 @@ impl<P: ProviderMarker> BoundClient<P> {
             {
                 return Err(Error::new(ErrorCode::Cancelled, "agent cancelled"));
             }
-
-            #[cfg(feature = "telemetry")]
-            let _step_span = tracing::info_span!("agent_step", step = step).entered();
 
             let mut prepared_step = AgentPreparedStep {
                 model: model.clone(),
@@ -762,8 +745,6 @@ async fn execute_tool_calls(
         let call = call.clone();
         let args_json = call.args_json.clone();
         tasks.push(async move {
-            #[cfg(feature = "telemetry")]
-            let _span = tracing::info_span!("tool_call", tool.name = %call.tool_name).entered();
             let started_at = Instant::now();
             let result = executor.execute(args_json).await;
             let duration_ms = started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;

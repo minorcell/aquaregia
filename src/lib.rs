@@ -15,7 +15,6 @@
 //! - **Tool-Using Agents**: Multi-step agent loops with configurable tool execution and error handling.
 //! - **Multimodal Vision**: Send images to vision-capable models via URL, base64, or raw bytes.
 //! - **Cancellation**: All requests and agent runs support cancellation via `CancellationToken`.
-//! - **Telemetry**: Optional `tracing` spans for generate, stream, and agent operations.
 //!
 //! ## Quick Start
 //!
@@ -39,12 +38,6 @@
 //!     Ok(())
 //! }
 //! ```
-//!
-//! ## Crate Features
-//!
-//! | Feature     | Description                                                          |
-//! | ----------- | -------------------------------------------------------------------- |
-//! | `telemetry` | `tracing` spans for `generate`, `stream`, agent steps and tool calls |
 //!
 //! ## Architecture
 //!

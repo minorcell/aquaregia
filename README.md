@@ -22,7 +22,7 @@ One crate to build LLM applications and agents on a single, provider-agnostic fo
 - **Typed provider markers** — `LlmClient::openai(...)` returns a `BoundClient<OpenAi>`; a mismatched `ModelRef<P>` is a compile-time error, not a 400.
 - **Unified text · stream · reasoning · vision · tools** — same `GenerateTextRequest`, same `StreamEvent`, same `Usage`, across all four provider families.
 - **Agents with AI SDK-style hooks** — `prepare_call`, `prepare_step`, plus a full event chain (`on_start` → `on_step_start` → `on_tool_call_*` → `on_step_finish` → `on_finish`).
-- **Production reliability** — built-in retries with exponential backoff and `Retry-After` parsing, `CancellationToken` checkpoints, optional `tracing` spans.
+- **Production reliability** — built-in retries with exponential backoff and `Retry-After` parsing, `CancellationToken` checkpoints.
 - **Multi-turn out of the box** — `AgentResponse.transcript` round-trips back into `agent.run_messages(...)` for free.
 - **Multimodal vision** — URL / base64 / raw bytes, mapped to each provider's native image format.
 
@@ -66,10 +66,6 @@ cargo add aquaregia
 ```
 
 You also need a Tokio runtime in your project.
-
-| Feature     | Description                                                          |
-| ----------- | -------------------------------------------------------------------- |
-| `telemetry` | `tracing` spans for `generate`, `stream`, agent steps, and tools     |
 
 ---
 
@@ -494,23 +490,6 @@ Aquaregia retries automatically on transient classes (`RateLimited`, `ProviderSe
 
 Every `Error` carries a `retryable: bool` flag matching the same classification, so you can layer your own retry/circuit-breaker on top if you need finer control.
 
-### Telemetry
-
-Enable the `telemetry` feature:
-
-```toml
-aquaregia = { version = "*", features = ["telemetry"] }
-```
-
-Aquaregia emits — but does not configure — `tracing` spans. Bring your own subscriber (e.g. `tracing-subscriber`, `tracing-opentelemetry`):
-
-| Span                  | Fields              |
-| --------------------- | ------------------- |
-| `aquaregia::generate` | `model`, `provider` |
-| `aquaregia::stream`   | `model`             |
-| `agent_step`          | `step`              |
-| `tool_call`           | `tool.name`         |
-
 ---
 
 ## Framework integration example (Axum)
@@ -628,7 +607,6 @@ Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_im
 cargo fmt
 cargo test
 cargo check --examples
-cargo test --features telemetry
 cargo clippy -- -D warnings
 ```
 
