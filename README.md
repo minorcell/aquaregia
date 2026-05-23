@@ -314,20 +314,7 @@ let agent = Agent::builder(client, "deepseek-chat")
     .build()?;
 ```
 
-### Dynamic planning — `prepare_call` / `prepare_step`
-
-`prepare_call` runs once before the agent loop starts and mutates the run plan in place:
-
-```rust
-let agent = Agent::builder(client, "deepseek-chat")
-    .prepare_call(|plan| {
-        if plan.messages.len() > 6 {
-            plan.temperature = Some(0.0);
-            plan.max_output_tokens = Some(400);
-        }
-    })
-    .build()?;
-```
+### Dynamic planning — `prepare_step`
 
 `prepare_step` runs before every step and returns a fresh prepared plan — useful for shrinking the tool set, switching models, or injecting per-step instructions:
 
@@ -392,29 +379,40 @@ See `examples/mini_claude_code.rs` for a working terminal agent that uses this p
 ## Multimodal vision
 
 ```rust
-use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use aquaregia::{
+    ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
+};
 
 let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?).build()?;
 
 let out = client
     .generate(
         GenerateTextRequest::builder("claude-sonnet-4-5")
-            .message(Message::user_text_and_image_url(
-                "What's in this image?",
-                "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg",
-            ))
+            .message(Message::new(
+                MessageRole::User,
+                vec![
+                    ContentPart::Text("What's in this image?".into()),
+                    ContentPart::Image(ImagePart {
+                        data: MediaData::Url(
+                            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg".into(),
+                        ),
+                        media_type: None,
+                        provider_metadata: None,
+                    }),
+                ],
+            )?)
             .build()?,
     )
     .await?;
 ```
 
-Three convenience constructors plus a full-control form:
+Two convenience constructors plus a full-control form:
 
 | Constructor                                                              | Use case                                  |
 | ------------------------------------------------------------------------ | ----------------------------------------- |
 | `Message::user_image_url(url)`                                           | Single image from a URL                   |
 | `Message::user_image_bytes(bytes, mime)`                                 | Single image from raw bytes (auto base64) |
-| `Message::user_text_and_image_url(text, url)`                            | Text + image in one user message          |
+| `Message::new(MessageRole::User, vec![Text, Image, …])`                  | Mixed content (text + image, multi-image) |
 | `ContentPart::Image(ImagePart { data, media_type, provider_metadata })`  | Full control + provider-specific hints    |
 
 Each provider sees its own native format:
@@ -453,11 +451,15 @@ match client.generate(req).await {
 }
 ```
 
-Agents have dedicated helpers:
+Agents bind the token at builder time:
 
 ```rust
-agent.run_cancellable("hello", token.clone()).await?;
-agent.run_messages_cancellable(messages, token).await?;
+let agent = Agent::builder(client, "deepseek-chat")
+    .cancellation_token(token.clone())
+    .build()?;
+
+agent.run("hello").await?;
+agent.run_messages(messages).await?;
 ```
 
 Cancellation is checked **before every HTTP send** (via `tokio::select!`, zero overhead on the happy path), **after every SSE chunk** in streaming responses, and **at the top of every agent step** in the tool loop.
@@ -581,10 +583,10 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | `basic_stream`                | `stream` + `StreamEvent` handling                           |
 | `agent_minimal`               | `Agent::builder` with one typed tool                        |
 | `tools_max_steps`             | Multi-tool loop with `max_steps` and sampling caps          |
-| `prepare_hooks`               | `prepare_call`, `prepare_step`, `on_step_finish`            |
+| `prepare_hooks`               | `prepare_step`, `on_step_finish`                            |
 | `openai_compatible_custom`    | Custom headers / query params / chat path                   |
 | `mini_claude_code`            | TUI code agent — `bash` / `read` / `write` / `edit` tools   |
-| `multimodal_image`            | `Message::user_text_and_image_url` + Anthropic vision       |
+| `multimodal_image`            | `Message::new` with mixed text + image parts + Anthropic vision |
 
 Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_image`. See [`examples/README.md`](./examples/README.md) for full descriptions.
 

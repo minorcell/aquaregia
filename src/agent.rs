@@ -4,7 +4,6 @@
 //!
 //! - [`Agent<P>`]: Main agent runtime for tool loops
 //! - [`AgentBuilder<P>`]: Builder for configuring agent behavior
-//! - [`AgentRunPlan<P>`]: Mutable plan for customizing agent runs
 //!
 //! ## Agent Architecture
 //!
@@ -54,51 +53,6 @@ use crate::types::{
     validate_model_ref, validate_sampling,
 };
 
-/// Callback type for mutating agent run plans before execution.
-pub(crate) type PrepareCallHook<P> = Arc<dyn Fn(&mut AgentRunPlan<P>) + Send + Sync>;
-
-/// Mutable plan for one agent run before execution starts.
-///
-/// This struct is passed to `prepare_call` callbacks so callers can adjust
-/// request-level settings (model, messages, tools, sampling, limits) per invocation.
-/// This enables dynamic model selection, tool filtering, and parameter tuning.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// # use aquaregia::{Agent, LlmClient};
-/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = LlmClient::openai("key").build()?;
-///
-/// let agent = Agent::builder(client, "gpt-4o")
-///     .prepare_call(|plan| {
-///         // Dynamically adjust temperature based on task
-///         plan.temperature = Some(0.7);
-///     })
-///     .build()?;
-/// # Ok(())
-/// # }
-/// ```
-#[derive(Debug, Clone)]
-pub struct AgentRunPlan<P: ProviderMarker> {
-    /// Model selected for this run.
-    pub model: ModelRef<P>,
-    /// Initial message list to start the loop with.
-    pub messages: Vec<Message>,
-    /// Tools available to the model.
-    pub tools: Vec<Tool>,
-    /// Step cap for this run. `None` falls back to client default.
-    pub max_steps: Option<u8>,
-    /// Sampling temperature in range `0.0..=2.0`.
-    pub temperature: Option<f32>,
-    /// Nucleus sampling value in range `0.0..=1.0`.
-    pub top_p: Option<f32>,
-    /// Maximum output token budget per model call.
-    pub max_output_tokens: Option<u32>,
-    /// Stop sequences forwarded to provider requests.
-    pub stop_sequences: Vec<String>,
-}
-
 /// Multi-step tool-using agent bound to one provider and one default model.
 ///
 /// The agent implements a tool-use loop that:
@@ -110,52 +64,33 @@ pub struct AgentRunPlan<P: ProviderMarker> {
 /// ## Features
 ///
 /// - **Configurable hooks**: Callbacks for run start, step start/finish, tool call start/finish
-/// - **Dynamic planning**: `prepare_call` and `prepare_step` callbacks for runtime adjustments
+/// - **Dynamic planning**: `prepare_step` callback for runtime per-step adjustments
 /// - **Early stopping**: `stop_when` predicate for custom termination conditions
-/// - **Cancellation**: Support for `CancellationToken` to cancel running agents
+/// - **Cancellation**: Bind a `CancellationToken` at builder time to cancel running agents
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
 ///
 /// ## Type Parameters
 ///
 /// * `P` - Provider marker type encoding the bound provider at compile time
 pub struct Agent<P: ProviderMarker> {
-    /// Bound client for making LLM requests.
     client: Arc<BoundClient<P>>,
-    /// Default model for this agent.
     model: ModelRef<P>,
-    /// System instructions prepended to runs.
     instructions: Option<String>,
-    /// Registered tools available to the agent.
     tools: Vec<Tool>,
-    /// Maximum number of tool-use loop iterations.
     max_steps: Option<u8>,
-    /// Default sampling temperature.
     temperature: Option<f32>,
-    /// Default nucleus sampling value.
     top_p: Option<f32>,
-    /// Default maximum output token budget.
     max_output_tokens: Option<u32>,
-    /// Default stop sequences.
     stop_sequences: Vec<String>,
-    /// Callback to mutate run plans before execution.
-    prepare_call: Option<PrepareCallHook<P>>,
-    /// Callback to mutate step inputs before each model call.
+    cancellation_token: Option<CancellationToken>,
     prepare_step: Option<PrepareStepHook<P>>,
-    /// Callback fired once before the first step.
     on_start: Option<Hook<AgentStart>>,
-    /// Callback fired at the beginning of each step.
     on_step_start: Option<Hook<AgentStepStart>>,
-    /// Callback fired right before each tool execution.
     on_tool_call_start: Option<Hook<AgentToolCallStart>>,
-    /// Callback fired right after each tool execution.
     on_tool_call_finish: Option<Hook<AgentToolCallFinish>>,
-    /// Callback fired after each completed step.
     on_step_finish: Option<Hook<AgentStep>>,
-    /// Callback fired once when the run finishes successfully.
     on_finish: Option<Hook<AgentFinish>>,
-    /// Early-stop predicate evaluated after each step.
     stop_when: Option<StopPredicate>,
-    /// Policy for handling tool execution errors.
     tool_error_policy: ToolErrorPolicy,
 }
 
@@ -194,7 +129,7 @@ impl<P: ProviderMarker> Agent<P> {
         prompt: impl Into<String>,
     ) -> Result<AgentResponse, crate::error::Error> {
         let messages = vec![Message::user_text(prompt)];
-        self.run_messages_inner(self.inject_instructions(messages), None)
+        self.run_messages_inner(self.inject_instructions(messages))
             .await
     }
 
@@ -207,73 +142,33 @@ impl<P: ProviderMarker> Agent<P> {
         &self,
         messages: Vec<Message>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(self.inject_instructions(messages), None)
-            .await
-    }
-
-    /// Runs the agent with a prompt and cancellation support.
-    pub async fn run_cancellable(
-        &self,
-        prompt: impl Into<String>,
-        token: CancellationToken,
-    ) -> Result<AgentResponse, crate::error::Error> {
-        let messages = vec![Message::user_text(prompt)];
-        self.run_messages_cancellable(self.inject_instructions(messages), token)
-            .await
-    }
-
-    /// Runs the agent with explicit messages and cancellation support.
-    ///
-    /// If `instructions` were configured and the message list does not already
-    /// contain a system message, the instructions are inserted as a system
-    /// message at the front of the list.
-    pub async fn run_messages_cancellable(
-        &self,
-        messages: Vec<Message>,
-        token: CancellationToken,
-    ) -> Result<AgentResponse, crate::error::Error> {
-        self.run_messages_inner(self.inject_instructions(messages), Some(token))
+        self.run_messages_inner(self.inject_instructions(messages))
             .await
     }
 
     async fn run_messages_inner(
         &self,
         messages: Vec<Message>,
-        token: Option<CancellationToken>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        let mut call_plan = AgentRunPlan {
-            model: self.model.clone(),
-            messages,
-            tools: self.tools.clone(),
-            max_steps: self.max_steps,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            max_output_tokens: self.max_output_tokens,
-            stop_sequences: self.stop_sequences.clone(),
-        };
-        if let Some(callback) = &self.prepare_call {
-            callback(&mut call_plan);
-        }
-
-        let mut request = RunTools::new(call_plan.model)
-            .messages(call_plan.messages)
-            .tools(call_plan.tools)
+        let mut request = RunTools::new(self.model.clone())
+            .messages(messages)
+            .tools(self.tools.clone())
             .tool_error_policy(self.tool_error_policy)
-            .stop_sequences(call_plan.stop_sequences);
+            .stop_sequences(self.stop_sequences.clone());
 
-        if let Some(t) = token {
-            request = request.cancellation_token(t);
+        if let Some(t) = &self.cancellation_token {
+            request = request.cancellation_token(t.clone());
         }
-        if let Some(max_steps) = call_plan.max_steps {
+        if let Some(max_steps) = self.max_steps {
             request = request.max_steps(max_steps);
         }
-        if let Some(temperature) = call_plan.temperature {
+        if let Some(temperature) = self.temperature {
             request = request.temperature(temperature);
         }
-        if let Some(top_p) = call_plan.top_p {
+        if let Some(top_p) = self.top_p {
             request = request.top_p(top_p);
         }
-        if let Some(max_output_tokens) = call_plan.max_output_tokens {
+        if let Some(max_output_tokens) = self.max_output_tokens {
             request = request.max_output_tokens(max_output_tokens);
         }
 
@@ -327,7 +222,7 @@ pub struct AgentBuilder<P: ProviderMarker> {
     top_p: Option<f32>,
     max_output_tokens: Option<u32>,
     stop_sequences: Vec<String>,
-    prepare_call: Option<PrepareCallHook<P>>,
+    cancellation_token: Option<CancellationToken>,
     prepare_step: Option<PrepareStepHook<P>>,
     on_start: Option<Hook<AgentStart>>,
     on_step_start: Option<Hook<AgentStepStart>>,
@@ -351,7 +246,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
             top_p: None,
             max_output_tokens: None,
             stop_sequences: Vec::new(),
-            prepare_call: None,
+            cancellation_token: None,
             prepare_step: None,
             on_start: None,
             on_step_start: None,
@@ -415,12 +310,13 @@ impl<P: ProviderMarker> AgentBuilder<P> {
         self
     }
 
-    /// Registers a callback to mutate [`AgentRunPlan`] before execution starts.
-    pub fn prepare_call<F>(mut self, callback: F) -> Self
-    where
-        F: Fn(&mut AgentRunPlan<P>) + Send + Sync + 'static,
-    {
-        self.prepare_call = Some(Arc::new(callback));
+    /// Binds a [`CancellationToken`] checked during agent execution.
+    ///
+    /// When the token is cancelled, the agent stops before the next step and returns
+    /// [`crate::ErrorCode::Cancelled`]. To cancel different runs independently, build
+    /// a separate agent per token.
+    pub fn cancellation_token(mut self, token: CancellationToken) -> Self {
+        self.cancellation_token = Some(token);
         self
     }
 
@@ -520,7 +416,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
             top_p: self.top_p,
             max_output_tokens: self.max_output_tokens,
             stop_sequences: self.stop_sequences,
-            prepare_call: self.prepare_call,
+            cancellation_token: self.cancellation_token,
             prepare_step: self.prepare_step,
             on_start: self.on_start,
             on_step_start: self.on_step_start,
@@ -537,7 +433,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::{LlmClient, openai};
+    use crate::LlmClient;
 
     #[test]
     fn builder_accepts_typed_model() {
@@ -545,7 +441,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let agent = Agent::builder(client, openai("gpt-4o-mini"))
+        let agent = Agent::builder(client, "gpt-4o-mini")
             .max_steps(3)
             .build()
             .expect("agent should build");
@@ -559,7 +455,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let err = match Agent::builder(client, openai("gpt-4o-mini"))
+        let err = match Agent::builder(client, "gpt-4o-mini")
             .top_p(1.5)
             .build()
         {

@@ -50,13 +50,13 @@
 
 8. `prepare_hooks.rs`
 
-- 场景：动态控制每次调用和每一步执行（对齐 AI SDK 的 `prepareCall/prepareStep`）。
-- 重点：`prepare_call`、`prepare_step`、在 step 前动态改消息/工具/采样参数。
+- 场景：动态控制每一步执行（对齐 AI SDK 的 `prepareStep`）。
+- 重点：`prepare_step`、在 step 前动态改消息/工具/采样参数。
 
 9. `multimodal_image.rs`
 
 - 场景：向视觉模型发送图像（URL / base64 / 原始字节）。
-- 重点：`Message::user_text_and_image_url`、`Message::user_image_bytes`、`ImagePart`、`MediaData`。
+- 重点：`Message::new` 组合文字 + 图像 part、`Message::user_image_bytes`、`ImagePart`、`MediaData`。
 - 运行：`ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image`
 
 ## 建议阅读顺序

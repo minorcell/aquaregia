@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient, anthropic, google, openai_compatible};
+use aquaregia::{GenerateTextRequest, LlmClient};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -40,7 +40,7 @@ async fn google_generate_text_success() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "hello",
         ))
         .await
@@ -96,7 +96,7 @@ async fn openai_compatible_generate_text_success() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai_compatible("deepseek-chat"),
+            "deepseek-chat",
             "hello",
         ))
         .await
@@ -146,7 +146,7 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai_compatible("deepseek-chat"),
+            "deepseek-chat",
             "hello",
         ))
         .await
@@ -193,7 +193,7 @@ async fn openai_compatible_generate_splits_think_tags_when_enabled() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai_compatible("deepseek-chat"),
+            "deepseek-chat",
             "hello",
         ))
         .await
@@ -241,7 +241,7 @@ async fn openai_compatible_generate_prefers_standard_reasoning_field() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai_compatible("deepseek-chat"),
+            "deepseek-chat",
             "hello",
         ))
         .await
@@ -293,7 +293,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            anthropic("claude-3-5-haiku-latest"),
+            "claude-3-5-haiku-latest",
             "hello",
         ))
         .await

@@ -1,6 +1,4 @@
-use aquaregia::{
-    GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic, openai, openai_compatible,
-};
+use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamEvent};
 use futures_util::StreamExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -31,7 +29,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
+    let req = GenerateTextRequest::builder("claude-3-5-haiku-latest")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -104,7 +102,7 @@ async fn openai_stream_accepts_eof_without_done_marker() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai("gpt-4o-mini"))
+    let req = GenerateTextRequest::builder("gpt-4o-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -176,7 +174,7 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai_compatible("demo-model"))
+    let req = GenerateTextRequest::builder("demo-model")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -250,7 +248,7 @@ async fn openai_compatible_stream_splits_think_tags_when_enabled() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai_compatible("demo-model"))
+    let req = GenerateTextRequest::builder("demo-model")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -309,7 +307,7 @@ async fn openai_compatible_stream_prefers_standard_reasoning_field() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai_compatible("demo-model"))
+    let req = GenerateTextRequest::builder("demo-model")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)

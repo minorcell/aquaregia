@@ -370,22 +370,6 @@ impl Message {
             name: None,
         }
     }
-
-    /// Creates a user message with text and an image URL.
-    pub fn user_text_and_image_url(text: impl Into<String>, url: impl Into<String>) -> Self {
-        Self {
-            role: MessageRole::User,
-            parts: vec![
-                ContentPart::Text(text.into()),
-                ContentPart::Image(ImagePart {
-                    data: MediaData::Url(url.into()),
-                    media_type: None,
-                    provider_metadata: None,
-                }),
-            ],
-            name: None,
-        }
-    }
 }
 
 /// Raw media data for image content parts.
@@ -1428,13 +1412,6 @@ mod tests {
     fn message_user_image_bytes() {
         let msg = Message::user_image_bytes(vec![0xFF, 0xD8], "image/jpeg");
         assert_eq!(msg.role(), MessageRole::User);
-    }
-
-    #[test]
-    fn message_user_text_and_image_url() {
-        let msg = Message::user_text_and_image_url("caption", "https://example.com/img.jpg");
-        assert_eq!(msg.role(), MessageRole::User);
-        assert_eq!(msg.parts().len(), 2);
     }
 
     #[test]

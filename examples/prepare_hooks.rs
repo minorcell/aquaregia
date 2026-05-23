@@ -33,16 +33,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .instructions("You may call tools, then answer concisely.")
         .tools([time_tool])
         .max_steps(4)
-        // 对应 AI SDK prepareCall：在一次调用开始前可动态改调用计划。
-        .prepare_call(|plan| {
-            if user_mentions_keyword(&plan.messages, "json") {
-                plan.temperature = Some(0.0);
-                plan.max_output_tokens = Some(400);
-            }
-        })
-        // 对应 AI SDK prepareStep：每一步前可动态改模型/消息/工具等。
+        // 对应 AI SDK prepareStep：每一步前可动态改模型/消息/工具/采样。
         .prepare_step(|event| {
             let mut next = event.to_prepared();
+
+            // 首步：根据用户输入关键词动态调整采样参数。
+            if event.step == 1 && user_mentions_keyword(&next.messages, "json") {
+                next.temperature = Some(0.0);
+                next.max_output_tokens = Some(400);
+            }
 
             next.messages.push(Message::system_text(format!(
                 "Current step: {}. Use minimal tools.",
