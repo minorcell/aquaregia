@@ -69,11 +69,7 @@ cargo add aquaregia
 
 | Feature     | 说明                                                              |
 | ----------- | ----------------------------------------------------------------- |
-| `openai`    | OpenAI 适配器 —— 默认启用                                          |
-| `anthropic` | Anthropic 适配器 —— 默认启用                                       |
 | `telemetry` | 为 `generate`、`stream`、Agent 步骤与工具调用注入 `tracing` span  |
-
-Google 与 OpenAI-compatible 适配器始终可用，无需 feature 开关。
 
 ---
 
@@ -631,9 +627,6 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 cargo fmt
 cargo test
 cargo check --examples
-cargo check --no-default-features
-cargo check --no-default-features --features openai
-cargo check --no-default-features --features anthropic
 cargo test --features telemetry
 cargo clippy -- -D warnings
 ```

@@ -44,8 +44,6 @@
 //!
 //! | Feature     | Description                                                          |
 //! | ----------- | -------------------------------------------------------------------- |
-//! | `openai`    | OpenAI adapter (default)                                             |
-//! | `anthropic` | Anthropic adapter (default)                                          |
 //! | `telemetry` | `tracing` spans for `generate`, `stream`, agent steps and tool calls |
 //!
 //! ## Architecture

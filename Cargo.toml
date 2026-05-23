@@ -13,9 +13,7 @@ name = "aquaregia"
 path = "src/lib.rs"
 
 [features]
-default = ["openai", "anthropic"]
-openai = []
-anthropic = []
+default = []
 telemetry = ["dep:tracing"]
 
 [dependencies]

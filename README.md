@@ -69,11 +69,7 @@ You also need a Tokio runtime in your project.
 
 | Feature     | Description                                                          |
 | ----------- | -------------------------------------------------------------------- |
-| `openai`    | OpenAI adapter — default                                             |
-| `anthropic` | Anthropic adapter — default                                          |
 | `telemetry` | `tracing` spans for `generate`, `stream`, agent steps, and tools     |
-
-Google and OpenAI-compatible adapters are always available.
 
 ---
 
@@ -632,9 +628,6 @@ Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_im
 cargo fmt
 cargo test
 cargo check --examples
-cargo check --no-default-features
-cargo check --no-default-features --features openai
-cargo check --no-default-features --features anthropic
 cargo test --features telemetry
 cargo clippy -- -D warnings
 ```
