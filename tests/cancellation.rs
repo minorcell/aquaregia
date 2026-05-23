@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use aquaregia::{
     Agent, CancellationToken, ErrorCode, GenerateTextRequest, LlmClient, Tool, ToolDescriptor,
-    ToolExecError, ToolExecutor, openai,
+    ToolExecError, ToolExecutor,
 };
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -24,7 +24,7 @@ async fn cancel_before_request_fires() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai("gpt-4o-mini"))
+    let req = GenerateTextRequest::builder("gpt-4o-mini")
         .user_prompt("hello")
         .cancellation_token(token)
         .build()
@@ -53,13 +53,14 @@ async fn cancel_before_agent_step() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, "gpt-4o-mini")
         .max_steps(3)
+        .cancellation_token(token)
         .build()
         .expect("agent should build");
 
     let err = agent
-        .run_cancellable("hello", token)
+        .run("hello")
         .await
         .expect_err("should fail with Cancelled");
 
@@ -124,14 +125,15 @@ async fn cancel_between_agent_steps() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, openai("gpt-4o-mini"))
+    let agent = Agent::builder(client, "gpt-4o-mini")
         .tools([cancel_tool])
         .max_steps(5)
+        .cancellation_token(token)
         .build()
         .expect("agent should build");
 
     let err = agent
-        .run_cancellable("go", token)
+        .run("go")
         .await
         .expect_err("should fail with Cancelled");
 

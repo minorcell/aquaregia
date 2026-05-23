@@ -206,7 +206,7 @@ impl Error {
     ///
     /// This method adds the request ID from provider response headers,
     /// useful for tracing and support inquiries with the provider.
-    pub fn with_request_id(mut self, request_id: Option<String>) -> Self {
+    pub(crate) fn with_request_id(mut self, request_id: Option<String>) -> Self {
         self.request_id = request_id;
         self
     }
@@ -215,7 +215,7 @@ impl Error {
     ///
     /// This method preserves the original provider error response body
     /// for debugging and diagnostics.
-    pub fn with_raw_body(mut self, raw_body: Option<String>) -> Self {
+    pub(crate) fn with_raw_body(mut self, raw_body: Option<String>) -> Self {
         self.raw_body = raw_body;
         self
     }
@@ -237,7 +237,7 @@ impl Error {
 /// - `500-599` → [`ErrorCode::ProviderServerError`]
 /// - `400-499` → [`ErrorCode::InvalidRequest`]
 /// - Others → [`ErrorCode::Transport`]
-pub fn classify_http_error(status: u16) -> ErrorCode {
+pub(crate) fn classify_http_error(status: u16) -> ErrorCode {
     match status {
         401 | 403 => ErrorCode::AuthFailed,
         429 => ErrorCode::RateLimited,
@@ -256,7 +256,7 @@ pub fn classify_http_error(status: u16) -> ErrorCode {
 /// # Arguments
 ///
 /// * `code` - Error code to check
-pub fn is_retryable(code: ErrorCode) -> bool {
+pub(crate) fn is_retryable(code: ErrorCode) -> bool {
     matches!(
         code,
         ErrorCode::RateLimited

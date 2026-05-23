@@ -1,7 +1,4 @@
-use aquaregia::{
-    ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, StreamEvent, anthropic,
-    google, openai,
-};
+use aquaregia::{ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, StreamEvent};
 use futures_util::StreamExt;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
@@ -31,7 +28,7 @@ async fn google_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello");
+    let req = GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -84,7 +81,7 @@ async fn google_stream_with_reasoning() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt(google("gemini-2.0-flash"), "hello");
+    let req = GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -153,7 +150,7 @@ async fn google_generate_with_reasoning() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "hello",
         ))
         .await
@@ -207,7 +204,7 @@ async fn google_generate_with_tool_calls() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "weather?",
         ))
         .await
@@ -258,7 +255,7 @@ async fn google_generate_with_thought_signature() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "think",
         ))
         .await
@@ -294,7 +291,7 @@ async fn google_503_maps_to_provider_server_error() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "hello",
         ))
         .await
@@ -324,7 +321,7 @@ async fn google_invalid_response_missing_candidates() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            google("gemini-2.0-flash"),
+            "gemini-2.0-flash",
             "hello",
         ))
         .await
@@ -366,7 +363,7 @@ async fn anthropic_stream_with_thinking() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(anthropic("claude-3-5-haiku-latest"))
+    let req = GenerateTextRequest::builder("claude-3-5-haiku-latest")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -427,7 +424,7 @@ async fn openai_stream_with_reasoning_delta() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai("gpt-4o-mini"))
+    let req = GenerateTextRequest::builder("gpt-4o-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -485,7 +482,7 @@ async fn openai_stream_with_tool_calls_and_finish() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder(openai("gpt-4o-mini"))
+    let req = GenerateTextRequest::builder("gpt-4o-mini")
         .message(Message::user_text("weather?"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -554,7 +551,7 @@ async fn openai_generate_with_reasoning() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai("gpt-4o-mini"),
+            "gpt-4o-mini",
             "hello",
         ))
         .await
@@ -608,7 +605,7 @@ async fn openai_generate_with_tool_calls() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai("gpt-4o-mini"),
+            "gpt-4o-mini",
             "weather?",
         ))
         .await
@@ -664,7 +661,7 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            anthropic("claude-3-5-haiku-latest"),
+            "claude-3-5-haiku-latest",
             "weather?",
         ))
         .await
@@ -715,7 +712,7 @@ async fn anthropic_generate_with_redacted_thinking() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            anthropic("claude-3-5-haiku-latest"),
+            "claude-3-5-haiku-latest",
             "hello",
         ))
         .await
@@ -748,7 +745,7 @@ async fn anthropic_invalid_response_missing_content() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            anthropic("claude-3-5-haiku-latest"),
+            "claude-3-5-haiku-latest",
             "hello",
         ))
         .await
@@ -776,7 +773,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            anthropic("claude-3-5-haiku-latest"),
+            "claude-3-5-haiku-latest",
             "hello",
         ))
         .await
@@ -805,7 +802,7 @@ async fn openai_403_maps_to_auth_failed() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai("gpt-4o-mini"),
+            "gpt-4o-mini",
             "hello",
         ))
         .await
@@ -836,7 +833,7 @@ async fn openai_invalid_response_missing_choices() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            openai("gpt-4o-mini"),
+            "gpt-4o-mini",
             "hello",
         ))
         .await

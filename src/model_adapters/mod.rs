@@ -42,8 +42,6 @@
 //! # }
 //! ```
 
-use std::sync::Arc;
-
 use async_trait::async_trait;
 use reqwest::Response;
 
@@ -75,9 +73,6 @@ pub trait ModelAdapter<P: ProviderMarker>: Send + Sync {
     /// Executes a streaming text generation call.
     async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, Error>;
 }
-
-/// Shared adapter object used internally by provider-bound clients.
-pub type SharedAdapter<P> = Arc<dyn ModelAdapter<P>>;
 
 pub(crate) async fn check_response_status(
     provider_id: &str,

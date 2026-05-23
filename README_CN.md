@@ -313,20 +313,7 @@ let agent = Agent::builder(client, "deepseek-chat")
     .build()?;
 ```
 
-### 动态规划 —— `prepare_call` / `prepare_step`
-
-`prepare_call` 在整个 Agent 循环开始前运行一次，直接修改运行计划：
-
-```rust
-let agent = Agent::builder(client, "deepseek-chat")
-    .prepare_call(|plan| {
-        if plan.messages.len() > 6 {
-            plan.temperature = Some(0.0);
-            plan.max_output_tokens = Some(400);
-        }
-    })
-    .build()?;
-```
+### 动态规划 —— `prepare_step`
 
 `prepare_step` 在每一步前运行，返回一份新的 prepared plan —— 适合裁剪工具集、切换模型、注入分步指令：
 
@@ -391,29 +378,40 @@ loop {
 ## 多模态视觉
 
 ```rust
-use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use aquaregia::{
+    ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
+};
 
 let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?).build()?;
 
 let out = client
     .generate(
         GenerateTextRequest::builder("claude-sonnet-4-5")
-            .message(Message::user_text_and_image_url(
-                "这张图里有什么？",
-                "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg",
-            ))
+            .message(Message::new(
+                MessageRole::User,
+                vec![
+                    ContentPart::Text("这张图里有什么？".into()),
+                    ContentPart::Image(ImagePart {
+                        data: MediaData::Url(
+                            "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg".into(),
+                        ),
+                        media_type: None,
+                        provider_metadata: None,
+                    }),
+                ],
+            )?)
             .build()?,
     )
     .await?;
 ```
 
-三个便捷构造器 + 一个完全自定义形式：
+两个便捷构造器 + 一个完全自定义形式：
 
 | 构造器                                                                  | 场景                                  |
 | ----------------------------------------------------------------------- | ------------------------------------- |
 | `Message::user_image_url(url)`                                          | 单张图像，来自 URL                    |
 | `Message::user_image_bytes(bytes, mime)`                                | 单张图像，来自原始字节（自动 base64） |
-| `Message::user_text_and_image_url(text, url)`                           | 文字 + 图像 URL 合为一条用户消息      |
+| `Message::new(MessageRole::User, vec![Text, Image, …])`                 | 混合内容（文字 + 图像、多图）          |
 | `ContentPart::Image(ImagePart { data, media_type, provider_metadata })` | 完全自定义，可附带 provider 专用提示  |
 
 各 provider 接收各自的原生格式：
@@ -452,11 +450,15 @@ match client.generate(req).await {
 }
 ```
 
-Agent 提供专用的可取消方法：
+Agent 在 builder 上绑定取消令牌：
 
 ```rust
-agent.run_cancellable("你好", token.clone()).await?;
-agent.run_messages_cancellable(messages, token).await?;
+let agent = Agent::builder(client, "deepseek-chat")
+    .cancellation_token(token.clone())
+    .build()?;
+
+agent.run("你好").await?;
+agent.run_messages(messages).await?;
 ```
 
 取消检查点：**每次 HTTP 发送前**（通过 `tokio::select!`，未取消时零开销）、**每个 SSE chunk 之后**、**工具循环中每个 Agent 步骤开始时**。
@@ -580,10 +582,10 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | `basic_stream`                | `stream` + `StreamEvent` 处理                                 |
 | `agent_minimal`               | `Agent::builder` + 单个类型化工具                             |
 | `tools_max_steps`             | 多工具循环 + `max_steps` + 采样参数                           |
-| `prepare_hooks`               | `prepare_call`、`prepare_step`、`on_step_finish`              |
+| `prepare_hooks`               | `prepare_step`、`on_step_finish`                             |
 | `openai_compatible_custom`    | 自定义 headers / query params / chat path                     |
 | `mini_claude_code`            | TUI Code Agent —— `bash` / `read` / `write` / `edit` 工具     |
-| `multimodal_image`            | `Message::user_text_and_image_url` + Anthropic 视觉           |
+| `multimodal_image`            | `Message::new` 组合文字 + 图像 part + Anthropic 视觉           |
 
 大多数示例需要 `DEEPSEEK_API_KEY`；`multimodal_image` 需要 `ANTHROPIC_API_KEY`。完整说明见 [`examples/README.md`](./examples/README.md)。
 

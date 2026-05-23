@@ -55,14 +55,13 @@ pub mod client;
 pub mod error;
 /// Provider adapter traits and concrete provider implementations.
 pub mod model_adapters;
-/// SSE frame parsing helpers used by streaming adapters.
-pub mod stream;
+pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
 pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
 
-pub use agent::{Agent, AgentBuilder, AgentRunPlan};
+pub use agent::{Agent, AgentBuilder};
 pub use client::{BoundClient, ClientBuilder, LlmClient};
 pub use error::{Error, ErrorCode};
 pub use model_adapters::ModelAdapter;
@@ -73,7 +72,7 @@ pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
 pub use tokio_util::sync::CancellationToken;
 
 pub use tool::{
-    IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, ToolRegistry, tool,
+    IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, tool,
 };
 pub use types::{
     AgentFinish,
@@ -116,87 +115,3 @@ pub use types::{
     ToolResult,
     Usage,
 };
-
-/// Creates a typed OpenAI model reference (`openai/<model>`).
-///
-/// This function provides a convenient way to create a [`ModelRef`] for OpenAI models
-/// with compile-time provider type safety.
-///
-/// # Arguments
-///
-/// * `model` - The OpenAI model identifier (e.g., `"gpt-4o"`, `"gpt-4o-mini"`)
-///
-/// # Example
-///
-/// ```
-/// use aquaregia::openai;
-///
-/// let model = openai("gpt-4o");
-/// assert_eq!(model.id(), "openai/gpt-4o");
-/// ```
-pub fn openai(model: impl Into<String>) -> ModelRef<OpenAi> {
-    ModelRef::<OpenAi>::new(model)
-}
-
-/// Creates a typed Anthropic model reference (`anthropic/<model>`).
-///
-/// This function provides a convenient way to create a [`ModelRef`] for Anthropic models
-/// with compile-time provider type safety.
-///
-/// # Arguments
-///
-/// * `model` - The Anthropic model identifier (e.g., `"claude-sonnet-4-5"`, `"claude-3-5-sonnet"`)
-///
-/// # Example
-///
-/// ```
-/// use aquaregia::anthropic;
-///
-/// let model = anthropic("claude-sonnet-4-5");
-/// assert_eq!(model.id(), "anthropic/claude-sonnet-4-5");
-/// ```
-pub fn anthropic(model: impl Into<String>) -> ModelRef<Anthropic> {
-    ModelRef::<Anthropic>::new(model)
-}
-
-/// Creates a typed Google model reference (`google/<model>`).
-///
-/// This function provides a convenient way to create a [`ModelRef`] for Google Generative AI models
-/// with compile-time provider type safety.
-///
-/// # Arguments
-///
-/// * `model` - The Google model identifier (e.g., `"gemini-2.0-flash"`, `"gemini-1.5-pro"`)
-///
-/// # Example
-///
-/// ```
-/// use aquaregia::google;
-///
-/// let model = google("gemini-2.0-flash");
-/// assert_eq!(model.id(), "google/gemini-2.0-flash");
-/// ```
-pub fn google(model: impl Into<String>) -> ModelRef<Google> {
-    ModelRef::<Google>::new(model)
-}
-
-/// Creates a typed OpenAI-compatible model reference (`openai-compatible/<model>`).
-///
-/// This function provides a convenient way to create a [`ModelRef`] for OpenAI-compatible
-/// endpoints (e.g., DeepSeek, local LLM servers) with compile-time provider type safety.
-///
-/// # Arguments
-///
-/// * `model` - The model identifier for the compatible endpoint (e.g., `"deepseek-chat"`)
-///
-/// # Example
-///
-/// ```
-/// use aquaregia::openai_compatible;
-///
-/// let model = openai_compatible("deepseek-chat");
-/// assert_eq!(model.id(), "openai-compatible/deepseek-chat");
-/// ```
-pub fn openai_compatible(model: impl Into<String>) -> ModelRef<OpenAiCompatible> {
-    ModelRef::<OpenAiCompatible>::new(model)
-}
