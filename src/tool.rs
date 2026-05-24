@@ -39,8 +39,6 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use jsonschema::{Validator, validator_for};
-use regex::Regex;
 use schemars::{JsonSchema, schema_for};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -232,7 +230,6 @@ where
 
 pub(crate) struct RegisteredTool {
     pub tool: Tool,
-    pub validator: Validator,
 }
 
 /// Validated registry keyed by tool name.
@@ -244,12 +241,12 @@ impl ToolRegistry {
     /// Builds a registry and validates names and JSON Schemas.
     pub(crate) fn from_tools(tools: Vec<Tool>) -> Result<Self, Error> {
         let mut entries = HashMap::new();
-        let name_re = Regex::new(r"^[a-zA-Z0-9_-]{1,64}$")
-            .expect("tool name regex must be valid at compile time");
-
         for tool in tools {
             let name = tool.descriptor.name.clone();
-            if !name_re.is_match(&name) {
+            if name.is_empty()
+                || name.len() > 64
+                || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+            {
                 return Err(Error::new(
                     ErrorCode::InvalidRequest,
                     format!("invalid tool name `{}`", name),
@@ -262,14 +259,7 @@ impl ToolRegistry {
                 ));
             }
 
-            let validator = validator_for(&tool.descriptor.input_schema).map_err(|e| {
-                Error::new(
-                    ErrorCode::InvalidRequest,
-                    format!("invalid JSON schema for tool `{}`: {}", name, e),
-                )
-            })?;
-
-            entries.insert(name, RegisteredTool { tool, validator });
+            entries.insert(name, RegisteredTool { tool });
         }
 
         Ok(Self { entries })
@@ -323,14 +313,6 @@ mod tests {
         let tools = vec![make_tool("echo"), make_tool("echo")];
         let result = ToolRegistry::from_tools(tools);
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn compiles_and_validates_schema() {
-        let registry = ToolRegistry::from_tools(vec![make_tool("echo")]).unwrap();
-        let entry = registry.resolve("echo").unwrap();
-        assert!(entry.validator.validate(&json!({"x": 1})).is_ok());
-        assert!(entry.validator.validate(&json!({"y": 1})).is_err());
     }
 
     #[tokio::test]
@@ -394,20 +376,6 @@ mod tests {
         let name = "a".repeat(65);
         let tools = vec![make_tool(&name)];
         let result = ToolRegistry::from_tools(tools);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn registry_rejects_invalid_json_schema() {
-        let tool = Tool {
-            descriptor: ToolDescriptor {
-                name: "bad".to_string(),
-                description: String::new(),
-                input_schema: json!({"type": "invalid_type"}),
-            },
-            executor: Arc::new(EchoTool),
-        };
-        let result = ToolRegistry::from_tools(vec![tool]);
         assert!(result.is_err());
     }
 

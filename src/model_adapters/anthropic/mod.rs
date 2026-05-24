@@ -40,14 +40,12 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     Anthropic, ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart,
@@ -585,7 +583,7 @@ fn anthropic_image_block(image: &ImagePart) -> Value {
             })
         }
         MediaData::Bytes(bytes) => {
-            let data = STANDARD.encode(bytes);
+            let data = base64_encode(bytes);
             let media_type = image.media_type.as_deref().unwrap_or("image/jpeg");
             json!({
                 "type": "image",

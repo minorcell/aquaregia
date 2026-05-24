@@ -39,14 +39,12 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
@@ -554,7 +552,7 @@ fn openai_image_content_part(image: &ImagePart) -> Value {
         }
         MediaData::Bytes(bytes) => {
             let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, STANDARD.encode(bytes))
+            format!("data:{};base64,{}", mt, base64_encode(bytes))
         }
     };
     json!({ "type": "image_url", "image_url": { "url": url } })
