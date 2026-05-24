@@ -147,9 +147,7 @@ async fn agent_fail_fast_on_invalid_tool_args() {
 
     let weather = aquaregia::tool("weather")
         .description("Get weather by city")
-        .execute(|args: WeatherArgs| async move {
-            Ok(json!({"city": args.city, "temp": 22}))
-        });
+        .execute(|args: WeatherArgs| async move { Ok(json!({"city": args.city, "temp": 22})) });
 
     let agent = Agent::builder(client, "gpt-4o-mini")
         .tools([weather])

@@ -47,8 +47,8 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart,
-    MediaData, Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.

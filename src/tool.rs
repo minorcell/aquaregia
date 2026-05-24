@@ -245,7 +245,9 @@ impl ToolRegistry {
             let name = tool.descriptor.name.clone();
             if name.is_empty()
                 || name.len() > 64
-                || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                || !name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
             {
                 return Err(Error::new(
                     ErrorCode::InvalidRequest,

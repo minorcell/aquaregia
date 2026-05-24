@@ -59,8 +59,7 @@ use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, 
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall,
-    Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -348,10 +347,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
         )
     }
 
-    async fn stream_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();

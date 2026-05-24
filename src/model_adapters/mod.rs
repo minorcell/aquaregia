@@ -61,7 +61,8 @@ pub(crate) mod think_tag_parser;
 /// Provider adapter contract used by [`crate::BoundClient`].
 #[async_trait]
 pub trait ModelAdapter: Send + Sync {
-    async fn generate_text(&self, req: &GenerateTextRequest) -> Result<GenerateTextResponse, Error>;
+    async fn generate_text(&self, req: &GenerateTextRequest)
+    -> Result<GenerateTextResponse, Error>;
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error>;
 }
 
@@ -110,8 +111,16 @@ pub(crate) fn base64_encode(data: &[u8]) -> String {
         let n = (b0 << 16) | (b1 << 8) | b2;
         out.push(CHARS[(n >> 18) & 0x3f] as char);
         out.push(CHARS[(n >> 12) & 0x3f] as char);
-        out.push(if chunk.len() > 1 { CHARS[(n >> 6) & 0x3f] as char } else { '=' });
-        out.push(if chunk.len() > 2 { CHARS[n & 0x3f] as char } else { '=' });
+        out.push(if chunk.len() > 1 {
+            CHARS[(n >> 6) & 0x3f] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            CHARS[n & 0x3f] as char
+        } else {
+            '='
+        });
     }
     out
 }

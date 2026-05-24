@@ -67,7 +67,9 @@ pub struct ModelRef {
 impl ModelRef {
     /// Creates a model reference from a model id string.
     pub fn new(model: impl Into<String>) -> Self {
-        Self { model: model.into() }
+        Self {
+            model: model.into(),
+        }
     }
 
     /// Returns the model id string.
@@ -83,11 +85,15 @@ impl std::fmt::Display for ModelRef {
 }
 
 impl From<&str> for ModelRef {
-    fn from(s: &str) -> Self { ModelRef::new(s) }
+    fn from(s: &str) -> Self {
+        ModelRef::new(s)
+    }
 }
 
 impl From<String> for ModelRef {
-    fn from(s: String) -> Self { ModelRef::new(s) }
+    fn from(s: String) -> Self {
+        ModelRef::new(s)
+    }
 }
 
 /// Chat message role used across providers.
@@ -785,8 +791,7 @@ pub struct AgentPreparedStep {
 // ─────────── Callback type aliases ──────────────────────────────────────────
 
 pub(crate) type Hook<T> = Arc<dyn Fn(&T) + Send + Sync>;
-pub(crate) type PrepareStepHook =
-    Arc<dyn Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync>;
+pub(crate) type PrepareStepHook = Arc<dyn Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync>;
 pub(crate) type StopPredicate = Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>;
 
 /// Normalized non-streaming generation response.
@@ -1700,8 +1705,7 @@ mod tests {
 
     #[test]
     fn builds_request_from_prompt() {
-        let request =
-            GenerateTextRequest::from_user_prompt(ModelRef::new("gpt-4o-mini"), "hello");
+        let request = GenerateTextRequest::from_user_prompt(ModelRef::new("gpt-4o-mini"), "hello");
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.model.model(), "gpt-4o-mini");
     }

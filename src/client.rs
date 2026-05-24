@@ -52,10 +52,9 @@ use crate::model_adapters::openai_compatible::{
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart,
-    GenerateTextRequest, GenerateTextResponse, Message,
-    RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
-    validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateTextRequest,
+    GenerateTextResponse, Message, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
+    Usage, validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
 
 pub(crate) trait BuildProvider {
@@ -66,7 +65,10 @@ pub(crate) trait BuildProvider {
 impl BuildProvider for OpenAiAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
-            return Err(Error::new(ErrorCode::AuthFailed, "api_key must not be empty"));
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
         }
         Ok(())
     }
@@ -78,7 +80,10 @@ impl BuildProvider for OpenAiAdapterSettings {
 impl BuildProvider for AnthropicAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
-            return Err(Error::new(ErrorCode::AuthFailed, "api_key must not be empty"));
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
         }
         Ok(())
     }
@@ -90,7 +95,10 @@ impl BuildProvider for AnthropicAdapterSettings {
 impl BuildProvider for GoogleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
-            return Err(Error::new(ErrorCode::AuthFailed, "api_key must not be empty"));
+            return Err(Error::new(
+                ErrorCode::AuthFailed,
+                "api_key must not be empty",
+            ));
         }
         Ok(())
     }
@@ -102,7 +110,10 @@ impl BuildProvider for GoogleAdapterSettings {
 impl BuildProvider for OpenAiCompatibleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.base_url.trim().is_empty() {
-            return Err(Error::new(ErrorCode::InvalidRequest, "base_url must not be empty"));
+            return Err(Error::new(
+                ErrorCode::InvalidRequest,
+                "base_url must not be empty",
+            ));
         }
         Ok(())
     }
@@ -134,7 +145,9 @@ impl LlmClient {
     }
 
     /// Creates an OpenAI-compatible client builder.
-    pub fn openai_compatible(base_url: impl Into<String>) -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
+    pub fn openai_compatible(
+        base_url: impl Into<String>,
+    ) -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
 }
@@ -293,10 +306,7 @@ impl BoundClient {
     /// Runs a non-streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn generate(
-        &self,
-        req: GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    pub async fn generate(&self, req: GenerateTextRequest) -> Result<GenerateTextResponse, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;

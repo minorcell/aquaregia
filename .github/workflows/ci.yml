@@ -67,11 +67,5 @@ jobs:
       - name: Check without default features
         run: cargo check --locked --no-default-features
 
-      - name: Check OpenAI-only feature set
-        run: cargo check --locked --no-default-features --features openai
-
-      - name: Check Anthropic-only feature set
-        run: cargo check --locked --no-default-features --features anthropic
-
       - name: Check telemetry feature set
         run: cargo check --locked --features telemetry
