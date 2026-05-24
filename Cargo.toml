@@ -20,6 +20,7 @@ exclude = [
     "examples/**",
     "**/AGENTS.md",
     "**/CLAUDE.md",
+    "rust-toolchain.toml",
 ]
 
 [lib]
