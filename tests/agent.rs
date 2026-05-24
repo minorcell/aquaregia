@@ -291,6 +291,6 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
             .lock()
             .expect("start_event mutex should not be poisoned")
             .clone(),
-        Some(("openai/gpt-4.1-mini".to_string(), 1, 0, 2))
+        Some(("gpt-4.1-mini".to_string(), 1, 0, 2))
     );
 }

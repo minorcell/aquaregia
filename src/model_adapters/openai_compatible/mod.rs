@@ -59,7 +59,7 @@ use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, 
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, OpenAiCompatible, ReasoningPart, StreamEvent, TextStream, ToolCall,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall,
     Usage,
 };
 
@@ -315,10 +315,10 @@ fn map_think_segments_to_stream_events(
 }
 
 #[async_trait]
-impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
+impl ModelAdapter for OpenAiCompatibleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest<OpenAiCompatible>,
+        req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_openai_payload(req, false);
         let url = self.endpoint_url()?;
@@ -350,7 +350,7 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
 
     async fn stream_text(
         &self,
-        req: &GenerateTextRequest<OpenAiCompatible>,
+        req: &GenerateTextRequest,
     ) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = self.endpoint_url()?;
@@ -636,7 +636,7 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest<OpenAiCompatible>, stream: bool) -> Value {
+fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),

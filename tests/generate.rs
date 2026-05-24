@@ -1,9 +1,9 @@
-use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, OpenAi};
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message};
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn openai_request() -> GenerateTextRequest<OpenAi> {
+fn openai_request() -> GenerateTextRequest {
     GenerateTextRequest::builder("gpt-4o-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)

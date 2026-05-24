@@ -47,7 +47,7 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, ImagePart,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart,
     MediaData, Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
@@ -109,10 +109,10 @@ impl GoogleAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter<Google> for GoogleAdapter {
+impl ModelAdapter for GoogleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest<Google>,
+        req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
@@ -140,7 +140,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
         normalize_google_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -289,7 +289,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
     }
 }
 
-fn build_google_payload(req: &GenerateTextRequest<Google>) -> Value {
+fn build_google_payload(req: &GenerateTextRequest) -> Value {
     let (contents, system_instruction) = to_google_messages(&req.messages);
 
     let mut payload = Map::new();

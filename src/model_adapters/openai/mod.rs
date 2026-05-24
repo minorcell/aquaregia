@@ -48,7 +48,7 @@ use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, 
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, OpenAi, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -96,10 +96,10 @@ impl OpenAiAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter<OpenAi> for OpenAiAdapter {
+impl ModelAdapter for OpenAiAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest<OpenAi>,
+        req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_openai_payload(req, false);
         let url = format!(
@@ -131,7 +131,7 @@ impl ModelAdapter<OpenAi> for OpenAiAdapter {
         normalize_openai_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest<OpenAi>) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = format!(
             "{}/v1/chat/completions",
@@ -369,7 +369,7 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest<OpenAi>, stream: bool) -> Value {
+fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),
