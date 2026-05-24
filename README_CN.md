@@ -60,7 +60,7 @@ cargo add aquaregia
 
 ## Providers
 
-选择一个构造器，得到的 `BoundClient<P>` 以 provider marker `P` 为类型参数。
+选择一个构造器，获得该 provider 对应的 `BoundClient`。
 
 | Provider          | 构造器                                                | 模型参数              |
 | ----------------- | ----------------------------------------------------- | --------------------- |
@@ -83,21 +83,13 @@ let client = LlmClient::openai(std::env::var("OPENAI_API_KEY")?)
     .build()?;
 ```
 
-### 类型安全的 `ModelRef<P>`
+### 模型引用
 
-如果你担心把 OpenAI 的模型名错传给 Anthropic 客户端，使用类型化工厂函数：
+`GenerateTextRequest::from_user_prompt` 和 `.builder()` 接受任何 `impl Into<ModelRef>` —— 最常用的是裸 `&str`：
 
 ```rust
-use aquaregia::{anthropic, openai, Anthropic, ModelRef, OpenAi};
-
-let gpt:    ModelRef<OpenAi>    = openai("gpt-4o");
-let claude: ModelRef<Anthropic> = anthropic("claude-sonnet-4-5");
-
-// `client_openai.generate(GenerateTextRequest::from_user_prompt(claude, "..."))`
-// 对 `BoundClient<OpenAi>` 是编译错误。
+let req = GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!");
 ```
-
-`GenerateTextRequest::from_user_prompt` 接受任何实现 `IntoModelRef<P>` 的值 —— 包括裸 `&str`（便捷写法），或上面这些类型化工厂函数（更强保证）。
 
 ### OpenAI-compatible 深度配置
 
@@ -487,7 +479,7 @@ Aquaregia 会在瞬时错误（`RateLimited`、`ProviderServerError`、`Transpor
 Aquaregia 有意不在主 crate 中内置 Web 框架适配层。如果你在用 Axum，可以在应用代码里自行把 `TextStream` 转成 SSE：
 
 ```rust
-use aquaregia::{BoundClient, GenerateTextRequest, OpenAiCompatible, StreamEvent, TextStream};
+use aquaregia::{BoundClient, GenerateTextRequest, StreamEvent, TextStream};
 use axum::{
     extract::State,
     response::{
@@ -524,7 +516,7 @@ fn to_axum_sse(
     }))
 }
 
-async fn chat(State(client): State<Arc<BoundClient<OpenAiCompatible>>>) -> impl IntoResponse {
+async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
     let stream = client
         .stream(GenerateTextRequest::from_user_prompt("deepseek-chat", "你好。"))
         .await

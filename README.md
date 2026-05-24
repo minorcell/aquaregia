@@ -60,7 +60,7 @@ You also need a Tokio runtime in your project.
 
 ## Providers
 
-Pick a constructor; the resulting `BoundClient<P>` is parameterized over the provider marker `P`.
+Pick a constructor to get a `BoundClient` for that provider.
 
 | Provider          | Constructor                                              | Model argument        |
 | ----------------- | -------------------------------------------------------- | --------------------- |
@@ -83,21 +83,13 @@ let client = LlmClient::openai(std::env::var("OPENAI_API_KEY")?)
     .build()?;
 ```
 
-### Typed `ModelRef<P>`
+### Model references
 
-To prevent passing an OpenAI model name to an Anthropic client at runtime, use the typed factory helpers:
+`GenerateTextRequest::from_user_prompt` and `.builder()` accept any `impl Into<ModelRef>` — a bare `&str` is the most common form:
 
 ```rust
-use aquaregia::{anthropic, openai, Anthropic, ModelRef, OpenAi};
-
-let gpt:    ModelRef<OpenAi>    = openai("gpt-4o");
-let claude: ModelRef<Anthropic> = anthropic("claude-sonnet-4-5");
-
-// `client_openai.generate(GenerateTextRequest::from_user_prompt(claude, "..."))`
-// is a compile-time error against a `BoundClient<OpenAi>`.
+let req = GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!");
 ```
-
-`GenerateTextRequest::from_user_prompt` accepts anything implementing `IntoModelRef<P>` — a bare `&str` for ergonomic inline calls, or the typed factories above for stronger guarantees.
 
 ### OpenAI-compatible deep configuration
 
@@ -488,7 +480,7 @@ Every `Error` carries a `retryable: bool` flag matching the same classification,
 Aquaregia intentionally keeps web framework adapters out of the crate. If you're building on Axum, adapt `TextStream` in your application layer:
 
 ```rust
-use aquaregia::{BoundClient, GenerateTextRequest, OpenAiCompatible, StreamEvent, TextStream};
+use aquaregia::{BoundClient, GenerateTextRequest, StreamEvent, TextStream};
 use axum::{
     extract::State,
     response::{
@@ -525,7 +517,7 @@ fn to_axum_sse(
     }))
 }
 
-async fn chat(State(client): State<Arc<BoundClient<OpenAiCompatible>>>) -> impl IntoResponse {
+async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
     let stream = client
         .stream(GenerateTextRequest::from_user_prompt("deepseek-chat", "Hello."))
         .await

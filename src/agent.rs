@@ -2,8 +2,8 @@
 //!
 //! This module provides the multi-step tool-using agent abstraction:
 //!
-//! - [`Agent<P>`]: Main agent runtime for tool loops
-//! - [`AgentBuilder<P>`]: Builder for configuring agent behavior
+//! - [`Agent`]: Main agent runtime for tool loops
+//! - [`AgentBuilder`]: Builder for configuring agent behavior
 //!
 //! ## Agent Architecture
 //!
@@ -68,10 +68,6 @@ use crate::types::{
 /// - **Early stopping**: `stop_when` predicate for custom termination conditions
 /// - **Cancellation**: Bind a `CancellationToken` at builder time to cancel running agents
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
-///
-/// ## Type Parameters
-///
-/// * `P` - Provider marker type encoding the bound provider at compile time
 pub struct Agent {
     client: Arc<BoundClient>,
     model: ModelRef,

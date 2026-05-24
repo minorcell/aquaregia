@@ -3,14 +3,13 @@
 //! This module provides the core client abstractions for making LLM requests:
 //!
 //! - [`LlmClient`]: Entry point for creating provider-specific clients
-//! - [`ClientBuilder<P>`]: Builder for configuring HTTP/runtime behavior
+//! - [`ClientBuilder`]: Builder for configuring HTTP/runtime behavior
 //! - [`BoundClient`]: Reusable client for generate/stream/agent operations
 //!
 //! ## Architecture
 //!
-//! The client architecture uses a type-state pattern where:
-//! 1. [`LlmClient`] constructors return a [`ClientBuilder<P>`] with provider type `P`
-//! 2. [`ClientBuilder<P>`] configures settings and HTTP behavior
+//! 1. [`LlmClient`] constructors return a [`ClientBuilder`] parameterised on the settings type
+//! 2. [`ClientBuilder`] configures settings and HTTP behavior
 //! 3. [`ClientBuilder::build()`] produces a [`BoundClient`]
 //! 4. [`BoundClient`] is used for all subsequent operations
 //!
