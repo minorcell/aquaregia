@@ -83,6 +83,29 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Prefer guidance that explains how to reason about the system over guidance that attempts to mirror the system exhaustively.
 - If examples are needed, keep them short and illustrative rather than comprehensive.
 
+## 7. Lean API Design
+
+**Type-level machinery must earn its complexity.**
+
+Every generic parameter, marker trait, phantom type, or feature flag that ends up in user-facing code costs the user cognitive overhead every time they write a type annotation or read an error message. Add that cost only when there is a concrete, demonstrable benefit.
+
+Before adding type-level structure, ask:
+
+- Does this prevent a real class of mistakes that a clear runtime error would not catch?
+- Does this enable real code reuse — not just the appearance of a unified interface?
+- Can a user realistically misuse the API without this constraint, and would the failure be silent?
+
+If the answers are "no", the abstraction is decorative. Remove it.
+
+Concrete rules for this codebase:
+
+- No phantom type parameters on public structs unless they enforce a boundary that the construction site cannot enforce.
+- No feature flags that gate no code (`openai = []` is noise, not a feature).
+- No trait hierarchies where each implementor does something entirely different — four `impl`s with no shared runtime behaviour is not polymorphism, it is a dispatch table in disguise.
+- No extra wrapper types when a plain value type (`String`, a struct with named fields) communicates the same contract.
+
+The test: if removing the abstraction requires no user-side code changes beyond dropping a type annotation, it was not carrying its weight.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
