@@ -57,7 +57,8 @@ use crate::types::{
     Usage, validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
 
-pub(crate) trait BuildProvider {
+#[doc(hidden)]
+pub trait BuildProvider {
     fn validate(&self) -> Result<(), Error>;
     fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
