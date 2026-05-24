@@ -1,4 +1,5 @@
 use aquaregia::{Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, ToolErrorPolicy};
+use serde::Deserialize;
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -103,7 +104,7 @@ async fn agent_stop_when_predicate_stops_early() {
     assert_eq!(response.steps, 1);
 }
 
-// ─── ToolErrorPolicy::FailFast with schema validation failure ───────────
+// ─── ToolErrorPolicy::FailFast with deserialization failure ─────────────
 
 #[tokio::test]
 async fn agent_fail_fast_on_invalid_tool_args() {
@@ -118,7 +119,7 @@ async fn agent_fail_fast_on_invalid_tool_args() {
                     "type": "function",
                     "function": {
                         "name": "weather",
-                        "arguments": "{\"bad_key\": 123}" // schema requires "city"
+                        "arguments": "{\"bad_key\": 123}" // typed executor requires "city"
                     }
                 }]
             },
@@ -139,14 +140,14 @@ async fn agent_fail_fast_on_invalid_tool_args() {
         .build()
         .expect("client should build");
 
+    #[derive(Debug, Deserialize, schemars::JsonSchema)]
+    struct WeatherArgs {
+        city: String,
+    }
+
     let weather = aquaregia::tool("weather")
         .description("Get weather by city")
-        .raw_schema(json!({
-            "type": "object",
-            "properties": { "city": { "type": "string" } },
-            "required": ["city"]
-        }))
-        .execute_raw(|args| async move { Ok(json!({"city": args["city"], "temp": 22})) });
+        .execute(|args: WeatherArgs| async move { Ok(json!({"city": args.city, "temp": 22})) });
 
     let agent = Agent::builder(client, "gpt-4o-mini")
         .tools([weather])
@@ -160,7 +161,7 @@ async fn agent_fail_fast_on_invalid_tool_args() {
         .await
         .expect_err("should fail on invalid tool args");
 
-    assert_eq!(err.code, ErrorCode::InvalidToolArgs);
+    assert_eq!(err.code, ErrorCode::ToolExecutionFailed);
 }
 
 // ─── ToolErrorPolicy::ContinueAsToolResult (default) ────────────────────

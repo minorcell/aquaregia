@@ -2,14 +2,12 @@
 //!
 //! This module defines the core data structures used throughout the Aquaregia SDK:
 //!
-//! - **Provider Markers**: Type-level markers for provider-specific typing (`OpenAi`, `Anthropic`, `Google`, `OpenAiCompatible`)
 //! - **Messages**: Provider-agnostic chat message types with support for text, images, reasoning, and tool content
 //! - **Requests/Responses**: Structured generation request and response types
 //! - **Streaming**: Event types emitted during streaming generation
 //! - **Agent Types**: Event types and plan structures for multi-step agent loops
 //! - **Usage**: Token usage counters with cache and reasoning token support
 
-use std::marker::PhantomData;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -51,154 +49,50 @@ impl ProviderKind {
     }
 }
 
-/// Type marker for provider-specific request/response typing.
-///
-/// This trait is used to encode provider information at the type level, enabling
-/// compile-time type safety when working with provider-specific models and requests.
-/// The marker types (`OpenAi`, `Anthropic`, `Google`, `OpenAiCompatible`) implement this trait.
-pub trait ProviderMarker: Clone + Copy + Send + Sync + 'static {
-    /// Provider family represented by this marker type.
-    const KIND: ProviderKind;
-}
-
-/// OpenAI provider marker.
-///
-/// This marker type is used to create type-safe references to OpenAI models
-/// and requests. It ensures that OpenAI-specific settings and model names
-/// are used consistently throughout the SDK.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct OpenAi;
-
-impl ProviderMarker for OpenAi {
-    const KIND: ProviderKind = ProviderKind::OpenAi;
-}
-
-/// Anthropic provider marker.
-///
-/// This marker type is used to create type-safe references to Anthropic models
-/// and requests. It ensures that Anthropic-specific settings and model names
-/// are used consistently throughout the SDK.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct Anthropic;
-
-impl ProviderMarker for Anthropic {
-    const KIND: ProviderKind = ProviderKind::Anthropic;
-}
-
-/// Google provider marker.
-///
-/// This marker type is used to create type-safe references to Google Generative AI models
-/// and requests. It ensures that Google-specific settings and model names
-/// are used consistently throughout the SDK.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct Google;
-
-impl ProviderMarker for Google {
-    const KIND: ProviderKind = ProviderKind::Google;
-}
-
-/// OpenAI-compatible provider marker.
-///
-/// This marker type is used to create type-safe references to OpenAI-compatible
-/// endpoints (e.g., DeepSeek, local LLM servers). It ensures that compatible
-/// endpoint settings and model names are used consistently throughout the SDK.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
-pub struct OpenAiCompatible;
-
-impl ProviderMarker for OpenAiCompatible {
-    const KIND: ProviderKind = ProviderKind::OpenAiCompatible;
-}
-
-/// Strongly-typed model reference carrying provider information at compile time.
-///
-/// This struct encapsulates a model identifier along with its provider type,
-/// providing type safety and convenience methods for working with models.
-/// The generic parameter `P` encodes the provider at the type level.
-///
-/// # Type Parameters
-///
-/// * `P` - Provider marker type (`OpenAi`, `Anthropic`, `Google`, or `OpenAiCompatible`)
+/// Model reference: a provider-local model identifier string.
 ///
 /// # Example
 ///
 /// ```
-/// use aquaregia::{ModelRef, OpenAi};
+/// use aquaregia::ModelRef;
 ///
-/// let model = ModelRef::<OpenAi>::new("gpt-4o");
-/// assert_eq!(model.id(), "openai/gpt-4o");
+/// let model = ModelRef::new("gpt-4o");
 /// assert_eq!(model.model(), "gpt-4o");
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelRef<P: ProviderMarker> {
-    /// Provider-local model identifier.
+pub struct ModelRef {
     model: String,
-    #[serde(skip)]
-    /// Phantom data encoding the provider type at compile time.
-    _marker: PhantomData<P>,
 }
 
-impl<P: ProviderMarker> ModelRef<P> {
-    /// Creates a model reference from a provider-local model id.
-    ///
-    /// # Arguments
-    ///
-    /// * `model` - The provider-local model identifier (e.g., `"gpt-4o"`, `"claude-sonnet-4-5"`)
+impl ModelRef {
+    /// Creates a model reference from a model id string.
     pub fn new(model: impl Into<String>) -> Self {
-        let model = model.into();
         Self {
-            model,
-            _marker: PhantomData,
+            model: model.into(),
         }
     }
 
-    /// Returns a fully-qualified model id (`<provider>/<model>`).
-    ///
-    /// This method returns the complete model identifier including the provider prefix,
-    /// suitable for logging, display, or configuration purposes.
-    pub fn id(&self) -> String {
-        format!("{}/{}", P::KIND.as_slug(), self.model)
-    }
-
-    /// Returns the provider-local model id.
-    ///
-    /// This method returns just the model identifier without the provider prefix,
-    /// as used in API requests to the specific provider.
+    /// Returns the model id string.
     pub fn model(&self) -> &str {
         &self.model
     }
 }
 
-impl<P: ProviderMarker> std::fmt::Display for ModelRef<P> {
+impl std::fmt::Display for ModelRef {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id())
+        write!(f, "{}", self.model)
     }
 }
 
-/// Converts values into a typed [`ModelRef`].
-///
-/// This trait provides ergonomic conversion into [`ModelRef`] types,
-/// allowing string literals and `String` values to be used directly
-/// in APIs that expect model references.
-pub trait IntoModelRef<P: ProviderMarker> {
-    /// Performs the conversion.
-    fn into_model_ref(self) -> ModelRef<P>;
-}
-
-impl<P: ProviderMarker> IntoModelRef<P> for ModelRef<P> {
-    fn into_model_ref(self) -> ModelRef<P> {
-        self
+impl From<&str> for ModelRef {
+    fn from(s: &str) -> Self {
+        ModelRef::new(s)
     }
 }
 
-impl<P: ProviderMarker> IntoModelRef<P> for &str {
-    fn into_model_ref(self) -> ModelRef<P> {
-        ModelRef::new(self)
-    }
-}
-
-impl<P: ProviderMarker> IntoModelRef<P> for String {
-    fn into_model_ref(self) -> ModelRef<P> {
-        ModelRef::new(self)
+impl From<String> for ModelRef {
+    fn from(s: String) -> Self {
+        ModelRef::new(s)
     }
 }
 
@@ -457,10 +351,10 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
-/// Provider-typed request for generation/streaming calls.
+/// Request for generation/streaming calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateTextRequest<P: ProviderMarker> {
-    pub(crate) model: ModelRef<P>,
+pub struct GenerateTextRequest {
+    pub(crate) model: ModelRef,
     pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
@@ -471,11 +365,11 @@ pub struct GenerateTextRequest<P: ProviderMarker> {
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
-impl<P: ProviderMarker> GenerateTextRequest<P> {
+impl GenerateTextRequest {
     /// Builds a one-message request from a user prompt.
-    pub fn from_user_prompt(model: impl IntoModelRef<P>, prompt: impl Into<String>) -> Self {
+    pub fn from_user_prompt(model: impl Into<ModelRef>, prompt: impl Into<String>) -> Self {
         Self {
-            model: model.into_model_ref(),
+            model: model.into(),
             messages: vec![Message::user_text(prompt)],
             temperature: None,
             top_p: None,
@@ -487,10 +381,10 @@ impl<P: ProviderMarker> GenerateTextRequest<P> {
     }
 
     /// Starts a request builder.
-    pub fn builder(model: impl IntoModelRef<P>) -> GenerateTextRequestBuilder<P> {
+    pub fn builder(model: impl Into<ModelRef>) -> GenerateTextRequestBuilder {
         GenerateTextRequestBuilder {
             request: Self {
-                model: model.into_model_ref(),
+                model: model.into(),
                 messages: Vec::new(),
                 temperature: None,
                 top_p: None,
@@ -504,11 +398,11 @@ impl<P: ProviderMarker> GenerateTextRequest<P> {
 }
 
 /// Builder for [`GenerateTextRequest`].
-pub struct GenerateTextRequestBuilder<P: ProviderMarker> {
-    request: GenerateTextRequest<P>,
+pub struct GenerateTextRequestBuilder {
+    request: GenerateTextRequest,
 }
 
-impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
+impl GenerateTextRequestBuilder {
     /// Appends one message.
     pub fn message(mut self, message: Message) -> Self {
         self.request.messages.push(message);
@@ -568,7 +462,7 @@ impl<P: ProviderMarker> GenerateTextRequestBuilder<P> {
     }
 
     /// Validates and finalizes the request.
-    pub fn build(self) -> Result<GenerateTextRequest<P>, Error> {
+    pub fn build(self) -> Result<GenerateTextRequest, Error> {
         validate_model_ref(&self.request.model)?;
         validate_messages(&self.request.messages)?;
         validate_sampling(self.request.temperature, self.request.top_p)?;
@@ -587,8 +481,8 @@ pub enum ToolErrorPolicy {
 }
 
 #[derive(Clone)]
-pub(crate) struct RunTools<P: ProviderMarker> {
-    pub(crate) model: ModelRef<P>,
+pub(crate) struct RunTools {
+    pub(crate) model: ModelRef,
     pub(crate) messages: Vec<Message>,
     pub(crate) tools: Vec<Tool>,
     pub(crate) max_steps: Option<u8>,
@@ -596,7 +490,7 @@ pub(crate) struct RunTools<P: ProviderMarker> {
     pub(crate) top_p: Option<f32>,
     pub(crate) max_output_tokens: Option<u32>,
     pub(crate) stop_sequences: Vec<String>,
-    pub(crate) prepare_step: Option<PrepareStepHook<P>>,
+    pub(crate) prepare_step: Option<PrepareStepHook>,
     pub(crate) on_start: Option<Hook<AgentStart>>,
     pub(crate) on_step_start: Option<Hook<AgentStepStart>>,
     pub(crate) on_tool_call_start: Option<Hook<AgentToolCallStart>>,
@@ -609,10 +503,10 @@ pub(crate) struct RunTools<P: ProviderMarker> {
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
-impl<P: ProviderMarker> RunTools<P> {
-    pub(crate) fn new(model: impl IntoModelRef<P>) -> Self {
+impl RunTools {
+    pub(crate) fn new(model: impl Into<ModelRef>) -> Self {
         Self {
-            model: model.into_model_ref(),
+            model: model.into(),
             messages: Vec::new(),
             tools: Vec::new(),
             max_steps: None,
@@ -679,7 +573,7 @@ impl<P: ProviderMarker> RunTools<P> {
 
     pub(crate) fn prepare_step<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
+        F: Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync + 'static,
     {
         self.prepare_step = Some(Arc::new(callback));
         self
@@ -858,11 +752,11 @@ pub struct AgentFinish {
 
 /// Per-step mutable input passed to `prepare_step`.
 #[derive(Debug, Clone)]
-pub struct AgentPrepareStep<P: ProviderMarker> {
+pub struct AgentPrepareStep {
     /// 1-based step index to be executed.
     pub step: u8,
     /// Model selected for this step.
-    pub model: ModelRef<P>,
+    pub model: ModelRef,
     /// Messages that will be sent unless changed.
     pub messages: Vec<Message>,
     /// Tools currently available for this step.
@@ -879,9 +773,9 @@ pub struct AgentPrepareStep<P: ProviderMarker> {
 
 /// Finalized step input returned by `prepare_step`.
 #[derive(Debug, Clone)]
-pub struct AgentPreparedStep<P: ProviderMarker> {
+pub struct AgentPreparedStep {
     /// Model selected for this step.
-    pub model: ModelRef<P>,
+    pub model: ModelRef,
     /// Messages to send for this step.
     pub messages: Vec<Message>,
     /// Tools available for this step.
@@ -897,8 +791,7 @@ pub struct AgentPreparedStep<P: ProviderMarker> {
 // ─────────── Callback type aliases ──────────────────────────────────────────
 
 pub(crate) type Hook<T> = Arc<dyn Fn(&T) + Send + Sync>;
-pub(crate) type PrepareStepHook<P> =
-    Arc<dyn Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync>;
+pub(crate) type PrepareStepHook = Arc<dyn Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync>;
 pub(crate) type StopPredicate = Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>;
 
 /// Normalized non-streaming generation response.
@@ -1200,9 +1093,9 @@ fn validate_message_parts(role: MessageRole, parts: &[ContentPart]) -> Result<()
     Ok(())
 }
 
-impl<P: ProviderMarker> AgentPrepareStep<P> {
+impl AgentPrepareStep {
     /// Converts this event payload into a mutable prepared-step value.
-    pub fn to_prepared(&self) -> AgentPreparedStep<P> {
+    pub fn to_prepared(&self) -> AgentPreparedStep {
         AgentPreparedStep {
             model: self.model.clone(),
             messages: self.messages.clone(),
@@ -1229,7 +1122,7 @@ pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn validate_model_ref<P: ProviderMarker>(model: &ModelRef<P>) -> Result<(), Error> {
+pub(crate) fn validate_model_ref(model: &ModelRef) -> Result<(), Error> {
     if model.model().trim().is_empty() {
         return Err(Error::new(
             ErrorCode::InvalidRequest,
@@ -1273,17 +1166,17 @@ pub(crate) fn validate_max_steps(max_steps: u8) -> Result<(), Error> {
 mod tests {
     use super::*;
 
-    // ─── ModelRef / IntoModelRef ──────────────────────────────────────────
+    // ─── ModelRef ────────────────────────────────────────────────────────
 
     #[test]
     fn builds_openai_model() {
-        let model = ModelRef::<OpenAi>::new("gpt-4o-mini");
+        let model = ModelRef::new("gpt-4o-mini");
         assert_eq!(model.model(), "gpt-4o-mini");
     }
 
     #[test]
     fn rejects_empty_model_name() {
-        let model = ModelRef::<OpenAi>::new("  ");
+        let model = ModelRef::new("  ");
         let err = validate_model_ref(&model).expect_err("empty model should fail");
         assert!(
             err.message.contains("cannot be empty"),
@@ -1294,36 +1187,35 @@ mod tests {
 
     #[test]
     fn model_ref_display_matches_model_id() {
-        let model = ModelRef::<OpenAi>::new("gpt-4o-mini");
-        assert_eq!(model.to_string(), "openai/gpt-4o-mini");
+        let model = ModelRef::new("gpt-4o-mini");
+        assert_eq!(model.to_string(), "gpt-4o-mini");
     }
 
     #[test]
     fn model_ref_serialization_roundtrip() {
-        let model = ModelRef::<OpenAi>::new("gpt-4o");
+        let model = ModelRef::new("gpt-4o");
         let json = serde_json::to_string(&model).unwrap();
-        let deserialized: ModelRef<OpenAi> = serde_json::from_str(&json).unwrap();
+        let deserialized: ModelRef = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.model(), "gpt-4o");
-        assert_eq!(deserialized.id(), "openai/gpt-4o");
     }
 
     #[test]
     fn into_model_ref_from_string() {
-        let model: ModelRef<OpenAi> = "gpt-4o".into_model_ref();
+        let model: ModelRef = "gpt-4o".into();
         assert_eq!(model.model(), "gpt-4o");
     }
 
     #[test]
     fn into_model_ref_from_owned_string() {
-        let model: ModelRef<OpenAi> = String::from("o1").into_model_ref();
+        let model: ModelRef = String::from("o1").into();
         assert_eq!(model.model(), "o1");
     }
 
     #[test]
     fn into_model_ref_from_model_ref_is_identity() {
-        let original = ModelRef::<OpenAi>::new("gpt-4o");
-        let converted = original.clone().into_model_ref();
-        assert_eq!(converted.model(), "gpt-4o");
+        let original = ModelRef::new("gpt-4o");
+        let cloned = original.clone();
+        assert_eq!(cloned.model(), "gpt-4o");
     }
 
     // ─── ProviderKind ────────────────────────────────────────────────────
@@ -1337,14 +1229,6 @@ mod tests {
             ProviderKind::OpenAiCompatible.as_slug(),
             "openai-compatible"
         );
-    }
-
-    #[test]
-    fn provider_marker_kind_constants() {
-        assert_eq!(OpenAi::KIND, ProviderKind::OpenAi);
-        assert_eq!(Anthropic::KIND, ProviderKind::Anthropic);
-        assert_eq!(Google::KIND, ProviderKind::Google);
-        assert_eq!(OpenAiCompatible::KIND, ProviderKind::OpenAiCompatible);
     }
 
     // ─── Message validation ──────────────────────────────────────────────
@@ -1692,7 +1576,7 @@ mod tests {
 
     #[test]
     fn agent_prepare_step_to_prepared() {
-        let step = AgentPrepareStep::<OpenAi> {
+        let step = AgentPrepareStep {
             step: 1,
             model: ModelRef::new("gpt-4o"),
             messages: vec![Message::user_text("hi")],
@@ -1821,8 +1705,7 @@ mod tests {
 
     #[test]
     fn builds_request_from_prompt() {
-        let request =
-            GenerateTextRequest::from_user_prompt(ModelRef::<OpenAi>::new("gpt-4o-mini"), "hello");
+        let request = GenerateTextRequest::from_user_prompt(ModelRef::new("gpt-4o-mini"), "hello");
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.model.model(), "gpt-4o-mini");
     }
@@ -1847,7 +1730,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_top_p() {
-        let err = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let err = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("hello"))
             .top_p(1.1)
             .build()
@@ -1857,7 +1740,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_temperature() {
-        let err = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let err = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("hello"))
             .temperature(2.1)
             .build()
@@ -1867,7 +1750,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_empty_messages() {
-        let err = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let err = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .build()
             .expect_err("empty messages should fail");
         assert!(err.message.contains("cannot be empty"));
@@ -1875,7 +1758,7 @@ mod tests {
 
     #[test]
     fn request_builder_accepts_messages_method() {
-        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let req = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .messages(vec![Message::user_text("h1"), Message::user_text("h2")])
             .build()
             .expect("request should build");
@@ -1884,7 +1767,7 @@ mod tests {
 
     #[test]
     fn request_builder_user_prompt_replaces_messages() {
-        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let req = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("old"))
             .user_prompt("replaced")
             .build()
@@ -1894,7 +1777,7 @@ mod tests {
 
     #[test]
     fn request_builder_sets_all_fields() {
-        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let req = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("hi"))
             .temperature(0.7)
             .top_p(0.9)
@@ -1912,7 +1795,7 @@ mod tests {
 
     #[test]
     fn request_builder_empty_tools_is_none() {
-        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let req = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("hi"))
             .tools(Vec::<crate::tool::ToolDescriptor>::new())
             .build()
@@ -1922,7 +1805,7 @@ mod tests {
 
     #[test]
     fn request_builder_valid_temperature_boundary() {
-        let req = GenerateTextRequest::builder(ModelRef::<OpenAi>::new("gpt-4o-mini"))
+        let req = GenerateTextRequest::builder(ModelRef::new("gpt-4o-mini"))
             .message(Message::user_text("hi"))
             .temperature(2.0)
             .top_p(0.0)
@@ -1991,7 +1874,7 @@ mod tests {
 
     #[test]
     fn run_tools_builds_with_valid_config() {
-        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+        let rt = RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .tools(Vec::<crate::tool::Tool>::new())
             .max_steps(5)
@@ -2008,7 +1891,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_rejects_invalid_max_steps() {
-        match RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+        match RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .max_steps(0)
             .build()
@@ -2020,7 +1903,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_rejects_invalid_model() {
-        match RunTools::<OpenAi>::new(ModelRef::new("  "))
+        match RunTools::new(ModelRef::new("  "))
             .messages([Message::user_text("hello")])
             .build()
         {
@@ -2031,7 +1914,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_max_steps_is_none() {
-        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+        let rt = RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .build()
             .expect("run tools should build");
@@ -2040,7 +1923,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_tool_error_policy() {
-        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+        let rt = RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .build()
             .expect("run tools should build");
@@ -2049,7 +1932,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_tool_concurrency() {
-        let rt = RunTools::<OpenAi>::new(ModelRef::new("gpt-4o"))
+        let rt = RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .build()
             .expect("run tools should build");

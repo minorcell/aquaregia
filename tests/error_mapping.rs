@@ -2,7 +2,7 @@ use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn anthropic_request() -> GenerateTextRequest<aquaregia::Anthropic> {
+fn anthropic_request() -> GenerateTextRequest {
     GenerateTextRequest::builder("claude-3-5-haiku-latest")
         .message(Message::user_text("hi"))
         .temperature(0.2)

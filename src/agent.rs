@@ -2,8 +2,8 @@
 //!
 //! This module provides the multi-step tool-using agent abstraction:
 //!
-//! - [`Agent<P>`]: Main agent runtime for tool loops
-//! - [`AgentBuilder<P>`]: Builder for configuring agent behavior
+//! - [`Agent`]: Main agent runtime for tool loops
+//! - [`AgentBuilder`]: Builder for configuring agent behavior
 //!
 //! ## Agent Architecture
 //!
@@ -48,8 +48,8 @@ use crate::client::BoundClient;
 use crate::tool::{IntoTool, Tool};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, IntoModelRef, Message, ModelRef,
-    PrepareStepHook, ProviderMarker, RunTools, StopPredicate, ToolErrorPolicy, validate_max_steps,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, Message, ModelRef,
+    PrepareStepHook, RunTools, StopPredicate, ToolErrorPolicy, validate_max_steps,
     validate_model_ref, validate_sampling,
 };
 
@@ -68,13 +68,9 @@ use crate::types::{
 /// - **Early stopping**: `stop_when` predicate for custom termination conditions
 /// - **Cancellation**: Bind a `CancellationToken` at builder time to cancel running agents
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
-///
-/// ## Type Parameters
-///
-/// * `P` - Provider marker type encoding the bound provider at compile time
-pub struct Agent<P: ProviderMarker> {
-    client: Arc<BoundClient<P>>,
-    model: ModelRef<P>,
+pub struct Agent {
+    client: Arc<BoundClient>,
+    model: ModelRef,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u8>,
@@ -83,7 +79,7 @@ pub struct Agent<P: ProviderMarker> {
     max_output_tokens: Option<u32>,
     stop_sequences: Vec<String>,
     cancellation_token: Option<CancellationToken>,
-    prepare_step: Option<PrepareStepHook<P>>,
+    prepare_step: Option<PrepareStepHook>,
     on_start: Option<Hook<AgentStart>>,
     on_step_start: Option<Hook<AgentStepStart>>,
     on_tool_call_start: Option<Hook<AgentToolCallStart>>,
@@ -94,18 +90,18 @@ pub struct Agent<P: ProviderMarker> {
     tool_error_policy: ToolErrorPolicy,
 }
 
-impl<P: ProviderMarker> Agent<P> {
+impl Agent {
     /// Starts building an [`Agent`] from a provider-bound client and model.
     pub fn builder(
-        client: impl Into<Arc<BoundClient<P>>>,
-        model: impl IntoModelRef<P>,
-    ) -> AgentBuilder<P> {
-        AgentBuilder::new(client.into(), model.into_model_ref())
+        client: impl Into<Arc<BoundClient>>,
+        model: impl Into<ModelRef>,
+    ) -> AgentBuilder {
+        AgentBuilder::new(client.into(), model.into())
     }
 
     /// Returns the fully qualified model id (`<provider>/<model>`).
     pub fn model_id(&self) -> String {
-        self.model.id()
+        self.model.model().to_string()
     }
 
     /// Prepends instructions as a system message if configured and no system
@@ -212,9 +208,9 @@ impl<P: ProviderMarker> Agent<P> {
 }
 
 /// Builder for configuring an [`Agent`].
-pub struct AgentBuilder<P: ProviderMarker> {
-    client: Arc<BoundClient<P>>,
-    model: ModelRef<P>,
+pub struct AgentBuilder {
+    client: Arc<BoundClient>,
+    model: ModelRef,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u8>,
@@ -223,7 +219,7 @@ pub struct AgentBuilder<P: ProviderMarker> {
     max_output_tokens: Option<u32>,
     stop_sequences: Vec<String>,
     cancellation_token: Option<CancellationToken>,
-    prepare_step: Option<PrepareStepHook<P>>,
+    prepare_step: Option<PrepareStepHook>,
     on_start: Option<Hook<AgentStart>>,
     on_step_start: Option<Hook<AgentStepStart>>,
     on_tool_call_start: Option<Hook<AgentToolCallStart>>,
@@ -234,8 +230,8 @@ pub struct AgentBuilder<P: ProviderMarker> {
     tool_error_policy: ToolErrorPolicy,
 }
 
-impl<P: ProviderMarker> AgentBuilder<P> {
-    fn new(client: Arc<BoundClient<P>>, model: ModelRef<P>) -> Self {
+impl AgentBuilder {
+    fn new(client: Arc<BoundClient>, model: ModelRef) -> Self {
         Self {
             client,
             model,
@@ -323,7 +319,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
     /// Registers a callback to mutate per-step inputs right before each model call.
     pub fn prepare_step<F>(mut self, callback: F) -> Self
     where
-        F: Fn(&AgentPrepareStep<P>) -> AgentPreparedStep<P> + Send + Sync + 'static,
+        F: Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync + 'static,
     {
         self.prepare_step = Some(Arc::new(callback));
         self
@@ -399,7 +395,7 @@ impl<P: ProviderMarker> AgentBuilder<P> {
     }
 
     /// Validates configuration and builds the [`Agent`].
-    pub fn build(self) -> Result<Agent<P>, crate::error::Error> {
+    pub fn build(self) -> Result<Agent, crate::error::Error> {
         validate_model_ref(&self.model)?;
         if let Some(max_steps) = self.max_steps {
             validate_max_steps(max_steps)?;
@@ -446,7 +442,7 @@ mod tests {
             .build()
             .expect("agent should build");
 
-        assert_eq!(agent.model_id(), "openai/gpt-4o-mini");
+        assert_eq!(agent.model_id(), "gpt-4o-mini");
     }
 
     #[test]

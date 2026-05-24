@@ -39,18 +39,16 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, Google, ImagePart,
-    MediaData, Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -111,10 +109,10 @@ impl GoogleAdapter {
 }
 
 #[async_trait]
-impl ModelAdapter<Google> for GoogleAdapter {
+impl ModelAdapter for GoogleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest<Google>,
+        req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
@@ -142,7 +140,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
         normalize_google_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest<Google>) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -291,7 +289,7 @@ impl ModelAdapter<Google> for GoogleAdapter {
     }
 }
 
-fn build_google_payload(req: &GenerateTextRequest<Google>) -> Value {
+fn build_google_payload(req: &GenerateTextRequest) -> Value {
     let (contents, system_instruction) = to_google_messages(&req.messages);
 
     let mut payload = Map::new();
@@ -498,7 +496,7 @@ fn google_image_part(image: &ImagePart) -> Value {
         }
         MediaData::Bytes(bytes) => {
             let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            json!({ "inlineData": { "mimeType": mt, "data": STANDARD.encode(bytes) } })
+            json!({ "inlineData": { "mimeType": mt, "data": base64_encode(bytes) } })
         }
     }
 }

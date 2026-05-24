@@ -3,16 +3,15 @@
 //! This module provides the core client abstractions for making LLM requests:
 //!
 //! - [`LlmClient`]: Entry point for creating provider-specific clients
-//! - [`ClientBuilder<P>`]: Builder for configuring HTTP/runtime behavior
-//! - [`BoundClient<P>`]: Reusable client for generate/stream/agent operations
+//! - [`ClientBuilder`]: Builder for configuring HTTP/runtime behavior
+//! - [`BoundClient`]: Reusable client for generate/stream/agent operations
 //!
 //! ## Architecture
 //!
-//! The client architecture uses a type-state pattern where:
-//! 1. [`LlmClient`] constructors return a [`ClientBuilder<P>`] with provider type `P`
-//! 2. [`ClientBuilder<P>`] configures settings and HTTP behavior
-//! 3. [`ClientBuilder<P>::build()`] produces a [`BoundClient<P>`]
-//! 4. [`BoundClient<P>`] is used for all subsequent operations
+//! 1. [`LlmClient`] constructors return a [`ClientBuilder`] parameterised on the settings type
+//! 2. [`ClientBuilder`] configures settings and HTTP behavior
+//! 3. [`ClientBuilder::build()`] produces a [`BoundClient`]
+//! 4. [`BoundClient`] is used for all subsequent operations
 //!
 //! ## Example
 //!
@@ -36,7 +35,6 @@
 //! # }
 //! ```
 
-use std::marker::PhantomData;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -54,60 +52,20 @@ use crate::model_adapters::openai_compatible::{
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Anthropic, ContentPart,
-    GenerateTextRequest, GenerateTextResponse, Google, Message, OpenAi, OpenAiCompatible,
-    ProviderMarker, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
-    validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateTextRequest,
+    GenerateTextResponse, Message, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
+    Usage, validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
 };
 
-/// Binds a provider marker type to its adapter settings and adapter implementation.
-///
-/// This trait is mainly an internal extension seam used by [`ClientBuilder`].
-/// It associates each provider marker with its specific settings type and
-/// provides the conversion logic to create a runtime adapter.
-///
-/// ## Implementors
-///
-/// This trait is implemented for the four provider markers:
-/// - [`OpenAi`]
-/// - [`Anthropic`]
-/// - [`Google`]
-/// - [`OpenAiCompatible`]
-pub trait ProviderBinding: ProviderMarker {
-    /// Provider-specific client configuration payload.
-    ///
-    /// Each provider has different configuration options:
-    /// - OpenAI: `base_url`, `api_key`
-    /// - Anthropic: `base_url`, `api_key`, `api_version`
-    /// - Google: `base_url`, `api_key`
-    /// - OpenAI-compatible: `base_url`, optional `api_key`, custom headers/query params
-    type Settings;
-
-    /// Converts provider settings into a runtime adapter.
-    ///
-    /// This method consumes the settings and creates a boxed adapter trait object
-    /// that handles provider-specific request/response formatting.
-    fn into_adapter(
-        settings: Self::Settings,
-        http: Arc<reqwest::Client>,
-    ) -> Arc<dyn ModelAdapter<Self>>;
-
-    /// Validates provider settings (e.g. non-empty api_key / base_url).
-    fn validate_settings(settings: &Self::Settings) -> Result<(), Error>;
+#[doc(hidden)]
+pub trait BuildProvider {
+    fn validate(&self) -> Result<(), Error>;
+    fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
 
-impl ProviderBinding for OpenAi {
-    type Settings = OpenAiAdapterSettings;
-
-    fn into_adapter(
-        settings: Self::Settings,
-        http: Arc<reqwest::Client>,
-    ) -> Arc<dyn ModelAdapter<Self>> {
-        Arc::new(OpenAiAdapter::from_settings(settings, http))
-    }
-
-    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
-        if settings.api_key.trim().is_empty() {
+impl BuildProvider for OpenAiAdapterSettings {
+    fn validate(&self) -> Result<(), Error> {
+        if self.api_key.trim().is_empty() {
             return Err(Error::new(
                 ErrorCode::AuthFailed,
                 "api_key must not be empty",
@@ -115,20 +73,14 @@ impl ProviderBinding for OpenAi {
         }
         Ok(())
     }
+    fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter> {
+        Arc::new(OpenAiAdapter::from_settings(self, http))
+    }
 }
 
-impl ProviderBinding for Anthropic {
-    type Settings = AnthropicAdapterSettings;
-
-    fn into_adapter(
-        settings: Self::Settings,
-        http: Arc<reqwest::Client>,
-    ) -> Arc<dyn ModelAdapter<Self>> {
-        Arc::new(AnthropicAdapter::from_settings(settings, http))
-    }
-
-    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
-        if settings.api_key.trim().is_empty() {
+impl BuildProvider for AnthropicAdapterSettings {
+    fn validate(&self) -> Result<(), Error> {
+        if self.api_key.trim().is_empty() {
             return Err(Error::new(
                 ErrorCode::AuthFailed,
                 "api_key must not be empty",
@@ -136,20 +88,14 @@ impl ProviderBinding for Anthropic {
         }
         Ok(())
     }
+    fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter> {
+        Arc::new(AnthropicAdapter::from_settings(self, http))
+    }
 }
 
-impl ProviderBinding for Google {
-    type Settings = GoogleAdapterSettings;
-
-    fn into_adapter(
-        settings: Self::Settings,
-        http: Arc<reqwest::Client>,
-    ) -> Arc<dyn ModelAdapter<Self>> {
-        Arc::new(GoogleAdapter::from_settings(settings, http))
-    }
-
-    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
-        if settings.api_key.trim().is_empty() {
+impl BuildProvider for GoogleAdapterSettings {
+    fn validate(&self) -> Result<(), Error> {
+        if self.api_key.trim().is_empty() {
             return Err(Error::new(
                 ErrorCode::AuthFailed,
                 "api_key must not be empty",
@@ -157,26 +103,23 @@ impl ProviderBinding for Google {
         }
         Ok(())
     }
+    fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter> {
+        Arc::new(GoogleAdapter::from_settings(self, http))
+    }
 }
 
-impl ProviderBinding for OpenAiCompatible {
-    type Settings = OpenAiCompatibleAdapterSettings;
-
-    fn into_adapter(
-        settings: Self::Settings,
-        http: Arc<reqwest::Client>,
-    ) -> Arc<dyn ModelAdapter<Self>> {
-        Arc::new(OpenAiCompatibleAdapter::from_settings(settings, http))
-    }
-
-    fn validate_settings(settings: &Self::Settings) -> Result<(), Error> {
-        if settings.base_url.trim().is_empty() {
+impl BuildProvider for OpenAiCompatibleAdapterSettings {
+    fn validate(&self) -> Result<(), Error> {
+        if self.base_url.trim().is_empty() {
             return Err(Error::new(
                 ErrorCode::InvalidRequest,
                 "base_url must not be empty",
             ));
         }
         Ok(())
+    }
+    fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter> {
+        Arc::new(OpenAiCompatibleAdapter::from_settings(self, http))
     }
 }
 
@@ -188,37 +131,39 @@ pub struct LlmClient;
 
 impl LlmClient {
     /// Creates an OpenAI client builder.
-    pub fn openai(api_key: impl Into<String>) -> ClientBuilder<OpenAi> {
+    pub fn openai(api_key: impl Into<String>) -> ClientBuilder<OpenAiAdapterSettings> {
         ClientBuilder::new(OpenAiAdapterSettings::new(api_key))
     }
 
     /// Creates an Anthropic client builder.
-    pub fn anthropic(api_key: impl Into<String>) -> ClientBuilder<Anthropic> {
+    pub fn anthropic(api_key: impl Into<String>) -> ClientBuilder<AnthropicAdapterSettings> {
         ClientBuilder::new(AnthropicAdapterSettings::new(api_key))
     }
 
     /// Creates a Google client builder.
-    pub fn google(api_key: impl Into<String>) -> ClientBuilder<Google> {
+    pub fn google(api_key: impl Into<String>) -> ClientBuilder<GoogleAdapterSettings> {
         ClientBuilder::new(GoogleAdapterSettings::new(api_key))
     }
 
     /// Creates an OpenAI-compatible client builder.
-    pub fn openai_compatible(base_url: impl Into<String>) -> ClientBuilder<OpenAiCompatible> {
+    pub fn openai_compatible(
+        base_url: impl Into<String>,
+    ) -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
     }
 }
 
 /// Configures HTTP/runtime behavior before building a [`BoundClient`].
-pub struct ClientBuilder<P: ProviderBinding> {
+pub struct ClientBuilder<S> {
     timeout: Duration,
     max_retries: u8,
     default_max_steps: u8,
     user_agent: String,
-    settings: P::Settings,
+    settings: S,
 }
 
-impl<P: ProviderBinding> ClientBuilder<P> {
-    fn new(settings: P::Settings) -> Self {
+impl<S: BuildProvider> ClientBuilder<S> {
+    fn new(settings: S) -> Self {
         Self {
             timeout: Duration::from_secs(30),
             max_retries: 3,
@@ -253,9 +198,9 @@ impl<P: ProviderBinding> ClientBuilder<P> {
     }
 
     /// Builds a provider-bound client with validated settings.
-    pub fn build(self) -> Result<BoundClient<P>, Error> {
+    pub fn build(self) -> Result<BoundClient, Error> {
         validate_max_steps(self.default_max_steps)?;
-        P::validate_settings(&self.settings)?;
+        self.settings.validate()?;
         let http = Arc::new(
             reqwest::Client::builder()
                 .timeout(self.timeout)
@@ -267,13 +212,12 @@ impl<P: ProviderBinding> ClientBuilder<P> {
         Ok(BoundClient {
             max_retries: self.max_retries,
             default_max_steps: self.default_max_steps,
-            adapter: P::into_adapter(self.settings, http),
-            _marker: PhantomData,
+            adapter: self.settings.into_adapter(http),
         })
     }
 }
 
-impl ClientBuilder<OpenAi> {
+impl ClientBuilder<OpenAiAdapterSettings> {
     /// Overrides the OpenAI API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -281,7 +225,7 @@ impl ClientBuilder<OpenAi> {
     }
 }
 
-impl ClientBuilder<Anthropic> {
+impl ClientBuilder<AnthropicAdapterSettings> {
     /// Overrides the Anthropic API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -295,7 +239,7 @@ impl ClientBuilder<Anthropic> {
     }
 }
 
-impl ClientBuilder<Google> {
+impl ClientBuilder<GoogleAdapterSettings> {
     /// Overrides the Google Generative Language API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -303,7 +247,7 @@ impl ClientBuilder<Google> {
     }
 }
 
-impl ClientBuilder<OpenAiCompatible> {
+impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
     /// Sets a bearer token for OpenAI-compatible requests.
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.settings.set_api_key(api_key);
@@ -353,21 +297,17 @@ impl ClientBuilder<OpenAiCompatible> {
 }
 
 /// Reusable provider-bound client used for `generate`, `stream`, and agent loops.
-pub struct BoundClient<P: ProviderMarker> {
+pub struct BoundClient {
     max_retries: u8,
     default_max_steps: u8,
-    adapter: Arc<dyn ModelAdapter<P>>,
-    _marker: PhantomData<P>,
+    adapter: Arc<dyn ModelAdapter>,
 }
 
-impl<P: ProviderMarker> BoundClient<P> {
+impl BoundClient {
     /// Runs a non-streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn generate(
-        &self,
-        req: GenerateTextRequest<P>,
-    ) -> Result<GenerateTextResponse, Error> {
+    pub async fn generate(&self, req: GenerateTextRequest) -> Result<GenerateTextResponse, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -378,7 +318,7 @@ impl<P: ProviderMarker> BoundClient<P> {
     /// Runs a streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn stream(&self, req: GenerateTextRequest<P>) -> Result<TextStream, Error> {
+    pub async fn stream(&self, req: GenerateTextRequest) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -386,7 +326,7 @@ impl<P: ProviderMarker> BoundClient<P> {
             .await
     }
 
-    pub(crate) async fn run_tools(&self, req: RunTools<P>) -> Result<AgentResponse, Error> {
+    pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentResponse, Error> {
         let RunTools {
             model,
             messages,
@@ -419,7 +359,7 @@ impl<P: ProviderMarker> BoundClient<P> {
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
-                model_id: model.id(),
+                model_id: model.model().to_string(),
                 messages: messages.clone(),
                 tool_count: tools.len(),
                 max_steps: resolved_max_steps,
@@ -698,41 +638,6 @@ async fn execute_tool_calls(
                 format!("unknown tool `{}`", call.tool_name),
             ));
         };
-
-        if let Err(validation_err) = registered.validator.validate(&call.args_json) {
-            if policy == ToolErrorPolicy::FailFast {
-                return Err(Error::new(
-                    ErrorCode::InvalidToolArgs,
-                    format!(
-                        "tool args for `{}` failed schema validation: {}",
-                        call.tool_name, validation_err
-                    ),
-                ));
-            }
-            let tool_result = ToolResult {
-                call_id: call.call_id.clone(),
-                output_json: serde_json::json!({ "error": validation_err.to_string() }),
-                is_error: true,
-            };
-            if let Some(callback) = on_tool_call_start {
-                callback(&AgentToolCallStart {
-                    step,
-                    tool_call: call.clone(),
-                });
-            }
-            if let Some(callback) = on_tool_call_finish {
-                callback(&AgentToolCallFinish {
-                    step,
-                    tool_call: call.clone(),
-                    tool_result: tool_result.clone(),
-                    duration_ms: 0,
-                });
-            }
-            executions.push(ExecutedToolCall {
-                result: tool_result,
-            });
-            continue;
-        }
 
         if let Some(callback) = on_tool_call_start {
             callback(&AgentToolCallStart {

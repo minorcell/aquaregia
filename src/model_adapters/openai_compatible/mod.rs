@@ -47,8 +47,6 @@ use std::sync::Arc;
 
 use async_stream::try_stream;
 use async_trait::async_trait;
-use base64::Engine as _;
-use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
@@ -57,12 +55,11 @@ use crate::error::{Error, ErrorCode};
 use crate::model_adapters::think_tag_parser::{
     ThinkTagSegment, ThinkTagStreamParser, split_think_tags,
 };
-use crate::model_adapters::{ModelAdapter, check_response_status, map_send_error};
+use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, OpenAiCompatible, ReasoningPart, StreamEvent, TextStream, ToolCall,
-    Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -203,7 +200,7 @@ impl OpenAiCompatibleAdapter {
 
     fn endpoint_url(&self) -> Result<String, Error> {
         let path = canonicalize_path(&self.chat_completions_path);
-        let mut url = url::Url::parse(self.base_url.trim()).map_err(|e| {
+        let mut url = reqwest::Url::parse(self.base_url.trim()).map_err(|e| {
             Error::new(
                 ErrorCode::InvalidRequest,
                 format!("invalid openai-compatible base url: {}", e),
@@ -317,10 +314,10 @@ fn map_think_segments_to_stream_events(
 }
 
 #[async_trait]
-impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
+impl ModelAdapter for OpenAiCompatibleAdapter {
     async fn generate_text(
         &self,
-        req: &GenerateTextRequest<OpenAiCompatible>,
+        req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
         let payload = build_openai_payload(req, false);
         let url = self.endpoint_url()?;
@@ -350,10 +347,7 @@ impl ModelAdapter<OpenAiCompatible> for OpenAiCompatibleAdapter {
         )
     }
 
-    async fn stream_text(
-        &self,
-        req: &GenerateTextRequest<OpenAiCompatible>,
-    ) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true);
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();
@@ -638,7 +632,7 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest<OpenAiCompatible>, stream: bool) -> Value {
+fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),
@@ -821,7 +815,7 @@ fn openai_image_content_part(image: &ImagePart) -> Value {
         }
         MediaData::Bytes(bytes) => {
             let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, STANDARD.encode(bytes))
+            format!("data:{};base64,{}", mt, base64_encode(bytes))
         }
     };
     json!({ "type": "image_url", "image_url": { "url": url } })

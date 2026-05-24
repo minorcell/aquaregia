@@ -83,8 +83,6 @@ pub use types::{
     AgentStepStart,
     AgentToolCallFinish,
     AgentToolCallStart,
-    // Provider markers
-    Anthropic,
     // Messages
     ContentPart,
     // Streaming
@@ -92,17 +90,12 @@ pub use types::{
     // Requests & responses
     GenerateTextRequest,
     GenerateTextResponse,
-    Google,
     ImagePart,
-    IntoModelRef,
     MediaData,
     Message,
     MessageRole,
     ModelRef,
-    OpenAi,
-    OpenAiCompatible,
     ProviderKind,
-    ProviderMarker,
     ReasoningPart,
     StreamEvent,
     TextDeltaStream,

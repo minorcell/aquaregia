@@ -46,7 +46,7 @@ use async_trait::async_trait;
 use reqwest::Response;
 
 use crate::error::Error;
-use crate::types::{GenerateTextRequest, GenerateTextResponse, ProviderMarker, TextStream};
+use crate::types::{GenerateTextRequest, GenerateTextResponse, TextStream};
 
 /// Anthropic provider adapter implementation.
 pub mod anthropic;
@@ -59,19 +59,11 @@ pub mod openai_compatible;
 pub(crate) mod think_tag_parser;
 
 /// Provider adapter contract used by [`crate::BoundClient`].
-///
-/// End users typically do not implement this trait directly unless integrating
-/// a custom in-tree provider adapter.
 #[async_trait]
-pub trait ModelAdapter<P: ProviderMarker>: Send + Sync {
-    /// Executes a non-streaming text generation call.
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest<P>,
-    ) -> Result<GenerateTextResponse, Error>;
-
-    /// Executes a streaming text generation call.
-    async fn stream_text(&self, req: &GenerateTextRequest<P>) -> Result<TextStream, Error>;
+pub trait ModelAdapter: Send + Sync {
+    async fn generate_text(&self, req: &GenerateTextRequest)
+    -> Result<GenerateTextResponse, Error>;
+    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error>;
 }
 
 pub(crate) async fn check_response_status(
@@ -107,4 +99,28 @@ pub(crate) async fn check_response_status(
 
 pub(crate) fn map_send_error(provider_id: &str, err: reqwest::Error) -> Error {
     crate::error::transport_error(provider_id, err)
+}
+
+pub(crate) fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as usize;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        out.push(CHARS[(n >> 18) & 0x3f] as char);
+        out.push(CHARS[(n >> 12) & 0x3f] as char);
+        out.push(if chunk.len() > 1 {
+            CHARS[(n >> 6) & 0x3f] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            CHARS[n & 0x3f] as char
+        } else {
+            '='
+        });
+    }
+    out
 }
