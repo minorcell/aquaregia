@@ -13,7 +13,7 @@
 
 </div>
 
-One crate to build LLM applications and agents on a single, provider-agnostic foundation — OpenAI, Anthropic, Google, or any OpenAI-compatible endpoint.
+A single crate for building LLM-powered applications and agents across any provider.
 
 ---
 
