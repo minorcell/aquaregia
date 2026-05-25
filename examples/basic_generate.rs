@@ -15,7 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible(base_url)
+    let client = LlmClient::openai_compatible()
+        .base_url(base_url)
         .api_key(api_key)
         .build()?;
 

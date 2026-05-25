@@ -23,7 +23,8 @@ async fn anthropic_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
@@ -94,7 +95,8 @@ async fn openai_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -163,7 +165,8 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible(server.uri())
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");

@@ -1,8 +1,11 @@
-use aquaregia::{ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, StreamEvent};
+use aquaregia::{
+    ContentPart, ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, MessageRole,
+    StreamEvent, ToolResult,
+};
 use futures_util::StreamExt;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 // ─── Google streaming ───────────────────────────────────────────────────
 
@@ -23,7 +26,8 @@ async fn google_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -76,7 +80,8 @@ async fn google_stream_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -143,7 +148,8 @@ async fn google_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -197,7 +203,8 @@ async fn google_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -248,7 +255,8 @@ async fn google_generate_with_thought_signature() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -283,7 +291,8 @@ async fn google_503_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
         .build()
@@ -313,7 +322,8 @@ async fn google_invalid_response_missing_candidates() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
         .build()
@@ -357,7 +367,8 @@ async fn anthropic_stream_with_thinking() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
@@ -420,7 +431,8 @@ async fn openai_stream_with_reasoning_delta() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -480,7 +492,8 @@ async fn openai_stream_with_tool_calls_and_finish() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -546,7 +559,8 @@ async fn openai_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -593,7 +607,8 @@ async fn openai_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -648,7 +663,8 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
@@ -699,7 +715,8 @@ async fn anthropic_generate_with_redacted_thinking() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
@@ -731,7 +748,8 @@ async fn anthropic_invalid_response_missing_content() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .max_retries(0)
@@ -759,7 +777,8 @@ async fn anthropic_500_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .max_retries(0)
@@ -789,7 +808,8 @@ async fn openai_403_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
         .build()
@@ -820,7 +840,8 @@ async fn openai_invalid_response_missing_output() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
         .build()
@@ -835,4 +856,370 @@ async fn openai_invalid_response_missing_output() {
         .expect_err("should fail");
 
     assert_eq!(err.code, ErrorCode::InvalidResponse);
+}
+
+// ─── Refresh tests added during the May 2026 SDK audit ──────────────────
+
+/// Refusal text on the OpenAI Responses streaming channel must reach the caller.
+/// Before the audit the adapter listened only to `response.output_text.delta`,
+/// so a refused stream produced an empty TextDelta sequence.
+#[tokio::test]
+async fn openai_stream_refusal_surfaces_as_text_delta() {
+    let server = MockServer::start().await;
+    let sse_body = concat!(
+        "data: {\"type\":\"response.refusal.delta\",\"output_index\":0,\"delta\":\"I cannot help with that.\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":1,\"output_tokens\":0,\"total_tokens\":1}}}\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse_body.to_string()),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let mut stream = client
+        .stream(GenerateTextRequest::from_user_prompt("gpt-4o-mini", "hi"))
+        .await
+        .expect("stream_text should succeed");
+
+    let mut text = String::new();
+    while let Some(event) = stream.next().await {
+        match event.expect("stream event should parse") {
+            StreamEvent::TextDelta { text: t } => text.push_str(&t),
+            StreamEvent::Done => break,
+            _ => {}
+        }
+    }
+    assert_eq!(text, "I cannot help with that.");
+}
+
+/// Reasoning summary blocks returned in the non-streaming `output` array must be
+/// preserved. Before the audit, only `message` and `function_call` items were
+/// scanned and reasoning was silently dropped.
+#[tokio::test]
+async fn openai_generate_extracts_reasoning_summary_from_output_array() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "status": "completed",
+        "output": [
+            {
+                "type": "reasoning",
+                "id": "rs_1",
+                "summary": [
+                    { "type": "summary_text", "text": "Step one." },
+                    { "type": "summary_text", "text": " Step two." }
+                ]
+            },
+            {
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "answer" }]
+            }
+        ],
+        "usage": { "input_tokens": 5, "output_tokens": 3, "total_tokens": 8 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .generate(GenerateTextRequest::from_user_prompt(
+            "gpt-4o-mini",
+            "hello",
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.output_text, "answer");
+    assert_eq!(response.reasoning_text, "Step one. Step two.");
+    // Each reasoning item joins its summary segments into one ReasoningPart.
+    assert_eq!(response.reasoning_parts.len(), 1);
+    assert_eq!(response.reasoning_parts[0].text, "Step one. Step two.");
+}
+
+/// `response.error` is a top-level streaming event distinct from `response.failed`
+/// in the SDK union. The adapter must propagate it as an error rather than
+/// dropping it silently.
+#[tokio::test]
+async fn openai_stream_error_event_propagates_as_invalid_response() {
+    let server = MockServer::start().await;
+    let sse_body =
+        "data: {\"type\":\"response.error\",\"message\":\"upstream blew up\"}\n\n".to_string();
+
+    Mock::given(method("POST"))
+        .and(path("/v1/responses"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_string(sse_body),
+        )
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let mut stream = client
+        .stream(GenerateTextRequest::from_user_prompt("gpt-4o-mini", "hi"))
+        .await
+        .expect("stream_text should succeed");
+
+    let mut saw_error = false;
+    while let Some(event) = stream.next().await {
+        if let Err(err) = event {
+            assert_eq!(err.code, ErrorCode::InvalidResponse);
+            assert!(err.to_string().contains("upstream blew up"));
+            saw_error = true;
+            break;
+        }
+    }
+    assert!(
+        saw_error,
+        "expected response.error to surface as a stream error"
+    );
+}
+
+/// The OpenAI Chat Completions contract uses `refusal` as a parallel channel to
+/// `content`. The compatible adapter must surface it so a refused completion is
+/// not silently empty.
+#[tokio::test]
+async fn openai_compatible_response_refusal_surfaces_as_output_text() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "choices": [
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "refusal": "I cannot help with that."
+                },
+                "finish_reason": "stop"
+            }
+        ]
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
+        .api_key("k")
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .generate(GenerateTextRequest::from_user_prompt("any-model", "hi"))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.output_text, "I cannot help with that.");
+}
+
+/// When the upstream tool result is already a `Value::String`, the request body
+/// must carry the plain string content. Previously `Value::to_string()` was
+/// applied unconditionally, double-encoding the string and feeding the model
+/// `"\"text\""` instead of `text`.
+#[tokio::test]
+async fn openai_compatible_tool_result_string_value_is_not_double_encoded() {
+    use std::sync::{Arc, Mutex};
+
+    let server = MockServer::start().await;
+
+    #[derive(Clone)]
+    struct CaptureBody {
+        captured: Arc<Mutex<Option<serde_json::Value>>>,
+    }
+    impl Respond for CaptureBody {
+        fn respond(&self, request: &Request) -> ResponseTemplate {
+            let body: serde_json::Value =
+                serde_json::from_slice(&request.body).expect("body should be JSON");
+            *self.captured.lock().unwrap() = Some(body);
+            ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{ "message": { "role": "assistant", "content": "ok" }, "finish_reason": "stop" }]
+            }))
+        }
+    }
+
+    let captured = Arc::new(Mutex::new(None));
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(CaptureBody {
+            captured: Arc::clone(&captured),
+        })
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
+        .api_key("k")
+        .build()
+        .expect("client should build");
+
+    let req = GenerateTextRequest::builder("any-model")
+        .message(Message::user_text("ask"))
+        .message(
+            Message::new(
+                MessageRole::Assistant,
+                vec![ContentPart::ToolCall(aquaregia::ToolCall {
+                    call_id: "c1".into(),
+                    tool_name: "echo".into(),
+                    args_json: json!({}),
+                })],
+            )
+            .expect("assistant tool call message"),
+        )
+        .message(Message::tool_result(ToolResult {
+            call_id: "c1".into(),
+            output_json: serde_json::Value::String("plain text result".into()),
+            is_error: false,
+        }))
+        .build()
+        .expect("request should build");
+
+    let _ = client.generate(req).await.expect("request should succeed");
+
+    let body = captured
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("request body captured");
+    let messages = body
+        .get("messages")
+        .and_then(serde_json::Value::as_array)
+        .expect("messages array");
+
+    let tool_msg = messages
+        .iter()
+        .find(|m| m.get("role").and_then(serde_json::Value::as_str) == Some("tool"))
+        .expect("tool message in payload");
+    assert_eq!(
+        tool_msg.get("content").and_then(serde_json::Value::as_str),
+        Some("plain text result"),
+        "Value::String tool results must be sent as plain text, not JSON-encoded"
+    );
+
+    let assistant_msg = messages
+        .iter()
+        .find(|m| m.get("role").and_then(serde_json::Value::as_str) == Some("assistant"))
+        .expect("assistant message in payload");
+    // Per OpenAI Chat Completions: when only tool_calls are present, content is null.
+    assert!(
+        assistant_msg.get("content").is_some_and(|v| v.is_null()),
+        "assistant tool-only message must serialize content as null, got {:?}",
+        assistant_msg.get("content")
+    );
+}
+
+/// When Gemini blocks a prompt entirely it returns no candidates and surfaces a
+/// `promptFeedback.blockReason`. The adapter error must include that reason so
+/// callers can distinguish blocked prompts from a malformed upstream payload.
+#[tokio::test]
+async fn google_response_block_reason_surfaces_in_error() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "promptFeedback": { "blockReason": "SAFETY" }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::google()
+        .api_key("test-google-key")
+        .base_url(server.uri())
+        .max_retries(0)
+        .build()
+        .expect("client should build");
+
+    let err = client
+        .generate(GenerateTextRequest::from_user_prompt(
+            "gemini-2.0-flash",
+            "hello",
+        ))
+        .await
+        .expect_err("blocked prompts must error");
+
+    assert_eq!(err.code, ErrorCode::InvalidResponse);
+    assert!(
+        err.to_string().contains("SAFETY"),
+        "block reason must be carried in the error message, got: {err}"
+    );
+}
+
+/// Newer Gemini models populate `functionCall.id`. The adapter must round-trip
+/// it as `tool_call.call_id` rather than always synthesizing `google_call_*`.
+#[tokio::test]
+async fn google_uses_upstream_function_call_id_when_present() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "candidates": [
+            {
+                "content": {
+                    "parts": [
+                        { "functionCall": { "id": "fc_abc", "name": "weather", "args": { "city": "NYC" } } }
+                    ]
+                },
+                "finishReason": "STOP"
+            }
+        ],
+        "usageMetadata": { "promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::google()
+        .api_key("test-google-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .generate(GenerateTextRequest::from_user_prompt(
+            "gemini-2.0-flash",
+            "weather?",
+        ))
+        .await
+        .expect("request should succeed");
+
+    assert_eq!(response.tool_calls.len(), 1);
+    assert_eq!(response.tool_calls[0].call_id, "fc_abc");
+    assert_eq!(response.tool_calls[0].tool_name, "weather");
 }

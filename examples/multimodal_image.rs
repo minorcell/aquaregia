@@ -9,7 +9,9 @@ use aquaregia::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?).build()?;
+    let client = LlmClient::anthropic()
+        .api_key(std::env::var("ANTHROPIC_API_KEY")?)
+        .build()?;
 
     let message = Message::new(
         MessageRole::User,

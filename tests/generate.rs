@@ -38,7 +38,8 @@ async fn openai_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -62,7 +63,8 @@ async fn openai_401_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -112,7 +114,8 @@ async fn openai_responses_api_request_shape() {
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai()
+        .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -142,5 +145,8 @@ async fn openai_responses_api_request_shape() {
     let tools = body["tools"].as_array().expect("tools should be an array");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], "my_tool");
-    assert!(tools[0].get("function").is_none(), "name must not be nested in `function`");
+    assert!(
+        tools[0].get("function").is_none(),
+        "name must not be nested in `function`"
+    );
 }

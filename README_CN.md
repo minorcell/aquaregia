@@ -24,7 +24,7 @@ use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::openai_compatible("https://api.deepseek.com")
+    let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
         .build()?;
 
@@ -64,17 +64,17 @@ cargo add aquaregia
 
 | Provider          | 构造器                                                | 模型参数              |
 | ----------------- | ----------------------------------------------------- | --------------------- |
-| OpenAI            | `LlmClient::openai(api_key)`                          | `"gpt-4o"`            |
-| Anthropic         | `LlmClient::anthropic(api_key)`                       | `"claude-sonnet-4-5"` |
-| Google            | `LlmClient::google(api_key)`                          | `"gemini-2.0-flash"`  |
-| OpenAI-compatible | `LlmClient::openai_compatible(base_url).api_key(...)` | `"deepseek-chat"`     |
+| OpenAI            | `LlmClient::openai().api_key(api_key)`                          | `"gpt-4o"`            |
+| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                       | `"claude-sonnet-4-5"` |
+| Google            | `LlmClient::google().api_key(api_key)`                          | `"gemini-2.0-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)` | `"deepseek-chat"`     |
 
 ### 客户端配置
 
 ```rust
 use std::time::Duration;
 
-let client = LlmClient::openai(std::env::var("OPENAI_API_KEY")?)
+let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?)
     .base_url("https://api.openai.com")          // 自定义上游
     .timeout(Duration::from_secs(60))            // 单次请求超时
     .max_retries(3)                              // 瞬时失败重试次数
@@ -94,7 +94,7 @@ let req = GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!");
 ### OpenAI-compatible 深度配置
 
 ```rust
-let client = LlmClient::openai_compatible("https://api.deepseek.com")
+let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
@@ -269,7 +269,7 @@ let fx_tool = tool("get_fx_rate")
 ```rust
 use aquaregia::{Agent, LlmClient};
 
-let client = LlmClient::openai_compatible("https://api.deepseek.com")
+let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .build()?;
 
@@ -369,7 +369,7 @@ use aquaregia::{
     ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
 };
 
-let client = LlmClient::anthropic(std::env::var("ANTHROPIC_API_KEY")?).build()?;
+let client = LlmClient::anthropic().api_key(std::env::var("ANTHROPIC_API_KEY")?).build()?;
 
 let out = client
     .generate(
@@ -457,7 +457,7 @@ agent.run_messages(messages).await?;
 ### 重试
 
 ```rust
-let client = LlmClient::openai(api_key)
+let client = LlmClient::openai().api_key(api_key)
     .max_retries(3)                       // 默认 0
     .timeout(Duration::from_secs(45))
     .build()?;

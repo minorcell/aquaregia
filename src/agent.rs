@@ -26,7 +26,7 @@
 //!         Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
 //!     });
 //!
-//! let client = LlmClient::openai("api-key").build()?;
+//! let client = LlmClient::openai().api_key("api-key").build()?;
 //!
 //! let agent = Agent::builder(client, "gpt-4o")
 //!     .instructions("You can call tools before answering.")
@@ -49,8 +49,8 @@ use crate::tool::{IntoTool, Tool};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, Message, ModelRef,
-    PrepareStepHook, RunTools, StopPredicate, ToolErrorPolicy, validate_max_steps,
-    validate_model_ref, validate_sampling,
+    PrepareStepHook, RunTools, StopPredicate, ToolErrorPolicy, validate_model_ref,
+    validate_sampling,
 };
 
 /// Multi-step tool-using agent bound to one provider and one default model.
@@ -73,7 +73,7 @@ pub struct Agent {
     model: ModelRef,
     instructions: Option<String>,
     tools: Vec<Tool>,
-    max_steps: Option<u8>,
+    max_steps: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     max_output_tokens: Option<u32>,
@@ -213,7 +213,7 @@ pub struct AgentBuilder {
     model: ModelRef,
     instructions: Option<String>,
     tools: Vec<Tool>,
-    max_steps: Option<u8>,
+    max_steps: Option<u32>,
     temperature: Option<f32>,
     top_p: Option<f32>,
     max_output_tokens: Option<u32>,
@@ -273,7 +273,12 @@ impl AgentBuilder {
     }
 
     /// Sets the max number of agent loop steps.
-    pub fn max_steps(mut self, max_steps: u8) -> Self {
+    ///
+    /// `0` means unlimited (the loop continues until the model returns a final
+    /// answer, an explicit `stop_when` predicate matches, or the run is
+    /// cancelled). When not set, falls back to the client's `default_max_steps`
+    /// (which is `0` / unlimited by default).
+    pub fn max_steps(mut self, max_steps: u32) -> Self {
         self.max_steps = Some(max_steps);
         self
     }
@@ -397,9 +402,6 @@ impl AgentBuilder {
     /// Validates configuration and builds the [`Agent`].
     pub fn build(self) -> Result<Agent, crate::error::Error> {
         validate_model_ref(&self.model)?;
-        if let Some(max_steps) = self.max_steps {
-            validate_max_steps(max_steps)?;
-        }
         validate_sampling(self.temperature, self.top_p)?;
 
         Ok(Agent {
@@ -433,7 +435,8 @@ mod tests {
 
     #[test]
     fn builder_accepts_typed_model() {
-        let client = LlmClient::openai("test-key")
+        let client = LlmClient::openai()
+            .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
@@ -447,7 +450,8 @@ mod tests {
 
     #[test]
     fn builder_rejects_invalid_top_p() {
-        let client = LlmClient::openai("test-key")
+        let client = LlmClient::openai()
+            .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");

@@ -27,7 +27,8 @@
 //! use aquaregia::{LlmClient, GenerateTextRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai_compatible("https://api.deepseek.com")
+//! let client = LlmClient::openai_compatible()
+//!     .base_url("https://api.deepseek.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //!
@@ -75,9 +76,9 @@ pub struct OpenAiCompatibleAdapterSettings {
 
 impl OpenAiCompatibleAdapterSettings {
     /// Creates settings with default path and no API key.
-    pub fn new(base_url: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
-            base_url: base_url.into(),
+            base_url: String::new(),
             api_key: None,
             headers: HashMap::new(),
             query_params: HashMap::new(),
@@ -133,6 +134,12 @@ impl OpenAiCompatibleAdapterSettings {
 
     pub(crate) fn set_chat_completions_path(&mut self, path: impl Into<String>) {
         self.chat_completions_path = path.into();
+    }
+}
+
+impl Default for OpenAiCompatibleAdapterSettings {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -349,14 +356,21 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         }
                     }
 
-                    if let Some(text_delta) = value
+                    // Surface text content. The OpenAI Chat Completions delta carries either
+                    // `content` (normal text) or `refusal` (refusal text) on the same channel;
+                    // both reach the caller as text so a refused completion is not silently empty.
+                    let delta_text = value
                         .get("choices")
                         .and_then(Value::as_array)
                         .and_then(|arr| arr.first())
                         .and_then(|choice| choice.get("delta"))
-                        .and_then(|delta| delta.get("content"))
-                        .and_then(Value::as_str)
-                    {
+                        .and_then(|delta| {
+                            delta
+                                .get("content")
+                                .and_then(Value::as_str)
+                                .or_else(|| delta.get("refusal").and_then(Value::as_str))
+                        });
+                    if let Some(text_delta) = delta_text {
                         if !text_delta.is_empty() {
                             if reasoning_active {
                                 yield StreamEvent::ReasoningDone {
@@ -423,7 +437,12 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         .and_then(|choice| choice.get("finish_reason"))
                         .and_then(Value::as_str)
                     {
-                        if finish_reason == "tool_calls" && !tool_partial.is_empty() {
+                        // `function_call` is the deprecated finish reason for the legacy
+                        // function-calling API; treat it the same as `tool_calls` so the assembled
+                        // calls are not lost when a compatibility endpoint still emits the old name.
+                        if matches!(finish_reason, "tool_calls" | "function_call")
+                            && !tool_partial.is_empty()
+                        {
                             for partial in tool_partial.values() {
                                 if let Some(call) = partial.to_tool_call()? {
                                     yield StreamEvent::ToolCallReady { call };
@@ -583,12 +602,20 @@ fn to_openai_message(message: &Message) -> Value {
                     }
                 })
                 .collect();
+            let text_content = text_content_from_parts(&message.parts);
+            let has_text = matches!(&text_content, Value::String(s) if !s.is_empty());
             let mut payload = Map::new();
             payload.insert("role".to_string(), Value::String("assistant".to_string()));
-            payload.insert(
-                "content".to_string(),
-                text_content_from_parts(&message.parts),
-            );
+            // Per the canonical OpenAI Chat Completions contract, when a message carries
+            // tool_calls the content field should be null (or omitted) rather than an
+            // empty string. Some compatibility endpoints reject `""` here.
+            if has_text {
+                payload.insert("content".to_string(), text_content);
+            } else if tool_calls.is_empty() {
+                payload.insert("content".to_string(), Value::String(String::new()));
+            } else {
+                payload.insert("content".to_string(), Value::Null);
+            }
             if !reasoning_content.is_empty() {
                 payload.insert(
                     "reasoning_content".to_string(),
@@ -613,7 +640,7 @@ fn to_openai_message(message: &Message) -> Value {
                 json!({
                     "role": "tool",
                     "tool_call_id": result.call_id,
-                    "content": result.output_json.to_string(),
+                    "content": tool_result_content_string(&result.output_json),
                 })
             } else {
                 json!({
@@ -622,6 +649,19 @@ fn to_openai_message(message: &Message) -> Value {
                 })
             }
         }
+    }
+}
+
+/// Renders a tool-result payload as a plain string.
+///
+/// OpenAI Chat Completions expects `tool` messages to carry a string `content`. When the
+/// caller already supplied a string `Value::String`, returning `value.to_string()` would
+/// JSON-encode it (adding surrounding quotes) and the model would receive the wrong text.
+/// Use the inner string directly for that case and JSON-encode anything structured.
+fn tool_result_content_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }
 
@@ -702,9 +742,12 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
         .get("message")
         .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing message"))?;
 
+    // Either `content` (normal text) or `refusal` (canonical OpenAI refusal channel) is
+    // surfaced as the response text; the raw payload is preserved on `raw_provider_response`.
     let raw_output_text = message
         .get("content")
         .and_then(Value::as_str)
+        .or_else(|| message.get("refusal").and_then(Value::as_str))
         .unwrap_or_default()
         .to_string();
     let raw_reasoning_text = message
@@ -831,7 +874,8 @@ fn map_openai_finish_reason(reason: &str) -> FinishReason {
     match reason {
         "stop" => FinishReason::Stop,
         "length" => FinishReason::Length,
-        "tool_calls" => FinishReason::ToolCalls,
+        // `function_call` is the deprecated predecessor of `tool_calls`; preserve operational meaning.
+        "tool_calls" | "function_call" => FinishReason::ToolCalls,
         "content_filter" => FinishReason::ContentFilter,
         _ => FinishReason::Unknown(reason.to_string()),
     }
@@ -844,10 +888,9 @@ mod tests {
     use super::{OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings};
 
     fn adapter_with_base(base_url: &str) -> OpenAiCompatibleAdapter {
-        OpenAiCompatibleAdapter::from_settings(
-            OpenAiCompatibleAdapterSettings::new(base_url),
-            Arc::new(reqwest::Client::new()),
-        )
+        let mut settings = OpenAiCompatibleAdapterSettings::new();
+        settings.base_url = base_url.to_string();
+        OpenAiCompatibleAdapter::from_settings(settings, Arc::new(reqwest::Client::new()))
     }
 
     #[test]

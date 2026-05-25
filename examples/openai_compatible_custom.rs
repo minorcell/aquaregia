@@ -14,7 +14,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible(base_url)
+    let client = LlmClient::openai_compatible()
+        .base_url(base_url)
         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
         // 可选：部分兼容服务需要额外 header 或 query 参数。
         .header("x-trace-source", "aquaregia-example")

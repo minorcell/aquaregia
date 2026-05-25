@@ -8,7 +8,7 @@
 //! use aquaregia::{LlmClient, GenerateTextRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai("api-key").build()?;
+//! let client = LlmClient::openai().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
@@ -19,6 +19,7 @@
 //! # }
 //! ```
 
+#![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, 
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai";
@@ -46,11 +47,17 @@ pub struct OpenAiAdapterSettings {
 }
 
 impl OpenAiAdapterSettings {
-    pub fn new(api_key: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
-            api_key: api_key.into(),
+            api_key: String::new(),
         }
+    }
+}
+
+impl Default for OpenAiAdapterSettings {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -133,8 +140,9 @@ impl ModelAdapter for OpenAiAdapter {
             let mut done = false;
             // Indexed by output_index from the streaming events.
             let mut fn_partials: BTreeMap<u64, PartialFnCall> = BTreeMap::new();
-            let mut reasoning_started = false;
-            let reasoning_block_id = "reasoning-0".to_string();
+            // Reasoning blocks keyed by output_index. Multiple `reasoning` items can
+            // appear in one response; the canonical id is `rs_*` from the SDK.
+            let mut reasoning_blocks: BTreeMap<u64, String> = BTreeMap::new();
 
             while let Some(chunk) = byte_stream.next().await {
                 if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
@@ -151,9 +159,9 @@ impl ModelAdapter for OpenAiAdapter {
                     if data == "[DONE]" {
                         // Defensive: treat [DONE] as terminal if response.completed was missed.
                         if !done {
-                            if reasoning_started {
+                            for (_, block_id) in std::mem::take(&mut reasoning_blocks) {
                                 yield StreamEvent::ReasoningDone {
-                                    block_id: reasoning_block_id.clone(),
+                                    block_id,
                                     provider_metadata: None,
                                 };
                             }
@@ -169,29 +177,58 @@ impl ModelAdapter for OpenAiAdapter {
 
                     match event_type {
                         "response.output_item.added" => {
-                            // Track function_call items so we can assemble them from deltas.
+                            // Track function_call and reasoning items so we can assemble them.
                             if let Some(item) = value.get("item") {
-                                if item.get("type").and_then(Value::as_str) == Some("function_call") {
-                                    let output_index = value
-                                        .get("output_index")
-                                        .and_then(Value::as_u64)
-                                        .unwrap_or(0);
-                                    let call_id = item
-                                        .get("call_id")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_string();
-                                    let name = item
-                                        .get("name")
-                                        .and_then(Value::as_str)
-                                        .unwrap_or("")
-                                        .to_string();
-                                    fn_partials.insert(output_index, PartialFnCall {
-                                        call_id,
-                                        name,
-                                        args_buf: String::new(),
-                                    });
+                                let output_index = value
+                                    .get("output_index")
+                                    .and_then(Value::as_u64)
+                                    .unwrap_or(0);
+                                match item.get("type").and_then(Value::as_str) {
+                                    Some("function_call") => {
+                                        let call_id = item
+                                            .get("call_id")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("")
+                                            .to_string();
+                                        let name = item
+                                            .get("name")
+                                            .and_then(Value::as_str)
+                                            .unwrap_or("")
+                                            .to_string();
+                                        fn_partials.insert(output_index, PartialFnCall {
+                                            call_id,
+                                            name,
+                                            args_buf: String::new(),
+                                        });
+                                    }
+                                    Some("reasoning") => {
+                                        // Prefer the upstream item id for round-tripping; otherwise synthesize.
+                                        let block_id = item
+                                            .get("id")
+                                            .and_then(Value::as_str)
+                                            .map(ToOwned::to_owned)
+                                            .unwrap_or_else(|| format!("reasoning-{output_index}"));
+                                        reasoning_blocks.insert(output_index, block_id.clone());
+                                        yield StreamEvent::ReasoningStarted {
+                                            block_id,
+                                            provider_metadata: None,
+                                        };
+                                    }
+                                    _ => {}
                                 }
+                            }
+                        }
+
+                        "response.output_item.done" => {
+                            let output_index = value
+                                .get("output_index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            if let Some(block_id) = reasoning_blocks.remove(&output_index) {
+                                yield StreamEvent::ReasoningDone {
+                                    block_id,
+                                    provider_metadata: None,
+                                };
                             }
                         }
 
@@ -203,18 +240,41 @@ impl ModelAdapter for OpenAiAdapter {
                             }
                         }
 
-                        "response.reasoning_summary_text.delta" => {
+                        // Refusal text is delivered through a separate channel; surface as text
+                        // so callers see what the model produced. The raw provider response is
+                        // still available via raw_provider_response on the non-streaming path.
+                        "response.refusal.delta" => {
                             if let Some(delta) = value.get("delta").and_then(Value::as_str) {
                                 if !delta.is_empty() {
-                                    if !reasoning_started {
-                                        yield StreamEvent::ReasoningStarted {
-                                            block_id: reasoning_block_id.clone(),
-                                            provider_metadata: None,
-                                        };
-                                        reasoning_started = true;
-                                    }
+                                    yield StreamEvent::TextDelta { text: delta.to_string() };
+                                }
+                            }
+                        }
+
+                        "response.reasoning_summary_text.delta"
+                        | "response.reasoning_text.delta" => {
+                            let output_index = value
+                                .get("output_index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                                if !delta.is_empty() {
+                                    // Lazily start a reasoning block if `output_item.added` was
+                                    // never observed (some servers send deltas directly).
+                                    let block_id = match reasoning_blocks.get(&output_index) {
+                                        Some(id) => id.clone(),
+                                        None => {
+                                            let id = format!("reasoning-{output_index}");
+                                            reasoning_blocks.insert(output_index, id.clone());
+                                            yield StreamEvent::ReasoningStarted {
+                                                block_id: id.clone(),
+                                                provider_metadata: None,
+                                            };
+                                            id
+                                        }
+                                    };
                                     yield StreamEvent::ReasoningDelta {
-                                        block_id: reasoning_block_id.clone(),
+                                        block_id,
                                         text: delta.to_string(),
                                         provider_metadata: None,
                                     };
@@ -255,15 +315,17 @@ impl ModelAdapter for OpenAiAdapter {
                             }
                         }
 
-                        "response.completed" => {
+                        "response.completed" | "response.incomplete" => {
                             if let Some(resp) = value.get("response") {
                                 if let Some(usage) = resp.get("usage").and_then(parse_usage) {
                                     yield StreamEvent::Usage { usage };
                                 }
                             }
-                            if reasoning_started {
+                            // Drain any still-open reasoning blocks so callers see balanced
+                            // ReasoningStarted/Done pairs even when output_item.done was missed.
+                            for (_, block_id) in std::mem::take(&mut reasoning_blocks) {
                                 yield StreamEvent::ReasoningDone {
-                                    block_id: reasoning_block_id.clone(),
+                                    block_id,
                                     provider_metadata: None,
                                 };
                             }
@@ -282,6 +344,17 @@ impl ModelAdapter for OpenAiAdapter {
                             Err(Error::new(ErrorCode::InvalidResponse, msg))?;
                         }
 
+                        "response.error" => {
+                            let msg = value
+                                .get("message")
+                                .and_then(Value::as_str)
+                                .or_else(|| {
+                                    value.get("error").and_then(|e| e.get("message")).and_then(Value::as_str)
+                                })
+                                .unwrap_or("openai stream error");
+                            Err(Error::new(ErrorCode::InvalidResponse, msg))?;
+                        }
+
                         _ => {}
                     }
                 }
@@ -292,6 +365,12 @@ impl ModelAdapter for OpenAiAdapter {
             }
 
             if !done {
+                for (_, block_id) in std::mem::take(&mut reasoning_blocks) {
+                    yield StreamEvent::ReasoningDone {
+                        block_id,
+                        provider_metadata: None,
+                    };
+                }
                 Err(Error::new(
                     ErrorCode::StreamProtocol,
                     "openai stream closed without response.completed",
@@ -312,7 +391,10 @@ struct PartialFnCall {
 /// Builds the Responses API request payload.
 fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
-    payload.insert("model".to_string(), Value::String(req.model.model().to_string()));
+    payload.insert(
+        "model".to_string(),
+        Value::String(req.model.model().to_string()),
+    );
     payload.insert("stream".to_string(), Value::Bool(stream));
 
     // System messages become the top-level `instructions` field.
@@ -321,7 +403,13 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         .iter()
         .filter(|m| m.role == MessageRole::System)
         .flat_map(|m| m.parts.iter())
-        .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+        .filter_map(|p| {
+            if let ContentPart::Text(t) = p {
+                Some(t.as_str())
+            } else {
+                None
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n");
     if !instructions.is_empty() {
@@ -339,12 +427,20 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         payload.insert("top_p".to_string(), Value::from(top_p));
     }
     if let Some(max_output_tokens) = req.max_output_tokens {
-        payload.insert("max_output_tokens".to_string(), Value::from(max_output_tokens));
+        payload.insert(
+            "max_output_tokens".to_string(),
+            Value::from(max_output_tokens),
+        );
     }
     if !req.stop_sequences.is_empty() {
         payload.insert(
             "stop".to_string(),
-            Value::Array(req.stop_sequences.iter().map(|s| Value::String(s.clone())).collect()),
+            Value::Array(
+                req.stop_sequences
+                    .iter()
+                    .map(|s| Value::String(s.clone()))
+                    .collect(),
+            ),
         );
     }
     if let Some(tools) = &req.tools {
@@ -385,7 +481,13 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
                 let text: String = message
                     .parts
                     .iter()
-                    .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+                    .filter_map(|p| {
+                        if let ContentPart::Text(t) = p {
+                            Some(t.as_str())
+                        } else {
+                            None
+                        }
+                    })
                     .collect::<Vec<_>>()
                     .join("");
                 if !text.is_empty() {
@@ -432,9 +534,7 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => {
-                        Some(json!({ "type": "input_text", "text": text }))
-                    }
+                    ContentPart::Text(text) => Some(json!({ "type": "input_text", "text": text })),
                     ContentPart::Image(img) => Some(image_content_item(img)),
                     _ => None,
                 })
@@ -443,7 +543,13 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
     } else {
         let text: String = parts
             .iter()
-            .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+            .filter_map(|p| {
+                if let ContentPart::Text(t) = p {
+                    Some(t.as_str())
+                } else {
+                    None
+                }
+            })
             .collect::<Vec<_>>()
             .join("");
         json!([{ "type": "input_text", "text": text }])
@@ -482,16 +588,27 @@ fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
 
     let mut output_text = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
+    let mut reasoning_parts: Vec<ReasoningPart> = Vec::new();
 
     for item in output {
         match item.get("type").and_then(Value::as_str) {
             Some("message") => {
                 if let Some(content) = item.get("content").and_then(Value::as_array) {
                     for c in content {
-                        if c.get("type").and_then(Value::as_str) == Some("output_text") {
-                            if let Some(text) = c.get("text").and_then(Value::as_str) {
-                                output_text.push_str(text);
+                        match c.get("type").and_then(Value::as_str) {
+                            Some("output_text") => {
+                                if let Some(text) = c.get("text").and_then(Value::as_str) {
+                                    output_text.push_str(text);
+                                }
                             }
+                            // Refusal content is structurally distinct in the Responses API
+                            // but functionally still text the caller cares about.
+                            Some("refusal") => {
+                                if let Some(text) = c.get("refusal").and_then(Value::as_str) {
+                                    output_text.push_str(text);
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
@@ -500,9 +617,44 @@ fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
                 let call = parse_fn_call_item(item)?;
                 tool_calls.push(call);
             }
+            Some("reasoning") => {
+                // The Responses API exposes reasoning items with a `summary` array of
+                // `{ type: "summary_text", text: ... }` blocks. Encrypted reasoning text
+                // (when requested) lives in `content[].text` on the same item.
+                if let Some(summary) = item.get("summary").and_then(Value::as_array) {
+                    let text = summary
+                        .iter()
+                        .filter(|b| b.get("type").and_then(Value::as_str) == Some("summary_text"))
+                        .filter_map(|b| b.get("text").and_then(Value::as_str))
+                        .collect::<Vec<_>>()
+                        .join("");
+                    if !text.is_empty() {
+                        reasoning_parts.push(ReasoningPart {
+                            text,
+                            provider_metadata: None,
+                        });
+                    }
+                }
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for c in content {
+                        if let Some(text) = c.get("text").and_then(Value::as_str) {
+                            if !text.is_empty() {
+                                reasoning_parts.push(ReasoningPart {
+                                    text: text.to_string(),
+                                    provider_metadata: None,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
+    let reasoning_text = reasoning_parts
+        .iter()
+        .map(|p| p.text.as_str())
+        .collect::<String>();
 
     let finish_reason = if tool_calls.is_empty() {
         FinishReason::Stop
@@ -514,8 +666,8 @@ fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
 
     Ok(GenerateTextResponse {
         output_text,
-        reasoning_text: String::new(),
-        reasoning_parts: Vec::new(),
+        reasoning_text,
+        reasoning_parts,
         finish_reason,
         usage,
         tool_calls,
@@ -578,9 +730,17 @@ fn parse_usage(value: &Value) -> Option<Usage> {
         .map(|n| n as u32)
         .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
     Some(
-        Usage::from_totals(input_tokens, output_tokens, reasoning_tokens, Some(total_tokens))
-            .with_input_cache_split(cached_tokens, 0)
-            .with_output_split(output_tokens.saturating_sub(reasoning_tokens), reasoning_tokens)
-            .with_raw_usage(value.clone()),
+        Usage::from_totals(
+            input_tokens,
+            output_tokens,
+            reasoning_tokens,
+            Some(total_tokens),
+        )
+        .with_input_cache_split(cached_tokens, 0)
+        .with_output_split(
+            output_tokens.saturating_sub(reasoning_tokens),
+            reasoning_tokens,
+        )
+        .with_raw_usage(value.clone()),
     )
 }

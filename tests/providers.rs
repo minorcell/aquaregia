@@ -33,7 +33,8 @@ async fn google_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google("test-google-key")
+    let client = LlmClient::google()
+        .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -89,7 +90,8 @@ async fn openai_compatible_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible(server.uri())
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
@@ -139,7 +141,8 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible(server.uri())
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
@@ -188,7 +191,8 @@ async fn openai_compatible_generate_reasoning_content_field_takes_precedence() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible(server.uri())
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
@@ -239,7 +243,8 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
