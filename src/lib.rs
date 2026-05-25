@@ -1,10 +1,6 @@
 //! # Aquaregia
 //!
-//! A provider-agnostic Rust toolkit for building AI applications and tool-using agents.
-//!
-//! Aquaregia provides a unified API across OpenAI, Anthropic, Google, and OpenAI-compatible services,
-//! with first-class support for reasoning-aware output, streaming events, multi-step tool execution,
-//! and vision/image inputs.
+//! A single crate for building LLM-powered applications and agents across any provider.
 //!
 //! ## Features
 //!
