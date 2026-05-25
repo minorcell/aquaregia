@@ -99,12 +99,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
     .chat_completions_path("/v1/chat/completions") // 覆盖默认 endpoint 路径
-    .think_tag_parsing(true)                       // 把 <think>...</think> 当作 reasoning 解析
-    .think_tag_case_insensitive(true)
     .build()?;
 ```
-
-`think_tag_parsing` 会从 assistant 内容里抽出 `<think>` / `<thinking>` 块并路由到 `reasoning_parts`，与原生支持 reasoning 的 provider 共用统一接口。
 
 ### Provider 能力差异速查
 
@@ -113,7 +109,6 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 | 自定义 `base_url`             |   ✓    |     ✓     |   ✓    |         ✓         |
 | 自定义 headers / query / path |        |           |        |         ✓         |
 | `api_version`（header）       |        |     ✓     |        |                   |
-| 原生 reasoning 内容           |   ✓    |     ✓     |   ✓    |  依赖 think tag   |
 | Tool-call 流式输出            |   ✓    |     ✓     |   ✓    |         ✓         |
 | `Usage` 中的缓存 token 拆分   |   ✓    |     ✓     |   ✓    |  provider 上报时  |
 
@@ -199,11 +194,11 @@ for part in &out.reasoning_parts {
 }
 ```
 
-| Provider                   | Reasoning 内容来源                                                          | Usage 映射                                                                                  |
-| -------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| OpenAI / OpenAI-compatible | `reasoning_content`（或 `reasoning`）；启用后含 `<think>` 标签内容             | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`   |
-| Anthropic                  | `thinking` / `redacted_thinking`，流式 `thinking_delta` + `signature_delta`  | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`;reasoning token 细分暂不可用 |
-| Google                     | `thought: true` 的 part，可选 `thoughtSignature` 元数据                      | 解析 `cachedContentTokenCount` + `thoughtsTokenCount`                                       |
+| Provider                   | Usage 映射                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| OpenAI / OpenAI-compatible | 解析 `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`   |
+| Anthropic                  | 解析 `cache_read_input_tokens` / `cache_creation_input_tokens`；reasoning token 细分暂不可用 |
+| Google                     | 解析 `cachedContentTokenCount` + `thoughtsTokenCount`                                       |
 
 ### `Usage` 与聚合
 
@@ -229,7 +224,7 @@ pub struct Usage {
 
 ### 定义工具
 
-工具通过 `tool(name)` 函数构造（没有 `#[tool]` 属性宏）。支持两种执行模式。
+工具通过 `tool(name)` 函数构造。支持两种执行模式。
 
 **类型化参数** —— `schemars` 自动从 struct 推导 JSON Schema：
 

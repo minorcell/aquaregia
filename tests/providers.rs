@@ -160,52 +160,7 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
 }
 
 #[tokio::test]
-async fn openai_compatible_generate_splits_think_tags_when_enabled() {
-    let server = MockServer::start().await;
-
-    let body = json!({
-        "choices": [
-            {
-                "message": { "content": "<thinking>internal draft</thinking>Final answer" },
-                "finish_reason": "stop"
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 6,
-            "completion_tokens": 2,
-            "total_tokens": 8
-        }
-    });
-
-    Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
-        .and(header("authorization", "Bearer test-compatible-key"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(body))
-        .expect(1)
-        .mount(&server)
-        .await;
-
-    let client = LlmClient::openai_compatible(server.uri())
-        .api_key("test-compatible-key")
-        .think_tag_parsing(true)
-        .build()
-        .expect("client should build");
-
-    let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
-            "hello",
-        ))
-        .await
-        .expect("request should succeed");
-
-    assert_eq!(response.output_text, "Final answer");
-    assert_eq!(response.reasoning_text, "internal draft");
-    assert_eq!(response.reasoning_parts.len(), 1);
-}
-
-#[tokio::test]
-async fn openai_compatible_generate_prefers_standard_reasoning_field() {
+async fn openai_compatible_generate_reasoning_content_field_takes_precedence() {
     let server = MockServer::start().await;
 
     let body = json!({
@@ -235,7 +190,6 @@ async fn openai_compatible_generate_prefers_standard_reasoning_field() {
 
     let client = LlmClient::openai_compatible(server.uri())
         .api_key("test-compatible-key")
-        .think_tag_parsing(true)
         .build()
         .expect("client should build");
 

@@ -90,8 +90,6 @@ fn openai_compatible_builds_with_custom_headers_and_query_params() {
         .header("X-Custom", "value")
         .query_param("version", "2")
         .chat_completions_path("/custom/chat")
-        .think_tag_parsing(true)
-        .think_tag_case_insensitive(false)
         .build()
         .expect("client should build");
     let _ = client;

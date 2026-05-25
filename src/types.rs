@@ -841,6 +841,10 @@ pub enum FinishReason {
     ToolCalls,
     /// Content was filtered by provider policy.
     ContentFilter,
+    /// Provider paused the turn for continuation (Anthropic `pause_turn`).
+    PauseTurn,
+    /// Provider refused the request (Anthropic `refusal`).
+    Refusal,
     /// Any provider-specific reason not mapped above.
     Unknown(String),
 }

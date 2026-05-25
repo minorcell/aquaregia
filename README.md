@@ -99,12 +99,8 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
     .chat_completions_path("/v1/chat/completions") // override the endpoint path
-    .think_tag_parsing(true)                       // parse <think>...</think> as reasoning
-    .think_tag_case_insensitive(true)
     .build()?;
 ```
-
-`think_tag_parsing` extracts `<think>` / `<thinking>` blocks from the assistant message and routes them into `reasoning_parts`, matching the unified surface used by native reasoning providers.
 
 ### Provider differences at a glance
 
@@ -113,7 +109,6 @@ let client = LlmClient::openai_compatible("https://api.deepseek.com")
 | Custom `base_url`                |   ✓    |     ✓     |   ✓    |         ✓         |
 | Custom headers / query / path    |        |           |        |         ✓         |
 | `api_version` (header)           |        |     ✓     |        |                   |
-| Native reasoning content         |   ✓    |     ✓     |   ✓    |  via think tags   |
 | Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
 | Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
 
@@ -200,11 +195,11 @@ for part in &out.reasoning_parts {
 }
 ```
 
-| Provider                   | Reasoning content                                                              | Usage mapping                                                                                       |
-| -------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
-| OpenAI / OpenAI-compatible | `reasoning_content` (or `reasoning`); `<think>` tags if enabled                | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`         |
-| Anthropic                  | `thinking` / `redacted_thinking`; stream `thinking_delta` + `signature_delta`  | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning split unavailable       |
-| Google                     | parts with `thought: true`, optional `thoughtSignature` metadata               | parses `cachedContentTokenCount` + `thoughtsTokenCount`                                             |
+| Provider   | Usage mapping                                                                                       |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| OpenAI / OpenAI-compatible | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
+| Anthropic  | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning split unavailable       |
+| Google     | parses `cachedContentTokenCount` + `thoughtsTokenCount`                                             |
 
 ### `Usage` and aggregation
 
@@ -230,7 +225,7 @@ pub struct Usage {
 
 ### Defining tools
 
-Tools are built with the `tool(name)` function (there is no `#[tool]` proc-macro). Two execution styles are supported.
+Tools are built with the `tool(name)` function. Two execution styles are supported.
 
 **Typed args** — `schemars` derives the JSON Schema from your struct:
 

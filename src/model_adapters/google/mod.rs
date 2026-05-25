@@ -11,11 +11,6 @@
 //! - Cache token tracking
 //! - System instructions support
 //!
-//! ## Supported Models
-//!
-//! - Gemini 2.0 Flash, Gemini 2.0 Pro
-//! - Gemini 1.5 Pro, Gemini 1.5 Flash
-//!
 //! ## Example
 //!
 //! ```rust,no_run

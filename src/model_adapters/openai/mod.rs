@@ -1,20 +1,6 @@
-//! OpenAI API adapter for Aquaregia.
+//! OpenAI Responses API adapter for Aquaregia.
 //!
-//! This module provides the `OpenAiAdapter` implementation for communicating
-//! with OpenAI's Chat Completions API.
-//!
-//! ## Features
-//!
-//! - Non-streaming and streaming text generation
-//! - Reasoning content extraction (`reasoning_content` field)
-//! - Tool/function calling support
-//! - Usage token parsing with cache details
-//!
-//! ## Supported Models
-//!
-//! - GPT-4o, GPT-4o-mini, GPT-4 Turbo
-//! - o1, o3 reasoning models
-//! - Legacy GPT-3.5 Turbo
+//! Implements the OpenAI Responses API (`POST /v1/responses`).
 //!
 //! ## Example
 //!
@@ -33,7 +19,6 @@
 //! # }
 //! ```
 
-#![allow(clippy::collapsible_if)]
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -48,27 +33,19 @@ use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, 
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, StreamEvent, TextStream, ToolCall, Usage,
 };
 
-/// Provider slug used in ids and error metadata.
 pub const PROVIDER_SLUG: &str = "openai";
-
-/// Default OpenAI API base URL.
 pub const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 
 /// Runtime settings for the OpenAI adapter.
-///
-/// Contains configuration for API endpoint and authentication.
 pub struct OpenAiAdapterSettings {
-    /// Base URL for API requests.
     pub base_url: String,
-    /// API key sent as bearer token.
     pub api_key: String,
 }
 
 impl OpenAiAdapterSettings {
-    /// Creates settings with default base URL.
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
@@ -77,7 +54,7 @@ impl OpenAiAdapterSettings {
     }
 }
 
-/// OpenAI adapter implementation.
+/// OpenAI adapter — targets the Responses API (`/v1/responses`).
 pub struct OpenAiAdapter {
     base_url: String,
     api_key: String,
@@ -85,7 +62,6 @@ pub struct OpenAiAdapter {
 }
 
 impl OpenAiAdapter {
-    /// Creates an adapter from validated settings and shared HTTP client.
     pub fn from_settings(settings: OpenAiAdapterSettings, http: Arc<reqwest::Client>) -> Self {
         Self {
             base_url: settings.base_url,
@@ -101,11 +77,8 @@ impl ModelAdapter for OpenAiAdapter {
         &self,
         req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
-        let payload = build_openai_payload(req, false);
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.base_url.trim_end_matches('/')
-        );
+        let payload = build_payload(req, false);
+        let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
             .http
@@ -128,15 +101,12 @@ impl ModelAdapter for OpenAiAdapter {
             .json()
             .await
             .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
-        normalize_openai_response(body)
+        normalize_response(body)
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
-        let payload = build_openai_payload(req, true);
-        let url = format!(
-            "{}/v1/chat/completions",
-            self.base_url.trim_end_matches('/')
-        );
+        let payload = build_payload(req, true);
+        let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
         let send_fut = self
@@ -160,10 +130,10 @@ impl ModelAdapter for OpenAiAdapter {
 
         let stream = try_stream! {
             let mut buffer = String::new();
-            let mut tool_partial: BTreeMap<usize, PartialToolCall> = BTreeMap::new();
             let mut done = false;
-            let mut saw_payload_frame = false;
-            let mut reasoning_active = false;
+            // Indexed by output_index from the streaming events.
+            let mut fn_partials: BTreeMap<u64, PartialFnCall> = BTreeMap::new();
+            let mut reasoning_started = false;
             let reasoning_block_id = "reasoning-0".to_string();
 
             while let Some(chunk) = byte_stream.next().await {
@@ -177,132 +147,142 @@ impl ModelAdapter for OpenAiAdapter {
 
                 let frames = drain_sse_frames(&mut buffer);
                 for frame in frames {
-                    saw_payload_frame = true;
                     let data = frame.data.trim();
                     if data == "[DONE]" {
-                        if reasoning_active {
-                            yield StreamEvent::ReasoningDone {
-                                block_id: reasoning_block_id.clone(),
-                                provider_metadata: None,
-                            };
-                            reasoning_active = false;
+                        // Defensive: treat [DONE] as terminal if response.completed was missed.
+                        if !done {
+                            if reasoning_started {
+                                yield StreamEvent::ReasoningDone {
+                                    block_id: reasoning_block_id.clone(),
+                                    provider_metadata: None,
+                                };
+                            }
+                            done = true;
+                            yield StreamEvent::Done;
                         }
-                        done = true;
-                        yield StreamEvent::Done;
                         break;
                     }
 
                     let value: Value = serde_json::from_str(data)
                         .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
-                    if let Some(reasoning_delta) = value
-                        .get("choices")
-                        .and_then(Value::as_array)
-                        .and_then(|arr| arr.first())
-                        .and_then(|choice| choice.get("delta"))
-                        .and_then(|delta| {
-                            delta
-                                .get("reasoning_content")
-                                .or_else(|| delta.get("reasoning"))
-                        })
-                        .and_then(Value::as_str)
-                    {
-                        if !reasoning_delta.is_empty() {
-                            if !reasoning_active {
-                                yield StreamEvent::ReasoningStarted {
-                                    block_id: reasoning_block_id.clone(),
-                                    provider_metadata: None,
-                                };
-                                reasoning_active = true;
+                    let event_type = value.get("type").and_then(Value::as_str).unwrap_or("");
+
+                    match event_type {
+                        "response.output_item.added" => {
+                            // Track function_call items so we can assemble them from deltas.
+                            if let Some(item) = value.get("item") {
+                                if item.get("type").and_then(Value::as_str) == Some("function_call") {
+                                    let output_index = value
+                                        .get("output_index")
+                                        .and_then(Value::as_u64)
+                                        .unwrap_or(0);
+                                    let call_id = item
+                                        .get("call_id")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    let name = item
+                                        .get("name")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    fn_partials.insert(output_index, PartialFnCall {
+                                        call_id,
+                                        name,
+                                        args_buf: String::new(),
+                                    });
+                                }
                             }
-                            yield StreamEvent::ReasoningDelta {
-                                block_id: reasoning_block_id.clone(),
-                                text: reasoning_delta.to_string(),
-                                provider_metadata: None,
-                            };
                         }
-                    }
-                    if let Some(text_delta) = value
-                        .get("choices")
-                        .and_then(Value::as_array)
-                        .and_then(|arr| arr.first())
-                        .and_then(|choice| choice.get("delta"))
-                        .and_then(|delta| delta.get("content"))
-                        .and_then(Value::as_str)
-                    {
-                        if !text_delta.is_empty() {
-                            if reasoning_active {
+
+                        "response.output_text.delta" => {
+                            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                                if !delta.is_empty() {
+                                    yield StreamEvent::TextDelta { text: delta.to_string() };
+                                }
+                            }
+                        }
+
+                        "response.reasoning_summary_text.delta" => {
+                            if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                                if !delta.is_empty() {
+                                    if !reasoning_started {
+                                        yield StreamEvent::ReasoningStarted {
+                                            block_id: reasoning_block_id.clone(),
+                                            provider_metadata: None,
+                                        };
+                                        reasoning_started = true;
+                                    }
+                                    yield StreamEvent::ReasoningDelta {
+                                        block_id: reasoning_block_id.clone(),
+                                        text: delta.to_string(),
+                                        provider_metadata: None,
+                                    };
+                                }
+                            }
+                        }
+
+                        "response.function_call_arguments.delta" => {
+                            let output_index = value
+                                .get("output_index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            if let Some(partial) = fn_partials.get_mut(&output_index) {
+                                if let Some(delta) = value.get("delta").and_then(Value::as_str) {
+                                    partial.args_buf.push_str(delta);
+                                }
+                            }
+                        }
+
+                        "response.function_call_arguments.done" => {
+                            let output_index = value
+                                .get("output_index")
+                                .and_then(Value::as_u64)
+                                .unwrap_or(0);
+                            if let Some(partial) = fn_partials.remove(&output_index) {
+                                let args_str = value
+                                    .get("arguments")
+                                    .and_then(Value::as_str)
+                                    .unwrap_or(&partial.args_buf);
+                                let args_json = parse_args_json(args_str)?;
+                                yield StreamEvent::ToolCallReady {
+                                    call: ToolCall {
+                                        call_id: partial.call_id,
+                                        tool_name: partial.name,
+                                        args_json,
+                                    },
+                                };
+                            }
+                        }
+
+                        "response.completed" => {
+                            if let Some(resp) = value.get("response") {
+                                if let Some(usage) = resp.get("usage").and_then(parse_usage) {
+                                    yield StreamEvent::Usage { usage };
+                                }
+                            }
+                            if reasoning_started {
                                 yield StreamEvent::ReasoningDone {
                                     block_id: reasoning_block_id.clone(),
                                     provider_metadata: None,
                                 };
-                                reasoning_active = false;
                             }
-                            yield StreamEvent::TextDelta {
-                                text: text_delta.to_string(),
-                            };
+                            done = true;
+                            yield StreamEvent::Done;
+                            break;
                         }
-                    }
 
-                    if let Some(tool_calls) = value
-                        .get("choices")
-                        .and_then(Value::as_array)
-                        .and_then(|arr| arr.first())
-                        .and_then(|choice| choice.get("delta"))
-                        .and_then(|delta| delta.get("tool_calls"))
-                        .and_then(Value::as_array)
-                    {
-                        if reasoning_active {
-                            yield StreamEvent::ReasoningDone {
-                                block_id: reasoning_block_id.clone(),
-                                provider_metadata: None,
-                            };
-                            reasoning_active = false;
+                        "response.failed" => {
+                            let msg = value
+                                .get("response")
+                                .and_then(|r| r.get("error"))
+                                .and_then(|e| e.get("message"))
+                                .and_then(Value::as_str)
+                                .unwrap_or("openai response failed");
+                            Err(Error::new(ErrorCode::InvalidResponse, msg))?;
                         }
-                        for call in tool_calls {
-                            if let Some(index) = call.get("index").and_then(Value::as_u64) {
-                                let index = index as usize;
-                                let entry = tool_partial.entry(index).or_default();
 
-                                if let Some(id) = call.get("id").and_then(Value::as_str) {
-                                    entry.call_id = Some(id.to_string());
-                                }
-                                if let Some(name) = call
-                                    .get("function")
-                                    .and_then(|f| f.get("name"))
-                                    .and_then(Value::as_str)
-                                {
-                                    entry.tool_name = Some(name.to_string());
-                                }
-                                if let Some(args) = call
-                                    .get("function")
-                                    .and_then(|f| f.get("arguments"))
-                                    .and_then(Value::as_str)
-                                {
-                                    entry.args_buf.push_str(args);
-                                }
-                            }
-                        }
-                    }
-
-                    if let Some(usage) = value.get("usage").and_then(parse_openai_usage) {
-                        yield StreamEvent::Usage { usage };
-                    }
-
-                    if let Some(finish_reason) = value
-                        .get("choices")
-                        .and_then(Value::as_array)
-                        .and_then(|arr| arr.first())
-                        .and_then(|choice| choice.get("finish_reason"))
-                        .and_then(Value::as_str)
-                    {
-                        if finish_reason == "tool_calls" && !tool_partial.is_empty() {
-                            for partial in tool_partial.values() {
-                                if let Some(call) = partial.to_tool_call()? {
-                                    yield StreamEvent::ToolCallReady { call };
-                                }
-                            }
-                            tool_partial.clear();
-                        }
+                        _ => {}
                     }
                 }
 
@@ -311,24 +291,11 @@ impl ModelAdapter for OpenAiAdapter {
                 }
             }
 
-            if reasoning_active {
-                yield StreamEvent::ReasoningDone {
-                    block_id: reasoning_block_id,
-                    provider_metadata: None,
-                };
-            }
-
             if !done {
-                if saw_payload_frame {
-                    // Some OpenAI-compatible servers close the stream after final chunk
-                    // without emitting a terminal `[DONE]` marker.
-                    yield StreamEvent::Done;
-                } else {
-                    Err(Error::new(
-                        ErrorCode::StreamProtocol,
-                        "openai stream closed without payload",
-                    ))?;
-                }
+                Err(Error::new(
+                    ErrorCode::StreamProtocol,
+                    "openai stream closed without response.completed",
+                ))?;
             }
         };
 
@@ -336,50 +303,34 @@ impl ModelAdapter for OpenAiAdapter {
     }
 }
 
-#[derive(Default)]
-struct PartialToolCall {
-    call_id: Option<String>,
-    tool_name: Option<String>,
+struct PartialFnCall {
+    call_id: String,
+    name: String,
     args_buf: String,
 }
 
-impl PartialToolCall {
-    fn to_tool_call(&self) -> Result<Option<ToolCall>, Error> {
-        let Some(call_id) = self.call_id.clone() else {
-            return Ok(None);
-        };
-        let Some(tool_name) = self.tool_name.clone() else {
-            return Ok(None);
-        };
-        let args_json = if self.args_buf.trim().is_empty() {
-            json!({})
-        } else {
-            serde_json::from_str(&self.args_buf).map_err(|e| {
-                Error::new(
-                    ErrorCode::InvalidToolArgs,
-                    format!("invalid streamed tool arguments: {}", e),
-                )
-            })?
-        };
-        Ok(Some(ToolCall {
-            call_id,
-            tool_name,
-            args_json,
-        }))
-    }
-}
-
-fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+/// Builds the Responses API request payload.
+fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
-    payload.insert(
-        "model".to_string(),
-        Value::String(req.model.model().to_string()),
-    );
-    payload.insert(
-        "messages".to_string(),
-        Value::Array(req.messages.iter().map(to_openai_message).collect()),
-    );
+    payload.insert("model".to_string(), Value::String(req.model.model().to_string()));
     payload.insert("stream".to_string(), Value::Bool(stream));
+
+    // System messages become the top-level `instructions` field.
+    let instructions: String = req
+        .messages
+        .iter()
+        .filter(|m| m.role == MessageRole::System)
+        .flat_map(|m| m.parts.iter())
+        .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+        .collect::<Vec<_>>()
+        .join("\n");
+    if !instructions.is_empty() {
+        payload.insert("instructions".to_string(), Value::String(instructions));
+    }
+
+    // Non-system messages become the `input` array.
+    let input = build_input(&req.messages);
+    payload.insert("input".to_string(), Value::Array(input));
 
     if let Some(temperature) = req.temperature {
         payload.insert("temperature".to_string(), Value::from(temperature));
@@ -388,17 +339,12 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         payload.insert("top_p".to_string(), Value::from(top_p));
     }
     if let Some(max_output_tokens) = req.max_output_tokens {
-        payload.insert("max_tokens".to_string(), Value::from(max_output_tokens));
+        payload.insert("max_output_tokens".to_string(), Value::from(max_output_tokens));
     }
     if !req.stop_sequences.is_empty() {
         payload.insert(
             "stop".to_string(),
-            Value::Array(
-                req.stop_sequences
-                    .iter()
-                    .map(|s| Value::String(s.clone()))
-                    .collect(),
-            ),
+            Value::Array(req.stop_sequences.iter().map(|s| Value::String(s.clone())).collect()),
         );
     }
     if let Some(tools) = &req.tools {
@@ -408,13 +354,12 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
                 tools
                     .iter()
                     .map(|tool| {
+                        // Responses API: name at top level, not nested in "function".
                         json!({
                             "type": "function",
-                            "function": {
-                                "name": tool.name,
-                                "description": tool.description,
-                                "parameters": tool.input_schema,
-                            }
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.input_schema,
                         })
                     })
                     .collect(),
@@ -425,125 +370,87 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     Value::Object(payload)
 }
 
-fn to_openai_message(message: &Message) -> Value {
-    match message.role {
-        MessageRole::System => json!({
-            "role": "system",
-            "content": text_content_from_parts(&message.parts),
-        }),
-        MessageRole::User => json!({
-            "role": "user",
-            "content": openai_user_content(&message.parts),
-        }),
-        MessageRole::Assistant => {
-            let reasoning_content = reasoning_content_from_parts(&message.parts);
-            let tool_calls: Vec<Value> = message
-                .parts
-                .iter()
-                .filter_map(|part| {
-                    if let ContentPart::ToolCall(call) = part {
-                        Some(json!({
-                            "id": call.call_id,
-                            "type": "function",
-                            "function": {
-                                "name": call.tool_name,
-                                "arguments": call.args_json.to_string(),
-                            }
-                        }))
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            let mut payload = Map::new();
-            payload.insert("role".to_string(), Value::String("assistant".to_string()));
-            payload.insert(
-                "content".to_string(),
-                text_content_from_parts(&message.parts),
-            );
-            if !reasoning_content.is_empty() {
-                payload.insert(
-                    "reasoning_content".to_string(),
-                    Value::String(reasoning_content),
-                );
+/// Converts the non-system messages to Responses API `input` items.
+fn build_input(messages: &[Message]) -> Vec<Value> {
+    let mut items: Vec<Value> = Vec::new();
+    for message in messages {
+        match message.role {
+            MessageRole::System => {} // handled as `instructions`
+            MessageRole::User => {
+                let content = user_content_items(&message.parts);
+                items.push(json!({ "type": "message", "role": "user", "content": content }));
             }
-            if !tool_calls.is_empty() {
-                payload.insert("tool_calls".to_string(), Value::Array(tool_calls));
-            }
-            Value::Object(payload)
-        }
-        MessageRole::Tool => {
-            let tool_result = message.parts.iter().find_map(|part| {
-                if let ContentPart::ToolResult(result) = part {
-                    Some(result)
-                } else {
-                    None
+            MessageRole::Assistant => {
+                // Text parts → message item.
+                let text: String = message
+                    .parts
+                    .iter()
+                    .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+                    .collect::<Vec<_>>()
+                    .join("");
+                if !text.is_empty() {
+                    items.push(json!({
+                        "type": "message",
+                        "role": "assistant",
+                        "content": [{ "type": "output_text", "text": text }],
+                    }));
                 }
-            });
-
-            if let Some(result) = tool_result {
-                json!({
-                    "role": "tool",
-                    "tool_call_id": result.call_id,
-                    "content": result.output_json.to_string(),
-                })
-            } else {
-                json!({
-                    "role": "tool",
-                    "content": "",
-                })
+                // Each ToolCall part → a separate function_call item.
+                for part in &message.parts {
+                    if let ContentPart::ToolCall(call) = part {
+                        items.push(json!({
+                            "type": "function_call",
+                            "call_id": call.call_id,
+                            "name": call.tool_name,
+                            "arguments": call.args_json.to_string(),
+                        }));
+                    }
+                }
+            }
+            MessageRole::Tool => {
+                // Each ToolResult part → a function_call_output item.
+                for part in &message.parts {
+                    if let ContentPart::ToolResult(result) = part {
+                        items.push(json!({
+                            "type": "function_call_output",
+                            "call_id": result.call_id,
+                            "output": result.output_json.to_string(),
+                        }));
+                    }
+                }
             }
         }
     }
+    items
 }
 
-fn text_content_from_parts(parts: &[ContentPart]) -> Value {
-    let texts: Vec<String> = parts
-        .iter()
-        .filter_map(|part| {
-            if let ContentPart::Text(text) = part {
-                Some(text.clone())
-            } else {
-                None
-            }
-        })
-        .collect();
-    Value::String(texts.join(""))
-}
-
-fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
-    parts
-        .iter()
-        .filter_map(|part| {
-            if let ContentPart::Reasoning(reasoning) = part {
-                Some(reasoning.text.clone())
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("")
-}
-
-fn openai_user_content(parts: &[ContentPart]) -> Value {
+/// Converts user message parts to Responses API content items.
+fn user_content_items(parts: &[ContentPart]) -> Value {
     let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
     if has_images {
         Value::Array(
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text })),
-                    ContentPart::Image(img) => Some(openai_image_content_part(img)),
+                    ContentPart::Text(text) => {
+                        Some(json!({ "type": "input_text", "text": text }))
+                    }
+                    ContentPart::Image(img) => Some(image_content_item(img)),
                     _ => None,
                 })
                 .collect(),
         )
     } else {
-        text_content_from_parts(parts)
+        let text: String = parts
+            .iter()
+            .filter_map(|p| if let ContentPart::Text(t) = p { Some(t.as_str()) } else { None })
+            .collect::<Vec<_>>()
+            .join("");
+        json!([{ "type": "input_text", "text": text }])
     }
 }
 
-fn openai_image_content_part(image: &ImagePart) -> Value {
+fn image_content_item(image: &ImagePart) -> Value {
     let url = match &image.data {
         MediaData::Url(url) => url.clone(),
         MediaData::Base64(b64) => {
@@ -555,73 +462,60 @@ fn openai_image_content_part(image: &ImagePart) -> Value {
             format!("data:{};base64,{}", mt, base64_encode(bytes))
         }
     };
-    json!({ "type": "image_url", "image_url": { "url": url } })
+    json!({ "type": "input_image", "image_url": { "url": url } })
 }
 
-fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
-    let Some(choice) = body
-        .get("choices")
-        .and_then(Value::as_array)
-        .and_then(|arr| arr.first())
-    else {
-        return Err(Error::new(
-            ErrorCode::InvalidResponse,
-            "openai response missing choices[0]",
-        ));
-    };
-
-    let message = choice
-        .get("message")
-        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing message"))?;
-
-    let output_text = message
-        .get("content")
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let reasoning_text = message
-        .get("reasoning_content")
-        .or_else(|| message.get("reasoning"))
-        .and_then(Value::as_str)
-        .unwrap_or_default()
-        .to_string();
-    let reasoning_parts = if reasoning_text.is_empty() {
-        Vec::new()
-    } else {
-        vec![ReasoningPart {
-            text: reasoning_text.clone(),
-            provider_metadata: None,
-        }]
-    };
-
-    let tool_calls = message
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(parse_openai_tool_call)
-                .collect::<Result<Vec<_>, _>>()
-        })
-        .transpose()?
-        .unwrap_or_default();
-
-    let finish_reason = map_openai_finish_reason(
-        choice
-            .get("finish_reason")
+fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
+    if body.get("status").and_then(Value::as_str) == Some("failed") {
+        let msg = body
+            .get("error")
+            .and_then(|e| e.get("message"))
             .and_then(Value::as_str)
-            .unwrap_or("stop"),
-    );
+            .unwrap_or("openai response failed");
+        return Err(Error::new(ErrorCode::InvalidResponse, msg));
+    }
 
-    let usage = body
-        .get("usage")
-        .and_then(parse_openai_usage)
-        .unwrap_or_default();
+    let output = body
+        .get("output")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "openai response missing output"))?;
+
+    let mut output_text = String::new();
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
+
+    for item in output {
+        match item.get("type").and_then(Value::as_str) {
+            Some("message") => {
+                if let Some(content) = item.get("content").and_then(Value::as_array) {
+                    for c in content {
+                        if c.get("type").and_then(Value::as_str) == Some("output_text") {
+                            if let Some(text) = c.get("text").and_then(Value::as_str) {
+                                output_text.push_str(text);
+                            }
+                        }
+                    }
+                }
+            }
+            Some("function_call") => {
+                let call = parse_fn_call_item(item)?;
+                tool_calls.push(call);
+            }
+            _ => {}
+        }
+    }
+
+    let finish_reason = if tool_calls.is_empty() {
+        FinishReason::Stop
+    } else {
+        FinishReason::ToolCalls
+    };
+
+    let usage = body.get("usage").and_then(parse_usage).unwrap_or_default();
 
     Ok(GenerateTextResponse {
         output_text,
-        reasoning_text,
-        reasoning_parts,
+        reasoning_text: String::new(),
+        reasoning_parts: Vec::new(),
         finish_reason,
         usage,
         tool_calls,
@@ -629,51 +523,52 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
     })
 }
 
-fn parse_openai_tool_call(value: &Value) -> Result<ToolCall, Error> {
-    let call_id = value
-        .get("id")
+fn parse_fn_call_item(item: &Value) -> Result<ToolCall, Error> {
+    let call_id = item
+        .get("call_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "tool call missing id"))?;
-    let tool_name = value
-        .get("function")
-        .and_then(|f| f.get("name"))
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "function_call missing call_id"))?;
+    let name = item
+        .get("name")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            Error::new(
-                ErrorCode::InvalidResponse,
-                "tool call missing function name",
-            )
-        })?;
-    let args_raw = value
-        .get("function")
-        .and_then(|f| f.get("arguments"))
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "function_call missing name"))?;
+    let args_raw = item
+        .get("arguments")
         .and_then(Value::as_str)
         .unwrap_or("{}");
-    let args_json = serde_json::from_str(args_raw).map_err(|e| {
-        Error::new(
-            ErrorCode::InvalidToolArgs,
-            format!("failed to parse tool arguments JSON: {}", e),
-        )
-    })?;
+    let args_json = parse_args_json(args_raw)?;
     Ok(ToolCall {
         call_id: call_id.to_string(),
-        tool_name: tool_name.to_string(),
+        tool_name: name.to_string(),
         args_json,
     })
 }
 
-fn parse_openai_usage(value: &Value) -> Option<Usage> {
-    let input_tokens = value.get("prompt_tokens")?.as_u64()? as u32;
-    let output_tokens = value.get("completion_tokens")?.as_u64()? as u32;
-    let cached_input_tokens = value
-        .get("prompt_tokens_details")
-        .and_then(|details| details.get("cached_tokens"))
+fn parse_args_json(raw: &str) -> Result<Value, Error> {
+    let s = raw.trim();
+    if s.is_empty() {
+        return Ok(json!({}));
+    }
+    serde_json::from_str(s).map_err(|e| {
+        Error::new(
+            ErrorCode::InvalidToolArgs,
+            format!("invalid tool arguments JSON: {}", e),
+        )
+    })
+}
+
+fn parse_usage(value: &Value) -> Option<Usage> {
+    let input_tokens = value.get("input_tokens")?.as_u64()? as u32;
+    let output_tokens = value.get("output_tokens")?.as_u64()? as u32;
+    let cached_tokens = value
+        .get("input_tokens_details")
+        .and_then(|d| d.get("cached_tokens"))
         .and_then(Value::as_u64)
         .map(|n| n as u32)
         .unwrap_or(0);
     let reasoning_tokens = value
-        .get("completion_tokens_details")
-        .and_then(|details| details.get("reasoning_tokens"))
+        .get("output_tokens_details")
+        .and_then(|d| d.get("reasoning_tokens"))
         .and_then(Value::as_u64)
         .map(|n| n as u32)
         .unwrap_or(0);
@@ -683,27 +578,9 @@ fn parse_openai_usage(value: &Value) -> Option<Usage> {
         .map(|n| n as u32)
         .unwrap_or_else(|| input_tokens.saturating_add(output_tokens));
     Some(
-        Usage::from_totals(
-            input_tokens,
-            output_tokens,
-            reasoning_tokens,
-            Some(total_tokens),
-        )
-        .with_input_cache_split(cached_input_tokens, 0)
-        .with_output_split(
-            output_tokens.saturating_sub(reasoning_tokens),
-            reasoning_tokens,
-        )
-        .with_raw_usage(value.clone()),
+        Usage::from_totals(input_tokens, output_tokens, reasoning_tokens, Some(total_tokens))
+            .with_input_cache_split(cached_tokens, 0)
+            .with_output_split(output_tokens.saturating_sub(reasoning_tokens), reasoning_tokens)
+            .with_raw_usage(value.clone()),
     )
-}
-
-fn map_openai_finish_reason(reason: &str) -> FinishReason {
-    match reason {
-        "stop" => FinishReason::Stop,
-        "length" => FinishReason::Length,
-        "tool_calls" => FinishReason::ToolCalls,
-        "content_filter" => FinishReason::ContentFilter,
-        _ => FinishReason::Unknown(reason.to_string()),
-    }
 }

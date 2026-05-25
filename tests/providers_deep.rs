@@ -403,13 +403,14 @@ async fn anthropic_stream_with_thinking() {
 async fn openai_stream_with_reasoning_delta() {
     let server = MockServer::start().await;
     let sse_body = concat!(
-        "data: {\"id\":\"chunk-1\",\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking step 1\"},\"finish_reason\":null}]}\n\n",
-        "data: {\"id\":\"chunk-2\",\"choices\":[{\"delta\":{\"content\":\"answer\"},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":3,\"total_tokens\":8}}\n\n",
-        "data: [DONE]\n\n"
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"reasoning\",\"id\":\"rs_1\"}}\n\n",
+        "data: {\"type\":\"response.reasoning_summary_text.delta\",\"output_index\":0,\"content_index\":0,\"delta\":\"thinking step 1\"}\n\n",
+        "data: {\"type\":\"response.output_text.delta\",\"output_index\":1,\"content_index\":0,\"delta\":\"answer\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
     );
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
@@ -462,12 +463,14 @@ async fn openai_stream_with_reasoning_delta() {
 async fn openai_stream_with_tool_calls_and_finish() {
     let server = MockServer::start().await;
     let sse_body = concat!(
-        "data: {\"id\":\"chunk-1\",\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}}]},\"finish_reason\":\"tool_calls\"}]}\n\n",
-        "data: [DONE]\n\n"
+        "data: {\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{\"type\":\"function_call\",\"id\":\"fc_1\",\"call_id\":\"call_1\",\"name\":\"weather\",\"status\":\"in_progress\"}}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.delta\",\"output_index\":0,\"item_id\":\"fc_1\",\"delta\":\"{\\\"city\\\":\\\"NYC\\\"}\"}\n\n",
+        "data: {\"type\":\"response.function_call_arguments.done\",\"output_index\":0,\"item_id\":\"fc_1\",\"arguments\":\"{\\\"city\\\":\\\"NYC\\\"}\"}\n\n",
+        "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":5,\"output_tokens\":3,\"total_tokens\":8}}}\n\n"
     );
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(
             ResponseTemplate::new(200)
                 .insert_header("content-type", "text/event-stream")
@@ -521,24 +524,23 @@ async fn openai_stream_with_tool_calls_and_finish() {
 async fn openai_generate_with_reasoning() {
     let server = MockServer::start().await;
     let body = json!({
-        "choices": [
+        "status": "completed",
+        "output": [
             {
-                "message": {
-                    "content": "answer",
-                    "reasoning_content": "chain-of-thought"
-                },
-                "finish_reason": "stop"
+                "type": "message",
+                "role": "assistant",
+                "content": [{ "type": "output_text", "text": "answer" }]
             }
         ],
         "usage": {
-            "prompt_tokens": 5,
-            "completion_tokens": 3,
+            "input_tokens": 5,
+            "output_tokens": 3,
             "total_tokens": 8
         }
     });
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -557,42 +559,35 @@ async fn openai_generate_with_reasoning() {
         .await
         .expect("request should succeed");
 
+    // Responses API does not expose raw thinking in non-streaming responses.
     assert_eq!(response.output_text, "answer");
-    assert_eq!(response.reasoning_text, "chain-of-thought");
-    assert_eq!(response.reasoning_parts.len(), 1);
+    assert_eq!(response.reasoning_text, "");
+    assert!(response.reasoning_parts.is_empty());
 }
 
 #[tokio::test]
 async fn openai_generate_with_tool_calls() {
     let server = MockServer::start().await;
     let body = json!({
-        "choices": [
+        "status": "completed",
+        "output": [
             {
-                "message": {
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call_1",
-                            "type": "function",
-                            "function": {
-                                "name": "weather",
-                                "arguments": "{\"city\":\"Tokyo\"}"
-                            }
-                        }
-                    ]
-                },
-                "finish_reason": "tool_calls"
+                "type": "function_call",
+                "id": "fc_1",
+                "call_id": "call_1",
+                "name": "weather",
+                "arguments": "{\"city\":\"Tokyo\"}"
             }
         ],
         "usage": {
-            "prompt_tokens": 5,
-            "completion_tokens": 3,
+            "input_tokens": 5,
+            "output_tokens": 3,
             "total_tokens": 8
         }
     });
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -788,7 +783,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
 async fn openai_403_maps_to_auth_failed() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(ResponseTemplate::new(403).set_body_string("forbidden"))
         .expect(1)
         .mount(&server)
@@ -814,12 +809,12 @@ async fn openai_403_maps_to_auth_failed() {
 // ─── OpenAI invalid response ────────────────────────────────────────────
 
 #[tokio::test]
-async fn openai_invalid_response_missing_choices() {
+async fn openai_invalid_response_missing_output() {
     let server = MockServer::start().await;
-    let body = json!({"no_choices": []});
+    let body = json!({"status": "completed", "no_output": []});
 
     Mock::given(method("POST"))
-        .and(path("/v1/chat/completions"))
+        .and(path("/v1/responses"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)

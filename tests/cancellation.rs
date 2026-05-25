@@ -19,8 +19,8 @@ async fn cancel_before_request_fires() {
     let token = CancellationToken::new();
     token.cancel(); // pre-cancelled
 
-    let client = LlmClient::openai("test-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -48,8 +48,8 @@ async fn cancel_before_agent_step() {
     let token = CancellationToken::new();
     token.cancel();
 
-    let client = LlmClient::openai("test-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -120,8 +120,8 @@ async fn cancel_between_agent_steps() {
         executor: Arc::new(CancelOnExecTool(token.clone())),
     };
 
-    let client = LlmClient::openai("test-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 

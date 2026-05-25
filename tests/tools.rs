@@ -95,8 +95,8 @@ async fn run_tools_two_step_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -151,8 +151,8 @@ async fn run_tools_unknown_tool_fails() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -225,8 +225,8 @@ async fn run_tools_lifecycle_hooks_fire() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -334,8 +334,8 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -434,8 +434,8 @@ async fn tool_calls_execute_in_parallel() {
         executor: Arc::new(SlowTool),
     };
 
-    let client = LlmClient::openai("test-openai-key")
-        .base_url(server.uri())
+    let client = LlmClient::openai_compatible(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 

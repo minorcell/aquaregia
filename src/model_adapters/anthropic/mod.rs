@@ -11,12 +11,6 @@
 //! - Tool use with incremental JSON parsing
 //! - Cache token tracking (prompt caching)
 //!
-//! ## Supported Models
-//!
-//! - Claude 3.5 Sonnet, Claude 3.5 Haiku
-//! - Claude 3 Opus, Sonnet, Haiku
-//! - Claude Sonnet 4 and newer
-//!
 //! ## Example
 //!
 //! ```rust,no_run
@@ -743,6 +737,8 @@ fn map_anthropic_finish_reason(reason: &str) -> FinishReason {
         "end_turn" | "stop_sequence" => FinishReason::Stop,
         "max_tokens" => FinishReason::Length,
         "tool_use" => FinishReason::ToolCalls,
+        "pause_turn" => FinishReason::PauseTurn,
+        "refusal" => FinishReason::Refusal,
         _ => FinishReason::Unknown(reason.to_string()),
     }
 }
