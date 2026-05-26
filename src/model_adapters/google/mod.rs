@@ -138,7 +138,16 @@ impl ModelAdapter for GoogleAdapter {
             .json()
             .await
             .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
-        normalize_google_response(body)
+        let mut response = normalize_google_response(body)?;
+        // When using the function-calling trick for structured output, extract the
+        // synthetic "respond" function call arguments as output_text.
+        if req.output_schema.is_some() {
+            if let Some(tc) = response.tool_calls.first() {
+                response.output_text = tc.args_json.to_string();
+                response.tool_calls.clear();
+            }
+        }
+        Ok(response)
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
@@ -340,7 +349,32 @@ fn build_google_payload(req: &GenerateTextRequest) -> Value {
         );
     }
 
-    if let Some(tools) = &req.tools {
+    if let Some(output_schema) = &req.output_schema {
+        // Google has no native structured-output endpoint; use function-calling trick:
+        // inject a forced "respond" function whose parameters are the target schema.
+        payload.insert(
+            "tools".to_string(),
+            Value::Array(vec![json!({
+                "functionDeclarations": [{
+                    "name": "respond",
+                    "description": output_schema
+                        .description
+                        .as_deref()
+                        .unwrap_or("Respond with structured output"),
+                    "parameters": output_schema.json_schema,
+                }]
+            })]),
+        );
+        payload.insert(
+            "toolConfig".to_string(),
+            json!({
+                "functionCallingConfig": {
+                    "mode": "ANY",
+                    "allowedFunctionNames": ["respond"],
+                }
+            }),
+        );
+    } else if let Some(tools) = &req.tools {
         let declarations = tools
             .iter()
             .map(|tool| {

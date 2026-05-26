@@ -573,6 +573,20 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
+    if let Some(output_schema) = &req.output_schema {
+        payload.insert(
+            "response_format".to_string(),
+            json!({
+                "type": "json_schema",
+                "json_schema": {
+                    "name": output_schema.name,
+                    "schema": output_schema.json_schema,
+                    "strict": true,
+                }
+            }),
+        );
+    }
+
     Value::Object(payload)
 }
 

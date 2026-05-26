@@ -109,6 +109,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
 | Custom `base_url`                |   ✓    |     ✓     |   ✓    |         ✓         |
 | Custom headers / query / path    |        |           |        |         ✓         |
 | `api_version` (header)           |        |     ✓     |        |                   |
+| Structured output                |   ✓    |     ✓     |   ✓    |         ✓         |
 | Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
 | Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
 
@@ -218,6 +219,51 @@ pub struct Usage {
 ```
 
 `Usage` implements `Add` and `AddAssign`, so totaling tokens across agent steps is a one-liner. `AgentResponse.usage_total` is already aggregated for you.
+
+---
+
+## Structured output
+
+Call `generate_object::<T>()` to get a Rust type back — no manual JSON parsing required. The JSON Schema is derived automatically from your type via `schemars`.
+
+```rust
+use aquaregia::{GenerateTextRequest, LlmClient};
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherResult {
+    city: String,
+    temp_c: f64,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?).build()?;
+
+    let req = GenerateTextRequest::builder("gpt-4o")
+        .message(Message::user_text("What is the weather in Tokyo?"))
+        .temperature(0.2)
+        .build()?;
+
+    let result = client.generate_object::<WeatherResult>(req).await?;
+
+    println!("City: {}, Temp: {}°C", result.object.city, result.object.temp_c);
+    println!("tokens: {} in / {} out", result.usage.input_tokens, result.usage.output_tokens);
+    Ok(())
+}
+```
+
+### How it works per provider
+
+| Provider   | Mechanism                                                                 |
+| ---------- | ------------------------------------------------------------------------- |
+| OpenAI     | Responses API `text.format.json_schema` (native)                           |
+| Compatible | Chat Completions `response_format.json_schema` (native)                    |
+| Anthropic  | Tool-use trick: injects a forced `respond` tool, extracts its arguments   |
+| Google     | Function-calling trick: injects a forced `respond` function, extracts args |
+
+All providers produce the same typed output — the extraction strategy is transparent to the caller.
 
 ---
 

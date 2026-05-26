@@ -51,11 +51,13 @@ use crate::model_adapters::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
 };
 use crate::tool::{ToolExecError, ToolRegistry};
+use crate::partial_json::repair_json;
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateTextRequest,
-    GenerateTextResponse, Message, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
-    Usage, validate_messages, validate_model_ref, validate_sampling,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateObjectResponse,
+    GenerateTextRequest, GenerateTextResponse, Message, ObjectStream, OutputSchema, RunTools,
+    StreamEvent, StreamObjectEvent, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
+    validate_messages, validate_model_ref, validate_sampling,
 };
 
 #[doc(hidden)]
@@ -348,6 +350,131 @@ impl BoundClient {
             .await
     }
 
+    /// Performs a non-streaming generation that returns deserialized structured output.
+    ///
+    /// The JSON Schema is derived automatically from `T` via [`schemars::JsonSchema`].
+    /// Providers that lack native structured-output support (Anthropic, Google) use a
+    /// tool-use fallback: the adapter injects a forced tool call and extracts its arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::InvalidResponse`] if the deserialization from JSON fails.
+    pub async fn generate_object<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
+        &self,
+        mut req: GenerateTextRequest,
+    ) -> Result<GenerateObjectResponse<T>, Error> {
+        let schema = schemars::schema_for!(T);
+        let json_schema = serde_json::to_value(&schema)
+            .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
+        req.output_schema = Some(OutputSchema {
+            name: std::any::type_name::<T>()
+                .split("::")
+                .last()
+                .unwrap_or("output")
+                .to_string(),
+            description: None,
+            json_schema,
+        });
+        let response = self.generate(req).await?;
+        let object: T = match serde_json::from_str(&response.output_text) {
+            Ok(obj) => obj,
+            Err(e) => {
+                return Err({
+                    let mut err = Error::new(
+                        ErrorCode::InvalidResponse,
+                        format!(
+                            "failed to parse structured output as {}: {}",
+                            std::any::type_name::<T>(),
+                            e
+                        ),
+                    );
+                    err.raw_body = Some(response.output_text);
+                    err
+                });
+            }
+        };
+        Ok(GenerateObjectResponse {
+            object,
+            reasoning_text: response.reasoning_text,
+            finish_reason: response.finish_reason,
+            usage: response.usage,
+            raw_provider_response: response.raw_provider_response,
+        })
+    }
+
+    /// Streams a generation that emits progressively-populated structured output.
+    ///
+    /// As the model streams JSON tokens, each chunk is repaired and deserialised
+    /// into a partial `T`. Downstream consumers receive [`StreamObjectEvent::Partial`]
+    /// events as fields arrive, and a final [`StreamObjectEvent::Object`] when the
+    /// stream completes.
+    ///
+    /// Fields not yet emitted by the model are left at their `Default`. For this
+    /// reason `T` should use `#[serde(default)]` on fields.
+    pub async fn stream_object<T: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static>(
+        &self,
+        mut req: GenerateTextRequest,
+    ) -> Result<ObjectStream<T>, Error> {
+        let schema = schemars::schema_for!(T);
+        let json_schema = serde_json::to_value(&schema)
+            .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
+        req.output_schema = Some(OutputSchema {
+            name: std::any::type_name::<T>()
+                .split("::")
+                .last()
+                .unwrap_or("output")
+                .to_string(),
+            description: None,
+            json_schema,
+        });
+
+        let mut stream = self.stream(req).await?;
+        let mut buffer = String::new();
+        let mut last_emitted_len = 0usize;
+
+        let object_stream = async_stream::try_stream! {
+            while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
+                match event? {
+                    StreamEvent::TextDelta { text } => {
+                        buffer.push_str(&text);
+                        // Only attempt partial parse when we have meaningful new content.
+                        if buffer.len() - last_emitted_len < 8 {
+                            continue;
+                        }
+                        let repaired = repair_json(&buffer);
+                        if let Ok(partial) = serde_json::from_str::<T>(&repaired) {
+                            yield StreamObjectEvent::Partial { partial };
+                            last_emitted_len = buffer.len();
+                        }
+                    }
+                    StreamEvent::Done => {
+                        // Final parse.
+                        let repaired = repair_json(&buffer);
+                        let object: T = serde_json::from_str(&repaired).map_err(|e| {
+                            let mut err = Error::new(
+                                ErrorCode::InvalidResponse,
+                                format!("failed to parse streamed object as {}: {}",
+                                    std::any::type_name::<T>(), e),
+                            );
+                            err.raw_body = Some(buffer.clone());
+                            err
+                        })?;
+                        yield StreamObjectEvent::Object { object };
+                        break;
+                    }
+                    StreamEvent::Usage { usage: _ } | StreamEvent::ReasoningStarted { .. }
+                    | StreamEvent::ReasoningDelta { .. } | StreamEvent::ReasoningDone { .. }
+                    | StreamEvent::ToolCallReady { .. } => {
+                        // Pass-through non-text events for consumers that want them.
+                        // (We don't yield Partial on these, but don't block the stream either.)
+                    }
+                }
+            }
+        };
+
+        Ok(Box::pin(object_stream))
+    }
+
     pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentResponse, Error> {
         let RunTools {
             model,
@@ -470,6 +597,7 @@ impl BoundClient {
                                 .collect(),
                         )
                     },
+                    output_schema: None,
                     cancellation_token: cancellation_token.clone(),
                 })
                 .await?;

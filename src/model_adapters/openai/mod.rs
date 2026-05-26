@@ -464,6 +464,18 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
+    if let Some(output_schema) = &req.output_schema {
+        let mut text_format = Map::new();
+        text_format.insert("type".to_string(), Value::String("json_schema".to_string()));
+        text_format.insert("name".to_string(), Value::String(output_schema.name.clone()));
+        text_format.insert("schema".to_string(), output_schema.json_schema.clone());
+        text_format.insert("strict".to_string(), Value::Bool(true));
+        payload.insert(
+            "text".to_string(),
+            json!({ "format": Value::Object(text_format) }),
+        );
+    }
+
     Value::Object(payload)
 }
 

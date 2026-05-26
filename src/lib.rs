@@ -7,6 +7,9 @@
 //! - **Unified Provider API**: One `LlmClient` binds to one provider configuration with support for
 //!   OpenAI, Anthropic, Google, and OpenAI-compatible endpoints.
 //! - **Streaming & Non-Streaming**: Both `generate` and `stream` APIs with consistent event handling.
+//! - **Structured Output**: `generate_object::<T>()` deserialises responses directly into Rust types
+//!   using `schemars`-derived JSON Schema, with provider-native support (OpenAI) and tool-use fallback
+//!   (Anthropic, Google).
 //! - **Reasoning Support**: First-class reasoning content extraction and streaming events.
 //! - **Tool-Using Agents**: Multi-step agent loops with configurable tool execution and error handling.
 //! - **Multimodal Vision**: Send images to vision-capable models via URL, base64, or raw bytes.
@@ -56,6 +59,7 @@ pub(crate) mod stream;
 pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
+pub(crate) mod partial_json;
 
 pub use agent::{Agent, AgentBuilder};
 pub use client::{BoundClient, ClientBuilder, LlmClient};
@@ -83,6 +87,8 @@ pub use types::{
     ContentPart,
     // Streaming
     FinishReason,
+    // Structured output
+    GenerateObjectResponse,
     // Requests & responses
     GenerateTextRequest,
     GenerateTextResponse,
@@ -91,9 +97,12 @@ pub use types::{
     Message,
     MessageRole,
     ModelRef,
+    ObjectStream,
+    OutputSchema,
     ProviderKind,
     ReasoningPart,
     StreamEvent,
+    StreamObjectEvent,
     TextDeltaStream,
     TextStream,
     // Tool types

@@ -3,6 +3,8 @@ use aquaregia::{
     StreamEvent, ToolResult,
 };
 use futures_util::StreamExt;
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
@@ -1222,4 +1224,237 @@ async fn google_uses_upstream_function_call_id_when_present() {
     assert_eq!(response.tool_calls.len(), 1);
     assert_eq!(response.tool_calls[0].call_id, "fc_abc");
     assert_eq!(response.tool_calls[0].tool_name, "weather");
+}
+
+// ─── Structured output — Anthropic tool-use trick ──────────────────────────
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct WeatherOutput {
+    city: String,
+    temp_c: f64,
+}
+
+#[tokio::test]
+async fn anthropic_generate_object_extracts_tool_call_args() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "id": "msg_001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-5",
+        "content": [{
+            "type": "tool_use",
+            "id": "toolu_001",
+            "name": "respond",
+            "input": { "city": "NYC", "temp_c": 23.0 }
+        }],
+        "stop_reason": "tool_use",
+        "usage": { "input_tokens": 42, "output_tokens": 15 }
+    });
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .and(header("x-api-key", "test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let req = GenerateTextRequest::builder("claude-sonnet-4-5")
+        .message(Message::user_text("weather in NYC"))
+        .build()
+        .expect("request should build");
+
+    let client = LlmClient::anthropic()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .generate_object::<WeatherOutput>(req)
+        .await
+        .expect("generate_object should succeed");
+
+    assert_eq!(response.object.city, "NYC");
+    assert_eq!(response.object.temp_c, 23.0);
+    assert_eq!(response.finish_reason, FinishReason::ToolCalls);
+}
+
+#[tokio::test]
+async fn anthropic_generate_object_injects_respond_tool() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "id": "msg_001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-5",
+        "content": [{
+            "type": "tool_use",
+            "id": "toolu_001",
+            "name": "respond",
+            "input": { "city": "LA", "temp_c": 28.0 }
+        }],
+        "stop_reason": "tool_use",
+        "usage": { "input_tokens": 40, "output_tokens": 12 }
+    });
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let req = GenerateTextRequest::builder("claude-sonnet-4-5")
+        .message(Message::user_text("weather in LA"))
+        .build()
+        .expect("request should build");
+
+    let client = LlmClient::anthropic()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    client
+        .generate_object::<WeatherOutput>(req)
+        .await
+        .expect("generate_object should succeed");
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock should record requests");
+    let body: serde_json::Value =
+        requests[0].body_json().expect("request body should be valid json");
+
+    // Verify the injected "respond" tool.
+    let tools = body["tools"].as_array().expect("tools should be present");
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0]["name"], "respond");
+    assert_eq!(tools[0]["type"], "custom");
+    assert!(tools[0]["input_schema"].is_object());
+
+    // Verify tool_choice forces "respond".
+    let tc = &body["tool_choice"];
+    assert_eq!(tc["type"], "tool");
+    assert_eq!(tc["name"], "respond");
+}
+
+// ─── Structured output — Google function-calling trick ─────────────────────
+
+#[tokio::test]
+async fn google_generate_object_extracts_function_call_args() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "candidates": [{
+            "content": {
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "respond",
+                        "args": { "city": "NYC", "temp_c": 23.0 }
+                    }
+                }]
+            },
+            "finishReason": "STOP"
+        }],
+        "usageMetadata": {
+            "promptTokenCount": 20,
+            "candidatesTokenCount": 10,
+            "totalTokenCount": 30
+        }
+    });
+    Mock::given(method("POST"))
+        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(header("x-goog-api-key", "test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let req = GenerateTextRequest::builder("gemini-2.0-flash")
+        .message(Message::user_text("weather in NYC"))
+        .build()
+        .expect("request should build");
+
+    let client = LlmClient::google()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    let response = client
+        .generate_object::<WeatherOutput>(req)
+        .await
+        .expect("generate_object should succeed");
+
+    assert_eq!(response.object.city, "NYC");
+    assert_eq!(response.object.temp_c, 23.0);
+}
+
+#[tokio::test]
+async fn google_generate_object_injects_respond_function() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "candidates": [{
+            "content": {
+                "role": "model",
+                "parts": [{
+                    "functionCall": {
+                        "name": "respond",
+                        "args": { "city": "LA", "temp_c": 28.0 }
+                    }
+                }]
+            },
+            "finishReason": "STOP"
+        }],
+        "usageMetadata": {
+            "promptTokenCount": 20,
+            "candidatesTokenCount": 10,
+            "totalTokenCount": 30
+        }
+    });
+    Mock::given(method("POST"))
+        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let req = GenerateTextRequest::builder("gemini-2.0-flash")
+        .message(Message::user_text("weather in LA"))
+        .build()
+        .expect("request should build");
+
+    let client = LlmClient::google()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    client
+        .generate_object::<WeatherOutput>(req)
+        .await
+        .expect("generate_object should succeed");
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock should record requests");
+    let body: serde_json::Value =
+        requests[0].body_json().expect("request body should be valid json");
+
+    // Verify the injected "respond" function declaration.
+    let tools = body["tools"].as_array().expect("tools should be present");
+    let decls = tools[0]["functionDeclarations"]
+        .as_array()
+        .expect("functionDeclarations should be present");
+    assert_eq!(decls.len(), 1);
+    assert_eq!(decls[0]["name"], "respond");
+    assert!(decls[0]["parameters"].is_object());
+
+    // Verify toolConfig forces "respond".
+    let tc = &body["toolConfig"]["functionCallingConfig"];
+    assert_eq!(tc["mode"], "ANY");
+    assert_eq!(tc["allowedFunctionNames"][0], "respond");
 }
