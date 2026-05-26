@@ -21,7 +21,8 @@ async fn anthropic_429_maps_to_rate_limited() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic("test-anthropic-key")
+    let client = LlmClient::anthropic()
+        .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .max_retries(0)

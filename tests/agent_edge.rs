@@ -40,8 +40,9 @@ async fn agent_max_steps_exceeded() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -84,8 +85,9 @@ async fn agent_stop_when_predicate_stops_early() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -135,8 +137,9 @@ async fn agent_fail_fast_on_invalid_tool_args() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -213,8 +216,9 @@ async fn agent_continue_on_invalid_tool_args() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -261,8 +265,9 @@ async fn agent_without_tools_returns_first_response() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -299,8 +304,9 @@ async fn agent_run_messages_uses_explicit_message_list() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -338,8 +344,9 @@ async fn agent_respects_existing_system_message() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -380,8 +387,9 @@ async fn agent_prepare_step_changes_tools() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 

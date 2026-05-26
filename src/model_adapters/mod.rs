@@ -26,16 +26,16 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // OpenAI adapter
-//! let openai_client = LlmClient::openai("api-key").build()?;
+//! let openai_client = LlmClient::openai().api_key("api-key").build()?;
 //!
 //! // Anthropic adapter
-//! let anthropic_client = LlmClient::anthropic("api-key").build()?;
+//! let anthropic_client = LlmClient::anthropic().api_key("api-key").build()?;
 //!
 //! // Google adapter
-//! let google_client = LlmClient::google("api-key").build()?;
+//! let google_client = LlmClient::google().api_key("api-key").build()?;
 //!
 //! // OpenAI-compatible adapter (e.g., DeepSeek, local LLMs)
-//! let compatible_client = LlmClient::openai_compatible("https://api.example.com")
+//! let compatible_client = LlmClient::openai_compatible().base_url("https://api.example.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //! # Ok(())
@@ -56,7 +56,6 @@ pub mod google;
 pub mod openai;
 /// OpenAI-compatible provider adapter implementation.
 pub mod openai_compatible;
-pub(crate) mod think_tag_parser;
 
 /// Provider adapter contract used by [`crate::BoundClient`].
 #[async_trait]

@@ -11,18 +11,13 @@
 //! - Cache token tracking
 //! - System instructions support
 //!
-//! ## Supported Models
-//!
-//! - Gemini 2.0 Flash, Gemini 2.0 Pro
-//! - Gemini 1.5 Pro, Gemini 1.5 Flash
-//!
 //! ## Example
 //!
 //! ```rust,no_run
 //! use aquaregia::{LlmClient, GenerateTextRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::google("api-key").build()?;
+//! let client = LlmClient::google().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "Hello!"))
@@ -66,11 +61,17 @@ pub struct GoogleAdapterSettings {
 
 impl GoogleAdapterSettings {
     /// Creates settings with default base URL.
-    pub fn new(api_key: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
-            api_key: api_key.into(),
+            api_key: String::new(),
         }
+    }
+}
+
+impl Default for GoogleAdapterSettings {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -247,9 +248,15 @@ impl ModelAdapter for GoogleAdapter {
                                             .cloned()
                                             .unwrap_or_else(|| json!({}));
                                         tool_counter = tool_counter.saturating_add(1);
+                                        // Prefer the upstream functionCall.id (Gemini 2.0+) for round-tripping.
+                                        let call_id = function_call
+                                            .get("id")
+                                            .and_then(Value::as_str)
+                                            .map(ToOwned::to_owned)
+                                            .unwrap_or_else(|| format!("google_call_{}", tool_counter));
                                         yield StreamEvent::ToolCallReady {
                                             call: ToolCall {
-                                                call_id: format!("google_call_{}", tool_counter),
+                                                call_id,
                                                 tool_name: name.to_string(),
                                                 args_json,
                                             },
@@ -521,10 +528,17 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
         .and_then(Value::as_array)
         .and_then(|arr| arr.first())
     else {
-        return Err(Error::new(
-            ErrorCode::InvalidResponse,
-            "google response missing candidates[0]",
-        ));
+        // When the prompt is blocked the response can omit `candidates` entirely
+        // and surface `promptFeedback.blockReason`. Preserve that signal in the error.
+        let block_reason = body
+            .get("promptFeedback")
+            .and_then(|f| f.get("blockReason"))
+            .and_then(Value::as_str);
+        let msg = match block_reason {
+            Some(reason) => format!("google response blocked: {reason}"),
+            None => "google response missing candidates[0]".to_string(),
+        };
+        return Err(Error::new(ErrorCode::InvalidResponse, msg));
     };
 
     let mut output_text = String::new();
@@ -554,9 +568,14 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
                         .get("args")
                         .cloned()
                         .unwrap_or_else(|| json!({}));
+                    let call_id = function_call
+                        .get("id")
+                        .and_then(Value::as_str)
+                        .map(ToOwned::to_owned)
+                        .unwrap_or_else(|| format!("google_call_{}", index + 1));
 
                     tool_calls.push(ToolCall {
-                        call_id: format!("google_call_{}", index + 1),
+                        call_id,
                         tool_name: name.to_string(),
                         args_json,
                     });
@@ -655,9 +674,14 @@ fn map_google_finish_reason(reason: &str, has_tool_calls: bool) -> FinishReason 
             }
         }
         "MAX_TOKENS" => FinishReason::Length,
-        "IMAGE_SAFETY" | "RECITATION" | "SAFETY" | "BLOCKLIST" | "PROHIBITED_CONTENT" | "SPII" => {
-            FinishReason::ContentFilter
-        }
+        "IMAGE_SAFETY"
+        | "IMAGE_PROHIBITED_CONTENT"
+        | "IMAGE_RECITATION"
+        | "RECITATION"
+        | "SAFETY"
+        | "BLOCKLIST"
+        | "PROHIBITED_CONTENT"
+        | "SPII" => FinishReason::ContentFilter,
         _ => FinishReason::Unknown(reason.to_string()),
     }
 }

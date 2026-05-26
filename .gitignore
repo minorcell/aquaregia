@@ -1,3 +1,4 @@
 target/
+/references
 /ai-sdk
 .DS_Store

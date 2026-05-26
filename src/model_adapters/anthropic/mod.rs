@@ -11,19 +11,13 @@
 //! - Tool use with incremental JSON parsing
 //! - Cache token tracking (prompt caching)
 //!
-//! ## Supported Models
-//!
-//! - Claude 3.5 Sonnet, Claude 3.5 Haiku
-//! - Claude 3 Opus, Sonnet, Haiku
-//! - Claude Sonnet 4 and newer
-//!
 //! ## Example
 //!
 //! ```rust,no_run
 //! use aquaregia::{LlmClient, GenerateTextRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::anthropic("api-key").build()?;
+//! let client = LlmClient::anthropic().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-5", "Hello!"))
@@ -71,12 +65,18 @@ pub struct AnthropicAdapterSettings {
 
 impl AnthropicAdapterSettings {
     /// Creates settings with default base URL and API version.
-    pub fn new(api_key: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             base_url: DEFAULT_BASE_URL.to_string(),
-            api_key: api_key.into(),
+            api_key: String::new(),
             api_version: DEFAULT_API_VERSION.to_string(),
         }
+    }
+}
+
+impl Default for AnthropicAdapterSettings {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -318,10 +318,32 @@ impl ModelAdapter for AnthropicAdapter {
                                     }
                                 }
                             }
+                            "message_start" => {
+                                // The initial message carries the prompt-side token counts; output_tokens
+                                // is typically 0 here and refined later via message_delta.
+                                if let Some(usage) = value
+                                    .get("message")
+                                    .and_then(|m| m.get("usage"))
+                                    .and_then(parse_anthropic_usage)
+                                {
+                                    yield StreamEvent::Usage { usage };
+                                }
+                            }
                             "message_delta" => {
                                 if let Some(usage) = value.get("usage").and_then(parse_anthropic_usage) {
                                     yield StreamEvent::Usage { usage };
                                 }
+                            }
+                            "error" => {
+                                let msg = value
+                                    .get("error")
+                                    .and_then(|e| e.get("message"))
+                                    .and_then(Value::as_str)
+                                    .unwrap_or("anthropic stream error");
+                                Err(Error::new(ErrorCode::InvalidResponse, msg))?;
+                            }
+                            "ping" => {
+                                // Heartbeat; nothing to do.
                             }
                             "message_stop" => {
                                 for (_, (block_id, metadata)) in reasoning_blocks.drain() {
@@ -459,6 +481,7 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
                     .iter()
                     .map(|tool| {
                         json!({
+                            "type": "custom",
                             "name": tool.name,
                             "description": tool.description,
                             "input_schema": tool.input_schema,
@@ -743,6 +766,8 @@ fn map_anthropic_finish_reason(reason: &str) -> FinishReason {
         "end_turn" | "stop_sequence" => FinishReason::Stop,
         "max_tokens" => FinishReason::Length,
         "tool_use" => FinishReason::ToolCalls,
+        "pause_turn" => FinishReason::PauseTurn,
+        "refusal" => FinishReason::Refusal,
         _ => FinishReason::Unknown(reason.to_string()),
     }
 }

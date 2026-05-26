@@ -485,7 +485,7 @@ pub(crate) struct RunTools {
     pub(crate) model: ModelRef,
     pub(crate) messages: Vec<Message>,
     pub(crate) tools: Vec<Tool>,
-    pub(crate) max_steps: Option<u8>,
+    pub(crate) max_steps: Option<u32>,
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
     pub(crate) max_output_tokens: Option<u32>,
@@ -543,7 +543,7 @@ impl RunTools {
         self
     }
 
-    pub(crate) fn max_steps(mut self, max_steps: u8) -> Self {
+    pub(crate) fn max_steps(mut self, max_steps: u32) -> Self {
         self.max_steps = Some(max_steps);
         self
     }
@@ -659,9 +659,6 @@ impl RunTools {
         validate_model_ref(&self.model)?;
         validate_messages(&self.messages)?;
         validate_sampling(self.temperature, self.top_p)?;
-        if let Some(max_steps) = self.max_steps {
-            validate_max_steps(max_steps)?;
-        }
         Ok(self)
     }
 }
@@ -675,15 +672,15 @@ pub struct AgentStart {
     pub messages: Vec<Message>,
     /// Number of registered tools.
     pub tool_count: usize,
-    /// Effective max step cap for this run.
-    pub max_steps: u8,
+    /// Effective max step cap for this run. `0` means unlimited.
+    pub max_steps: u32,
 }
 
 /// Emitted when an agent step begins.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStepStart {
     /// 1-based step index.
-    pub step: u8,
+    pub step: u32,
     /// Messages sent to the model for this step.
     pub messages: Vec<Message>,
 }
@@ -692,7 +689,7 @@ pub struct AgentStepStart {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentToolCallStart {
     /// 1-based step index.
-    pub step: u8,
+    pub step: u32,
     /// Tool call about to execute.
     pub tool_call: ToolCall,
 }
@@ -701,7 +698,7 @@ pub struct AgentToolCallStart {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentToolCallFinish {
     /// 1-based step index.
-    pub step: u8,
+    pub step: u32,
     /// Executed tool call.
     pub tool_call: ToolCall,
     /// Result returned by the tool runtime.
@@ -714,7 +711,7 @@ pub struct AgentToolCallFinish {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentStep {
     /// 1-based step index.
-    pub step: u8,
+    pub step: u32,
     /// Assistant text output for this step.
     pub output_text: String,
     #[serde(default)]
@@ -739,7 +736,7 @@ pub struct AgentFinish {
     /// Final assistant text.
     pub output_text: String,
     /// Number of executed steps.
-    pub step_count: u8,
+    pub step_count: u32,
     /// Finish reason from the final model call.
     pub finish_reason: FinishReason,
     /// Accumulated token usage across all steps.
@@ -754,7 +751,7 @@ pub struct AgentFinish {
 #[derive(Debug, Clone)]
 pub struct AgentPrepareStep {
     /// 1-based step index to be executed.
-    pub step: u8,
+    pub step: u32,
     /// Model selected for this step.
     pub model: ModelRef,
     /// Messages that will be sent unless changed.
@@ -821,7 +818,7 @@ pub struct AgentResponse {
     /// Final assistant text output.
     pub output_text: String,
     /// Number of executed steps.
-    pub steps: u8,
+    pub steps: u32,
     /// Full transcript (including tool results).
     pub transcript: Vec<Message>,
     /// Accumulated token usage.
@@ -841,6 +838,10 @@ pub enum FinishReason {
     ToolCalls,
     /// Content was filtered by provider policy.
     ContentFilter,
+    /// Provider paused the turn for continuation (Anthropic `pause_turn`).
+    PauseTurn,
+    /// Provider refused the request (Anthropic `refusal`).
+    Refusal,
     /// Any provider-specific reason not mapped above.
     Unknown(String),
 }
@@ -1147,16 +1148,6 @@ pub(crate) fn validate_sampling(temperature: Option<f32>, top_p: Option<f32>) ->
         return Err(Error::new(
             ErrorCode::InvalidRequest,
             "top_p must be within 0.0..=1.0",
-        ));
-    }
-    Ok(())
-}
-
-pub(crate) fn validate_max_steps(max_steps: u8) -> Result<(), Error> {
-    if !(1..=32).contains(&max_steps) {
-        return Err(Error::new(
-            ErrorCode::InvalidRequest,
-            "max_steps must be in 1..=32",
         ));
     }
     Ok(())
@@ -1818,25 +1809,6 @@ mod tests {
     // ─── Validate functions ──────────────────────────────────────────────
 
     #[test]
-    fn rejects_invalid_max_steps() {
-        let err = validate_max_steps(0).expect_err("0 should fail");
-        assert!(err.message.contains("1..=32"));
-    }
-
-    #[test]
-    fn rejects_max_steps_33() {
-        let err = validate_max_steps(33).expect_err("33 should fail");
-        assert!(err.message.contains("1..=32"));
-    }
-
-    #[test]
-    fn accepts_valid_max_steps() {
-        assert!(validate_max_steps(1).is_ok());
-        assert!(validate_max_steps(32).is_ok());
-        assert!(validate_max_steps(16).is_ok());
-    }
-
-    #[test]
     fn validate_sampling_rejects_negative_temperature() {
         let err = validate_sampling(Some(-0.1), None).expect_err("negative temp should fail");
         assert!(err.message.contains("temperature"));
@@ -1890,15 +1862,13 @@ mod tests {
     }
 
     #[test]
-    fn run_tools_build_rejects_invalid_max_steps() {
-        match RunTools::new(ModelRef::new("gpt-4o"))
+    fn run_tools_build_accepts_zero_max_steps_as_unlimited() {
+        let req = RunTools::new(ModelRef::new("gpt-4o"))
             .messages([Message::user_text("hello")])
             .max_steps(0)
             .build()
-        {
-            Err(err) => assert!(err.message.contains("1..=32")),
-            Ok(_) => panic!("should have failed"),
-        }
+            .expect("0 max_steps is allowed and means unlimited");
+        assert_eq!(req.max_steps, Some(0));
     }
 
     #[test]

@@ -20,7 +20,8 @@
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create and build client
-//! let client = LlmClient::openai("api-key")
+//! let client = LlmClient::openai()
+//!     .api_key("api-key")
 //!     .timeout(std::time::Duration::from_secs(60))
 //!     .max_retries(3)
 //!     .build()?;
@@ -54,7 +55,7 @@ use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateTextRequest,
     GenerateTextResponse, Message, RunTools, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
-    Usage, validate_max_steps, validate_messages, validate_model_ref, validate_sampling,
+    Usage, validate_messages, validate_model_ref, validate_sampling,
 };
 
 #[doc(hidden)]
@@ -131,25 +132,37 @@ pub struct LlmClient;
 
 impl LlmClient {
     /// Creates an OpenAI client builder.
-    pub fn openai(api_key: impl Into<String>) -> ClientBuilder<OpenAiAdapterSettings> {
-        ClientBuilder::new(OpenAiAdapterSettings::new(api_key))
+    ///
+    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
+    /// override the endpoint with [`ClientBuilder::base_url`].
+    pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
+        ClientBuilder::new(OpenAiAdapterSettings::new())
     }
 
     /// Creates an Anthropic client builder.
-    pub fn anthropic(api_key: impl Into<String>) -> ClientBuilder<AnthropicAdapterSettings> {
-        ClientBuilder::new(AnthropicAdapterSettings::new(api_key))
+    ///
+    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
+    /// override the endpoint with [`ClientBuilder::base_url`] or the version
+    /// header with [`ClientBuilder::api_version`].
+    pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
+        ClientBuilder::new(AnthropicAdapterSettings::new())
     }
 
     /// Creates a Google client builder.
-    pub fn google(api_key: impl Into<String>) -> ClientBuilder<GoogleAdapterSettings> {
-        ClientBuilder::new(GoogleAdapterSettings::new(api_key))
+    ///
+    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
+    /// override the endpoint with [`ClientBuilder::base_url`].
+    pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
+        ClientBuilder::new(GoogleAdapterSettings::new())
     }
 
     /// Creates an OpenAI-compatible client builder.
-    pub fn openai_compatible(
-        base_url: impl Into<String>,
-    ) -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
-        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new(base_url))
+    ///
+    /// Set the base URL with [`ClientBuilder::base_url`] (required). The bearer
+    /// token is optional and configured with [`ClientBuilder::api_key`] (or
+    /// disabled with [`ClientBuilder::no_api_key`], which is the default).
+    pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
+        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
     }
 }
 
@@ -157,7 +170,7 @@ impl LlmClient {
 pub struct ClientBuilder<S> {
     timeout: Duration,
     max_retries: u8,
-    default_max_steps: u8,
+    default_max_steps: u32,
     user_agent: String,
     settings: S,
 }
@@ -167,7 +180,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
         Self {
             timeout: Duration::from_secs(30),
             max_retries: 3,
-            default_max_steps: 8,
+            default_max_steps: 0,
             user_agent: format!("aquaregia-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
             settings,
         }
@@ -186,7 +199,10 @@ impl<S: BuildProvider> ClientBuilder<S> {
     }
 
     /// Sets the default max step count used by agent tool loops.
-    pub fn default_max_steps(mut self, max_steps: u8) -> Self {
+    ///
+    /// `0` (the default) means unlimited: agents loop until the model returns a
+    /// final answer, a `stop_when` predicate matches, or the run is cancelled.
+    pub fn default_max_steps(mut self, max_steps: u32) -> Self {
         self.default_max_steps = max_steps;
         self
     }
@@ -199,7 +215,6 @@ impl<S: BuildProvider> ClientBuilder<S> {
 
     /// Builds a provider-bound client with validated settings.
     pub fn build(self) -> Result<BoundClient, Error> {
-        validate_max_steps(self.default_max_steps)?;
         self.settings.validate()?;
         let http = Arc::new(
             reqwest::Client::builder()
@@ -218,6 +233,12 @@ impl<S: BuildProvider> ClientBuilder<S> {
 }
 
 impl ClientBuilder<OpenAiAdapterSettings> {
+    /// Sets the OpenAI API key (required).
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.settings.api_key = api_key.into();
+        self
+    }
+
     /// Overrides the OpenAI API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -226,6 +247,12 @@ impl ClientBuilder<OpenAiAdapterSettings> {
 }
 
 impl ClientBuilder<AnthropicAdapterSettings> {
+    /// Sets the Anthropic API key (required).
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.settings.api_key = api_key.into();
+        self
+    }
+
     /// Overrides the Anthropic API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -240,6 +267,12 @@ impl ClientBuilder<AnthropicAdapterSettings> {
 }
 
 impl ClientBuilder<GoogleAdapterSettings> {
+    /// Sets the Google API key (required).
+    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
+        self.settings.api_key = api_key.into();
+        self
+    }
+
     /// Overrides the Google Generative Language API base URL.
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
         self.settings.base_url = base_url.into();
@@ -248,6 +281,12 @@ impl ClientBuilder<GoogleAdapterSettings> {
 }
 
 impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
+    /// Sets the OpenAI-compatible endpoint base URL (required).
+    pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.settings.base_url = base_url.into();
+        self
+    }
+
     /// Sets a bearer token for OpenAI-compatible requests.
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
         self.settings.set_api_key(api_key);
@@ -277,29 +316,12 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
         self.settings.set_chat_completions_path(path);
         self
     }
-
-    /// Enables or disables `<think>/<thinking>` parsing from `content`.
-    ///
-    /// Disabled by default.
-    pub fn think_tag_parsing(mut self, enabled: bool) -> Self {
-        self.settings.set_think_tag_parsing_enabled(enabled);
-        self
-    }
-
-    /// Controls case sensitivity for think tag parsing.
-    ///
-    /// Enabled by default (`true`) and only used when think tag parsing is enabled.
-    pub fn think_tag_case_insensitive(mut self, case_insensitive: bool) -> Self {
-        self.settings
-            .set_think_tag_case_insensitive(case_insensitive);
-        self
-    }
 }
 
 /// Reusable provider-bound client used for `generate`, `stream`, and agent loops.
 pub struct BoundClient {
     max_retries: u8,
-    default_max_steps: u8,
+    default_max_steps: u32,
     adapter: Arc<dyn ModelAdapter>,
 }
 
@@ -349,6 +371,8 @@ impl BoundClient {
             cancellation_token,
         } = req;
 
+        // `0` means unlimited. Otherwise the loop returns MaxStepsExceeded once
+        // it would start a step past the cap.
         let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
 
         let mut messages = messages;
@@ -366,7 +390,18 @@ impl BoundClient {
             });
         }
 
-        for step in 1..=resolved_max_steps {
+        let mut step: u32 = 0;
+        loop {
+            step += 1;
+            if resolved_max_steps != 0 && step > resolved_max_steps {
+                return Err(Error::new(
+                    ErrorCode::MaxStepsExceeded,
+                    format!(
+                        "agent reached max_steps ({}) without final answer",
+                        resolved_max_steps
+                    ),
+                ));
+            }
             if cancellation_token
                 .as_ref()
                 .map(|t| t.is_cancelled())
@@ -527,14 +562,6 @@ impl BoundClient {
 
             messages = next_messages;
         }
-
-        Err(Error::new(
-            ErrorCode::MaxStepsExceeded,
-            format!(
-                "agent reached max_steps ({}) without final answer",
-                resolved_max_steps
-            ),
-        ))
     }
 
     async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, Error>
@@ -623,7 +650,7 @@ struct ExecutedToolCall {
 async fn execute_tool_calls(
     registry: &ToolRegistry,
     calls: &[ToolCall],
-    step: u8,
+    step: u32,
     policy: ToolErrorPolicy,
     concurrency: usize,
     on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
@@ -724,7 +751,8 @@ mod tests {
 
     #[test]
     fn openai_builder_builds() {
-        let client = LlmClient::openai("key")
+        let client = LlmClient::openai()
+            .api_key("key")
             .build()
             .expect("client should build");
         let _ = client;
@@ -732,7 +760,8 @@ mod tests {
 
     #[test]
     fn anthropic_builder_builds() {
-        let client = LlmClient::anthropic("key")
+        let client = LlmClient::anthropic()
+            .api_key("key")
             .build()
             .expect("client should build");
         let _ = client;

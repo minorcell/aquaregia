@@ -9,7 +9,7 @@ use std::process::Command;
 
 const DEFAULT_MODEL: &str = "deepseek-chat";
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const MAX_STEPS: u8 = 12;
+const MAX_STEPS: u32 = 12;
 const MAX_TOOL_OUTPUT_CHARS: usize = 12_000;
 const MAX_READ_LIMIT: u64 = 1_000;
 const SYSTEM_PROMPT: &str = r#"
@@ -42,7 +42,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible(base_url.clone())
+    let client = LlmClient::openai_compatible()
+        .base_url(base_url.clone())
         .api_key(api_key)
         .build()?;
     let agent = Agent::builder(client, model.clone())

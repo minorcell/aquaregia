@@ -31,8 +31,9 @@ async fn agent_run_includes_instructions() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -105,8 +106,9 @@ async fn agent_tool_loop_works() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -167,8 +169,9 @@ async fn agent_prepare_step_can_override_messages() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
@@ -220,12 +223,13 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai("test-openai-key")
+    let client = LlmClient::openai_compatible()
         .base_url(server.uri())
+        .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let start_event = Arc::new(Mutex::new(None::<(String, usize, usize, u8)>));
+    let start_event = Arc::new(Mutex::new(None::<(String, usize, usize, u32)>));
     let start_event_for_hook = Arc::clone(&start_event);
     let agent = Agent::builder(client, "gpt-4.1-mini")
         .max_steps(2)

@@ -19,7 +19,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = LlmClient::openai_compatible("https://api.deepseek.com")
+//!     let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
 //!         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
 //!         .build()?;
 //!

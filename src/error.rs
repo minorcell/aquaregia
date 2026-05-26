@@ -9,7 +9,7 @@
 //! use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai("key").build()?;
+//! let client = LlmClient::openai().api_key("key").build()?;
 //!
 //! match client.generate(GenerateTextRequest::from_user_prompt("gpt-4o", "hello")).await {
 //!     Ok(out) => println!("{}", out.output_text),

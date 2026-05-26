@@ -7,7 +7,7 @@
 //! ## Features
 //!
 //! - Non-streaming and streaming text generation
-//! - Reasoning content extraction (`reasoning_content` or `<think>` tags)
+//! - Reasoning content extraction (`reasoning_content` field)
 //! - Tool/function calling support
 //! - Custom headers and query parameters
 //! - Configurable chat completions path
@@ -27,7 +27,8 @@
 //! use aquaregia::{LlmClient, GenerateTextRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai_compatible("https://api.deepseek.com")
+//! let client = LlmClient::openai_compatible()
+//!     .base_url("https://api.deepseek.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //!
@@ -52,9 +53,6 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::think_tag_parser::{
-    ThinkTagSegment, ThinkTagStreamParser, split_think_tags,
-};
 use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -74,21 +72,17 @@ pub struct OpenAiCompatibleAdapterSettings {
     headers: HashMap<String, String>,
     query_params: HashMap<String, String>,
     chat_completions_path: String,
-    think_tag_parsing_enabled: bool,
-    think_tag_case_insensitive: bool,
 }
 
 impl OpenAiCompatibleAdapterSettings {
     /// Creates settings with default path and no API key.
-    pub fn new(base_url: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
-            base_url: base_url.into(),
+            base_url: String::new(),
             api_key: None,
             headers: HashMap::new(),
             query_params: HashMap::new(),
             chat_completions_path: DEFAULT_PATH.to_string(),
-            think_tag_parsing_enabled: false,
-            think_tag_case_insensitive: true,
         }
     }
 
@@ -122,23 +116,6 @@ impl OpenAiCompatibleAdapterSettings {
         self
     }
 
-    /// Enables or disables `<think>/<thinking>` parsing from `content`.
-    ///
-    /// Disabled by default to avoid changing output for providers that intentionally
-    /// return literal XML-like text.
-    pub fn think_tag_parsing(mut self, enabled: bool) -> Self {
-        self.think_tag_parsing_enabled = enabled;
-        self
-    }
-
-    /// Controls case sensitivity for think tag parsing.
-    ///
-    /// Enabled by default (`true`) to accept `<think>`, `<THINK>`, and mixed-case forms.
-    pub fn think_tag_case_insensitive(mut self, case_insensitive: bool) -> Self {
-        self.think_tag_case_insensitive = case_insensitive;
-        self
-    }
-
     pub(crate) fn set_api_key(&mut self, api_key: impl Into<String>) {
         self.api_key = Some(api_key.into());
     }
@@ -158,13 +135,11 @@ impl OpenAiCompatibleAdapterSettings {
     pub(crate) fn set_chat_completions_path(&mut self, path: impl Into<String>) {
         self.chat_completions_path = path.into();
     }
+}
 
-    pub(crate) fn set_think_tag_parsing_enabled(&mut self, enabled: bool) {
-        self.think_tag_parsing_enabled = enabled;
-    }
-
-    pub(crate) fn set_think_tag_case_insensitive(&mut self, case_insensitive: bool) {
-        self.think_tag_case_insensitive = case_insensitive;
+impl Default for OpenAiCompatibleAdapterSettings {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -175,8 +150,6 @@ pub struct OpenAiCompatibleAdapter {
     headers: HashMap<String, String>,
     query_params: HashMap<String, String>,
     chat_completions_path: String,
-    think_tag_parsing_enabled: bool,
-    think_tag_case_insensitive: bool,
     http: Arc<reqwest::Client>,
 }
 
@@ -192,8 +165,6 @@ impl OpenAiCompatibleAdapter {
             headers: settings.headers,
             query_params: settings.query_params,
             chat_completions_path: settings.chat_completions_path,
-            think_tag_parsing_enabled: settings.think_tag_parsing_enabled,
-            think_tag_case_insensitive: settings.think_tag_case_insensitive,
             http,
         }
     }
@@ -270,49 +241,6 @@ fn merge_endpoint_path(base_path: &str, endpoint_path: &str) -> String {
     format!("/{}", merged_segments.join("/"))
 }
 
-fn map_think_segments_to_stream_events(
-    segments: Vec<ThinkTagSegment>,
-    reasoning_active: &mut bool,
-    reasoning_block_id: &str,
-) -> Vec<StreamEvent> {
-    let mut events = Vec::new();
-    for segment in segments {
-        match segment {
-            ThinkTagSegment::Reasoning(text) => {
-                if text.is_empty() {
-                    continue;
-                }
-                if !*reasoning_active {
-                    events.push(StreamEvent::ReasoningStarted {
-                        block_id: reasoning_block_id.to_string(),
-                        provider_metadata: None,
-                    });
-                    *reasoning_active = true;
-                }
-                events.push(StreamEvent::ReasoningDelta {
-                    block_id: reasoning_block_id.to_string(),
-                    text,
-                    provider_metadata: None,
-                });
-            }
-            ThinkTagSegment::Text(text) => {
-                if text.is_empty() {
-                    continue;
-                }
-                if *reasoning_active {
-                    events.push(StreamEvent::ReasoningDone {
-                        block_id: reasoning_block_id.to_string(),
-                        provider_metadata: None,
-                    });
-                    *reasoning_active = false;
-                }
-                events.push(StreamEvent::TextDelta { text });
-            }
-        }
-    }
-    events
-}
-
 #[async_trait]
 impl ModelAdapter for OpenAiCompatibleAdapter {
     async fn generate_text(
@@ -340,11 +268,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
             .json()
             .await
             .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
-        normalize_openai_response(
-            body,
-            self.think_tag_parsing_enabled,
-            self.think_tag_case_insensitive,
-        )
+        normalize_openai_response(body)
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
@@ -367,8 +291,6 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
         };
         let response = check_response_status(PROVIDER_SLUG, response).await?;
         let mut byte_stream = response.bytes_stream();
-        let think_tag_parsing_enabled = self.think_tag_parsing_enabled;
-        let think_tag_case_insensitive = self.think_tag_case_insensitive;
 
         let stream = try_stream! {
             let mut buffer = String::new();
@@ -376,10 +298,8 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
             let mut done = false;
             let mut saw_payload_frame = false;
             let mut reasoning_active = false;
-            let mut saw_standard_reasoning = false;
-            let mut think_tag_parser = think_tag_parsing_enabled
-                .then(|| ThinkTagStreamParser::new(think_tag_case_insensitive));
-            let reasoning_block_id = "reasoning-0".to_string();
+            let mut reasoning_block_counter: u32 = 0;
+            let mut reasoning_block_id = String::new();
 
             while let Some(chunk) = byte_stream.next().await {
                 if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
@@ -395,17 +315,6 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                     saw_payload_frame = true;
                     let data = frame.data.trim();
                     if data == "[DONE]" {
-                        if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
-                        {
-                            let events = map_think_segments_to_stream_events(
-                                parser.finish(),
-                                &mut reasoning_active,
-                                &reasoning_block_id,
-                            );
-                            for event in events {
-                                yield event;
-                            }
-                        }
                         if reasoning_active {
                             yield StreamEvent::ReasoningDone {
                                 block_id: reasoning_block_id.clone(),
@@ -433,8 +342,8 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         .and_then(Value::as_str)
                     {
                         if !reasoning_delta.is_empty() {
-                            saw_standard_reasoning = true;
                             if !reasoning_active {
+                                reasoning_block_id = format!("reasoning-{reasoning_block_counter}");
                                 yield StreamEvent::ReasoningStarted {
                                     block_id: reasoning_block_id.clone(),
                                     provider_metadata: None,
@@ -449,38 +358,33 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         }
                     }
 
-                    if let Some(text_delta) = value
+                    // Surface text content. The OpenAI Chat Completions delta carries either
+                    // `content` (normal text) or `refusal` (refusal text) on the same channel;
+                    // both reach the caller as text so a refused completion is not silently empty.
+                    let delta_text = value
                         .get("choices")
                         .and_then(Value::as_array)
                         .and_then(|arr| arr.first())
                         .and_then(|choice| choice.get("delta"))
-                        .and_then(|delta| delta.get("content"))
-                        .and_then(Value::as_str)
-                    {
+                        .and_then(|delta| {
+                            delta
+                                .get("content")
+                                .and_then(Value::as_str)
+                                .or_else(|| delta.get("refusal").and_then(Value::as_str))
+                        });
+                    if let Some(text_delta) = delta_text {
                         if !text_delta.is_empty() {
-                            if let Some(parser) =
-                                think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
-                            {
-                                let events = map_think_segments_to_stream_events(
-                                    parser.feed(text_delta),
-                                    &mut reasoning_active,
-                                    &reasoning_block_id,
-                                );
-                                for event in events {
-                                    yield event;
-                                }
-                            } else {
-                                if reasoning_active {
-                                    yield StreamEvent::ReasoningDone {
-                                        block_id: reasoning_block_id.clone(),
-                                        provider_metadata: None,
-                                    };
-                                    reasoning_active = false;
-                                }
-                                yield StreamEvent::TextDelta {
-                                    text: text_delta.to_string(),
+                            if reasoning_active {
+                                yield StreamEvent::ReasoningDone {
+                                    block_id: reasoning_block_id.clone(),
+                                    provider_metadata: None,
                                 };
+                                reasoning_active = false;
+                                reasoning_block_counter += 1;
                             }
+                            yield StreamEvent::TextDelta {
+                                text: text_delta.to_string(),
+                            };
                         }
                     }
 
@@ -492,23 +396,13 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         .and_then(|delta| delta.get("tool_calls"))
                         .and_then(Value::as_array)
                     {
-                        if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning)
-                        {
-                            let events = map_think_segments_to_stream_events(
-                                parser.finish(),
-                                &mut reasoning_active,
-                                &reasoning_block_id,
-                            );
-                            for event in events {
-                                yield event;
-                            }
-                        }
                         if reasoning_active {
                             yield StreamEvent::ReasoningDone {
                                 block_id: reasoning_block_id.clone(),
                                 provider_metadata: None,
                             };
                             reasoning_active = false;
+                            reasoning_block_counter += 1;
                         }
                         for call in tool_calls {
                             if let Some(index) = call.get("index").and_then(Value::as_u64) {
@@ -547,7 +441,12 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         .and_then(|choice| choice.get("finish_reason"))
                         .and_then(Value::as_str)
                     {
-                        if finish_reason == "tool_calls" && !tool_partial.is_empty() {
+                        // `function_call` is the deprecated finish reason for the legacy
+                        // function-calling API; treat it the same as `tool_calls` so the assembled
+                        // calls are not lost when a compatibility endpoint still emits the old name.
+                        if matches!(finish_reason, "tool_calls" | "function_call")
+                            && !tool_partial.is_empty()
+                        {
                             for partial in tool_partial.values() {
                                 if let Some(call) = partial.to_tool_call()? {
                                     yield StreamEvent::ToolCallReady { call };
@@ -560,17 +459,6 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
 
                 if done {
                     break;
-                }
-            }
-
-            if let Some(parser) = think_tag_parser.as_mut().filter(|_| !saw_standard_reasoning) {
-                let events = map_think_segments_to_stream_events(
-                    parser.finish(),
-                    &mut reasoning_active,
-                    &reasoning_block_id,
-                );
-                for event in events {
-                    yield event;
                 }
             }
 
@@ -718,12 +606,20 @@ fn to_openai_message(message: &Message) -> Value {
                     }
                 })
                 .collect();
+            let text_content = text_content_from_parts(&message.parts);
+            let has_text = matches!(&text_content, Value::String(s) if !s.is_empty());
             let mut payload = Map::new();
             payload.insert("role".to_string(), Value::String("assistant".to_string()));
-            payload.insert(
-                "content".to_string(),
-                text_content_from_parts(&message.parts),
-            );
+            // Per the canonical OpenAI Chat Completions contract, when a message carries
+            // tool_calls the content field should be null (or omitted) rather than an
+            // empty string. Some compatibility endpoints reject `""` here.
+            if has_text {
+                payload.insert("content".to_string(), text_content);
+            } else if tool_calls.is_empty() {
+                payload.insert("content".to_string(), Value::String(String::new()));
+            } else {
+                payload.insert("content".to_string(), Value::Null);
+            }
             if !reasoning_content.is_empty() {
                 payload.insert(
                     "reasoning_content".to_string(),
@@ -748,7 +644,7 @@ fn to_openai_message(message: &Message) -> Value {
                 json!({
                     "role": "tool",
                     "tool_call_id": result.call_id,
-                    "content": result.output_json.to_string(),
+                    "content": tool_result_content_string(&result.output_json),
                 })
             } else {
                 json!({
@@ -757,6 +653,19 @@ fn to_openai_message(message: &Message) -> Value {
                 })
             }
         }
+    }
+}
+
+/// Renders a tool-result payload as a plain string.
+///
+/// OpenAI Chat Completions expects `tool` messages to carry a string `content`. When the
+/// caller already supplied a string `Value::String`, returning `value.to_string()` would
+/// JSON-encode it (adding surrounding quotes) and the model would receive the wrong text.
+/// Use the inner string directly for that case and JSON-encode anything structured.
+fn tool_result_content_string(value: &Value) -> String {
+    match value {
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
     }
 }
 
@@ -821,11 +730,7 @@ fn openai_image_content_part(image: &ImagePart) -> Value {
     json!({ "type": "image_url", "image_url": { "url": url } })
 }
 
-fn normalize_openai_response(
-    body: Value,
-    think_tag_parsing_enabled: bool,
-    think_tag_case_insensitive: bool,
-) -> Result<GenerateTextResponse, Error> {
+fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
     let Some(choice) = body
         .get("choices")
         .and_then(Value::as_array)
@@ -841,9 +746,12 @@ fn normalize_openai_response(
         .get("message")
         .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing message"))?;
 
+    // Either `content` (normal text) or `refusal` (canonical OpenAI refusal channel) is
+    // surfaced as the response text; the raw payload is preserved on `raw_provider_response`.
     let raw_output_text = message
         .get("content")
         .and_then(Value::as_str)
+        .or_else(|| message.get("refusal").and_then(Value::as_str))
         .unwrap_or_default()
         .to_string();
     let raw_reasoning_text = message
@@ -852,13 +760,7 @@ fn normalize_openai_response(
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string();
-    let (output_text, reasoning_text) =
-        if raw_reasoning_text.is_empty() && think_tag_parsing_enabled {
-            let split = split_think_tags(&raw_output_text, think_tag_case_insensitive);
-            (split.text, split.reasoning)
-        } else {
-            (raw_output_text, raw_reasoning_text)
-        };
+    let (output_text, reasoning_text) = (raw_output_text, raw_reasoning_text);
     let reasoning_parts = if reasoning_text.is_empty() {
         Vec::new()
     } else {
@@ -976,7 +878,8 @@ fn map_openai_finish_reason(reason: &str) -> FinishReason {
     match reason {
         "stop" => FinishReason::Stop,
         "length" => FinishReason::Length,
-        "tool_calls" => FinishReason::ToolCalls,
+        // `function_call` is the deprecated predecessor of `tool_calls`; preserve operational meaning.
+        "tool_calls" | "function_call" => FinishReason::ToolCalls,
         "content_filter" => FinishReason::ContentFilter,
         _ => FinishReason::Unknown(reason.to_string()),
     }
@@ -989,10 +892,9 @@ mod tests {
     use super::{OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings};
 
     fn adapter_with_base(base_url: &str) -> OpenAiCompatibleAdapter {
-        OpenAiCompatibleAdapter::from_settings(
-            OpenAiCompatibleAdapterSettings::new(base_url),
-            Arc::new(reqwest::Client::new()),
-        )
+        let mut settings = OpenAiCompatibleAdapterSettings::new();
+        settings.base_url = base_url.to_string();
+        OpenAiCompatibleAdapter::from_settings(settings, Arc::new(reqwest::Client::new()))
     }
 
     #[test]
