@@ -1,7 +1,7 @@
 use aquaregia::{GenerateTextRequest, LlmClient};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 
 /// 场景：接入 OpenAI-Compatible 服务，并配置自定义 headers/query/path。
 ///

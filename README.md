@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "Explain Rust ownership in 3 bullet points.",
         ))
         .await?;
@@ -64,10 +64,10 @@ Pick a constructor to get a `BoundClient` for that provider.
 
 | Provider          | Constructor                                              | Model argument        |
 | ----------------- | -------------------------------------------------------- | --------------------- |
-| OpenAI            | `LlmClient::openai().api_key(api_key)`                             | `"gpt-4o"`            |
-| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                          | `"claude-sonnet-4-5"` |
-| Google            | `LlmClient::google().api_key(api_key)`                             | `"gemini-2.0-flash"`  |
-| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)`    | `"deepseek-chat"`     |
+| OpenAI            | `LlmClient::openai().api_key(api_key)`                             | `"gpt-5.5"`            |
+| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                          | `"claude-sonnet-4-6"` |
+| Google            | `LlmClient::google().api_key(api_key)`                             | `"gemini-3.5-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)`    | `"deepseek-v4-pro"`     |
 
 ### Client configuration
 
@@ -88,7 +88,7 @@ let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?)
 `GenerateTextRequest::from_user_prompt` and `.builder()` accept any `impl Into<ModelRef>` — a bare `&str` is the most common form:
 
 ```rust
-let req = GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!");
+let req = GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!");
 ```
 
 ### OpenAI-compatible deep configuration
@@ -122,7 +122,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
 ```rust
 let response = client
     .generate(GenerateTextRequest::from_user_prompt(
-        "deepseek-chat",
+        "deepseek-v4-pro",
         "Summarize Rust's borrow checker for a Go developer.",
     ))
     .await?;
@@ -136,7 +136,7 @@ Full builder when you need messages, sampling, or tools:
 ```rust
 use aquaregia::{GenerateTextRequest, Message};
 
-let req = GenerateTextRequest::builder("deepseek-chat")
+let req = GenerateTextRequest::builder("deepseek-v4-pro")
     .message(Message::system_text("You are concise."))
     .message(Message::user_text("Write a release note."))
     .temperature(0.2)
@@ -241,7 +241,7 @@ struct WeatherResult {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?).build()?;
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("What is the weather in Tokyo?"))
         .temperature(0.2)
         .build()?;
@@ -311,7 +311,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .build()?;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .instructions("You can call tools before answering.")
     .tools([get_weather])
     .max_steps(4)
@@ -327,7 +327,7 @@ println!("steps={} total={}", response.steps, response.usage_total.total_tokens)
 The agent loop emits an event at every meaningful boundary. All hooks are `Fn + Send + Sync`, so you can attach them as closures.
 
 ```rust
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .tools([get_weather])
     .on_start(|e|            println!("[start] tools={} max_steps={}", e.tool_count, e.max_steps))
     .on_step_start(|e|       println!("[step:{}] msgs={}", e.step, e.messages.len()))
@@ -345,7 +345,7 @@ let agent = Agent::builder(client, "deepseek-chat")
 ```rust
 use aquaregia::Message;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .tools([get_weather, get_fx_rate])
     .prepare_step(|event| {
         let mut next = event.to_prepared();
@@ -365,7 +365,7 @@ let agent = Agent::builder(client, "deepseek-chat")
 ```rust
 use aquaregia::ToolErrorPolicy;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .max_steps(8)                                                                 // hard cap
     .stop_when(|step| step.tool_calls.is_empty() && !step.output_text.is_empty()) // predicate
     .tool_error_policy(ToolErrorPolicy::ContinueAsToolResult)                     // default
@@ -411,7 +411,7 @@ let client = LlmClient::anthropic().api_key(std::env::var("ANTHROPIC_API_KEY")?)
 
 let out = client
     .generate(
-        GenerateTextRequest::builder("claude-sonnet-4-5")
+        GenerateTextRequest::builder("claude-sonnet-4-6")
             .message(Message::new(
                 MessageRole::User,
                 vec![
@@ -464,7 +464,7 @@ tokio::spawn(async move {
     bg.cancel();
 });
 
-let req = GenerateTextRequest::builder("deepseek-chat")
+let req = GenerateTextRequest::builder("deepseek-v4-pro")
     .user_prompt("Write a 10,000-word essay.")
     .cancellation_token(token)
     .build()?;
@@ -478,7 +478,7 @@ match client.generate(req).await {
 Agents bind the token at builder time:
 
 ```rust
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .cancellation_token(token.clone())
     .build()?;
 
@@ -551,7 +551,7 @@ fn to_axum_sse(
 
 async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
     let stream = client
-        .stream(GenerateTextRequest::from_user_prompt("deepseek-chat", "Hello."))
+        .stream(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "Hello."))
         .await
         .unwrap();
     to_axum_sse(stream)

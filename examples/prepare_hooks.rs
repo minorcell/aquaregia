@@ -2,7 +2,7 @@ use aquaregia::{Agent, ContentPart, LlmClient, Message, MessageRole, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 
 /// 场景：动态控制一次调用与每一步执行（AI SDK 风格）。
 ///

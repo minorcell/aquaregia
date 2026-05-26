@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "用 3 个要点解释 Rust 所有权。",
         ))
         .await?;
@@ -64,10 +64,10 @@ cargo add aquaregia
 
 | Provider          | 构造器                                                | 模型参数              |
 | ----------------- | ----------------------------------------------------- | --------------------- |
-| OpenAI            | `LlmClient::openai().api_key(api_key)`                          | `"gpt-4o"`            |
-| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                       | `"claude-sonnet-4-5"` |
-| Google            | `LlmClient::google().api_key(api_key)`                          | `"gemini-2.0-flash"`  |
-| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)` | `"deepseek-chat"`     |
+| OpenAI            | `LlmClient::openai().api_key(api_key)`                          | `"gpt-5.5"`            |
+| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                       | `"claude-sonnet-4-6"` |
+| Google            | `LlmClient::google().api_key(api_key)`                          | `"gemini-3.5-flash"`  |
+| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)` | `"deepseek-v4-pro"`     |
 
 ### 客户端配置
 
@@ -88,7 +88,7 @@ let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?)
 `GenerateTextRequest::from_user_prompt` 和 `.builder()` 接受任何 `impl Into<ModelRef>` —— 最常用的是裸 `&str`：
 
 ```rust
-let req = GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!");
+let req = GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!");
 ```
 
 ### OpenAI-compatible 深度配置
@@ -122,7 +122,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
 ```rust
 let response = client
     .generate(GenerateTextRequest::from_user_prompt(
-        "deepseek-chat",
+        "deepseek-v4-pro",
         "用 Go 开发者能听懂的话总结 Rust 借用检查器。",
     ))
     .await?;
@@ -136,7 +136,7 @@ println!("finish: {:?}", response.finish_reason);
 ```rust
 use aquaregia::{GenerateTextRequest, Message};
 
-let req = GenerateTextRequest::builder("deepseek-chat")
+let req = GenerateTextRequest::builder("deepseek-v4-pro")
     .message(Message::system_text("You are concise."))
     .message(Message::user_text("Write a release note."))
     .temperature(0.2)
@@ -240,7 +240,7 @@ struct WeatherResult {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?).build()?;
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("东京天气怎么样？"))
         .temperature(0.2)
         .build()?;
@@ -310,7 +310,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .build()?;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .instructions("回答前可以先调用工具。")
     .tools([get_weather])
     .max_steps(4)
@@ -326,7 +326,7 @@ println!("steps={} total={}", response.steps, response.usage_total.total_tokens)
 Agent 循环在每个关键边界都会触发事件。所有钩子都是 `Fn + Send + Sync`，可以直接传闭包。
 
 ```rust
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .tools([get_weather])
     .on_start(|e|            println!("[start] tools={} max_steps={}", e.tool_count, e.max_steps))
     .on_step_start(|e|       println!("[step:{}] msgs={}", e.step, e.messages.len()))
@@ -344,7 +344,7 @@ let agent = Agent::builder(client, "deepseek-chat")
 ```rust
 use aquaregia::Message;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .tools([get_weather, get_fx_rate])
     .prepare_step(|event| {
         let mut next = event.to_prepared();
@@ -364,7 +364,7 @@ let agent = Agent::builder(client, "deepseek-chat")
 ```rust
 use aquaregia::ToolErrorPolicy;
 
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .max_steps(8)                                                                 // 硬上限
     .stop_when(|step| step.tool_calls.is_empty() && !step.output_text.is_empty()) // 提前停止谓词
     .tool_error_policy(ToolErrorPolicy::ContinueAsToolResult)                     // 默认
@@ -410,7 +410,7 @@ let client = LlmClient::anthropic().api_key(std::env::var("ANTHROPIC_API_KEY")?)
 
 let out = client
     .generate(
-        GenerateTextRequest::builder("claude-sonnet-4-5")
+        GenerateTextRequest::builder("claude-sonnet-4-6")
             .message(Message::new(
                 MessageRole::User,
                 vec![
@@ -463,7 +463,7 @@ tokio::spawn(async move {
     bg.cancel();
 });
 
-let req = GenerateTextRequest::builder("deepseek-chat")
+let req = GenerateTextRequest::builder("deepseek-v4-pro")
     .user_prompt("写一篇一万字的文章。")
     .cancellation_token(token)
     .build()?;
@@ -477,7 +477,7 @@ match client.generate(req).await {
 Agent 在 builder 上绑定取消令牌：
 
 ```rust
-let agent = Agent::builder(client, "deepseek-chat")
+let agent = Agent::builder(client, "deepseek-v4-pro")
     .cancellation_token(token.clone())
     .build()?;
 
@@ -550,7 +550,7 @@ fn to_axum_sse(
 
 async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
     let stream = client
-        .stream(GenerateTextRequest::from_user_prompt("deepseek-chat", "你好。"))
+        .stream(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "你好。"))
         .await
         .unwrap();
     to_axum_sse(stream)

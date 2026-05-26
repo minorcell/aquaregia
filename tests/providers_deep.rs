@@ -17,7 +17,7 @@ async fn google_stream_emits_text_usage_done() {
     let sse_body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Hello\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":3,\"candidatesTokenCount\":2,\"thoughtsTokenCount\":1,\"totalTokenCount\":6}}\n\n";
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:streamGenerateContent"))
+        .and(path("/models/gemini-3.5-flash:streamGenerateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(
             ResponseTemplate::new(200)
@@ -34,7 +34,7 @@ async fn google_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "hello");
+    let req = GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -71,7 +71,7 @@ async fn google_stream_with_reasoning() {
     let sse_body = "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"I think...\",\"thought\":true},{\"text\":\"Answer\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"promptTokenCount\":5,\"candidatesTokenCount\":3,\"totalTokenCount\":8}}\n\n";
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:streamGenerateContent"))
+        .and(path("/models/gemini-3.5-flash:streamGenerateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(
             ResponseTemplate::new(200)
@@ -88,7 +88,7 @@ async fn google_stream_with_reasoning() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "hello");
+    let req = GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -143,7 +143,7 @@ async fn google_generate_with_reasoning() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
@@ -158,7 +158,7 @@ async fn google_generate_with_reasoning() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "hello",
         ))
         .await
@@ -198,7 +198,7 @@ async fn google_generate_with_tool_calls() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
@@ -213,7 +213,7 @@ async fn google_generate_with_tool_calls() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "weather?",
         ))
         .await
@@ -251,7 +251,7 @@ async fn google_generate_with_thought_signature() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -265,7 +265,7 @@ async fn google_generate_with_thought_signature() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "think",
         ))
         .await
@@ -287,7 +287,7 @@ async fn google_generate_with_thought_signature() {
 async fn google_503_maps_to_provider_server_error() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(503).set_body_string("service unavailable"))
         .expect(1)
         .mount(&server)
@@ -302,7 +302,7 @@ async fn google_503_maps_to_provider_server_error() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "hello",
         ))
         .await
@@ -318,7 +318,7 @@ async fn google_invalid_response_missing_candidates() {
 
     let body = json!({"not_candidates": []});
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -333,7 +333,7 @@ async fn google_invalid_response_missing_candidates() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "hello",
         ))
         .await
@@ -439,7 +439,7 @@ async fn openai_stream_with_reasoning_delta() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-4o-mini")
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -500,7 +500,7 @@ async fn openai_stream_with_tool_calls_and_finish() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-4o-mini")
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("weather?"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -569,7 +569,7 @@ async fn openai_generate_with_reasoning() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-4o-mini",
+            "gpt-5.4-mini",
             "hello",
         ))
         .await
@@ -617,7 +617,7 @@ async fn openai_generate_with_tool_calls() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-4o-mini",
+            "gpt-5.4-mini",
             "weather?",
         ))
         .await
@@ -819,7 +819,7 @@ async fn openai_403_maps_to_auth_failed() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-4o-mini",
+            "gpt-5.4-mini",
             "hello",
         ))
         .await
@@ -851,7 +851,7 @@ async fn openai_invalid_response_missing_output() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-4o-mini",
+            "gpt-5.4-mini",
             "hello",
         ))
         .await
@@ -891,7 +891,7 @@ async fn openai_stream_refusal_surfaces_as_text_delta() {
         .expect("client should build");
 
     let mut stream = client
-        .stream(GenerateTextRequest::from_user_prompt("gpt-4o-mini", "hi"))
+        .stream(GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hi"))
         .await
         .expect("stream_text should succeed");
 
@@ -947,7 +947,7 @@ async fn openai_generate_extracts_reasoning_summary_from_output_array() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-4o-mini",
+            "gpt-5.4-mini",
             "hello",
         ))
         .await
@@ -987,7 +987,7 @@ async fn openai_stream_error_event_propagates_as_invalid_response() {
         .expect("client should build");
 
     let mut stream = client
-        .stream(GenerateTextRequest::from_user_prompt("gpt-4o-mini", "hi"))
+        .stream(GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hi"))
         .await
         .expect("stream_text should succeed");
 
@@ -1153,7 +1153,7 @@ async fn google_response_block_reason_surfaces_in_error() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -1168,7 +1168,7 @@ async fn google_response_block_reason_surfaces_in_error() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "hello",
         ))
         .await
@@ -1201,7 +1201,7 @@ async fn google_uses_upstream_function_call_id_when_present() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
@@ -1215,7 +1215,7 @@ async fn google_uses_upstream_function_call_id_when_present() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "weather?",
         ))
         .await
@@ -1241,7 +1241,7 @@ async fn anthropic_generate_object_extracts_tool_call_args() {
         "id": "msg_001",
         "type": "message",
         "role": "assistant",
-        "model": "claude-sonnet-4-5",
+        "model": "claude-sonnet-4-6",
         "content": [{
             "type": "tool_use",
             "id": "toolu_001",
@@ -1259,7 +1259,7 @@ async fn anthropic_generate_object_extracts_tool_call_args() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-5")
+    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
@@ -1287,7 +1287,7 @@ async fn anthropic_generate_object_injects_respond_tool() {
         "id": "msg_001",
         "type": "message",
         "role": "assistant",
-        "model": "claude-sonnet-4-5",
+        "model": "claude-sonnet-4-6",
         "content": [{
             "type": "tool_use",
             "id": "toolu_001",
@@ -1304,7 +1304,7 @@ async fn anthropic_generate_object_injects_respond_tool() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-5")
+    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
         .message(Message::user_text("weather in LA"))
         .build()
         .expect("request should build");
@@ -1366,14 +1366,14 @@ async fn google_generate_object_extracts_function_call_args() {
         }
     });
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .and(header("x-goog-api-key", "test-key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gemini-2.0-flash")
+    let req = GenerateTextRequest::builder("gemini-3.5-flash")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
@@ -1416,13 +1416,13 @@ async fn google_generate_object_injects_respond_function() {
         }
     });
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gemini-2.0-flash")
+    let req = GenerateTextRequest::builder("gemini-3.5-flash")
         .message(Message::user_text("weather in LA"))
         .build()
         .expect("request should build");

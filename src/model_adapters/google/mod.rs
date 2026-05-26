@@ -20,7 +20,7 @@
 //! let client = LlmClient::google().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gemini-2.0-flash", "Hello!"))
+//!     .generate(GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);

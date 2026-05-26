@@ -28,7 +28,7 @@
 //!
 //! let client = LlmClient::openai().api_key("api-key").build()?;
 //!
-//! let agent = Agent::builder(client, "gpt-4o")
+//! let agent = Agent::builder(client, "gpt-5.5")
 //!     .instructions("You can call tools before answering.")
 //!     .tools([get_weather])
 //!     .max_steps(4)
@@ -440,12 +440,12 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let agent = Agent::builder(client, "gpt-4o-mini")
+        let agent = Agent::builder(client, "gpt-5.4-mini")
             .max_steps(3)
             .build()
             .expect("agent should build");
 
-        assert_eq!(agent.model_id(), "gpt-4o-mini");
+        assert_eq!(agent.model_id(), "gpt-5.4-mini");
     }
 
     #[test]
@@ -455,7 +455,7 @@ mod tests {
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let err = match Agent::builder(client, "gpt-4o-mini").top_p(1.5).build() {
+        let err = match Agent::builder(client, "gpt-5.4-mini").top_p(1.5).build() {
             Ok(_) => panic!("agent build should fail"),
             Err(err) => err,
         };

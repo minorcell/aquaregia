@@ -9,7 +9,7 @@ use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn openai_request() -> GenerateTextRequest {
-    GenerateTextRequest::builder("gpt-4o-mini")
+    GenerateTextRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(64)
@@ -112,7 +112,7 @@ async fn openai_responses_api_request_shape() {
         input_schema: json!({ "type": "object", "properties": {} }),
     };
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::system_text("be helpful"))
         .message(Message::user_text("hello"))
         .tools([tool])
@@ -186,7 +186,7 @@ async fn openai_responses_api_request_shape_with_output_schema() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
@@ -238,7 +238,7 @@ async fn generate_object_deserializes_response() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
@@ -281,7 +281,7 @@ async fn generate_object_rejects_invalid_json() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("test"))
         .build()
         .expect("request should build");
@@ -325,7 +325,7 @@ async fn generate_object_via_builder_output_schema() {
 
     let schema = schemars::schema_for!(WeatherResult);
     let json_schema = serde_json::to_value(&schema).expect("serialize schema");
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in LA"))
         .output_schema(OutputSchema {
             name: "weather".into(),
@@ -368,7 +368,7 @@ async fn openai_compatible_generate_object_request_shape() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("deepseek-chat")
+    let req = GenerateTextRequest::builder("deepseek-v4-pro")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
@@ -429,7 +429,7 @@ async fn stream_object_emits_progressive_partials_and_final_object() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-4o")
+    let req = GenerateTextRequest::builder("gpt-5.5")
         .message(Message::user_text("weather"))
         .build()
         .expect("request should build");

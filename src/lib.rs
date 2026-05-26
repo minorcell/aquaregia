@@ -28,7 +28,7 @@
 //!
 //!     let out = client
 //!         .generate(GenerateTextRequest::from_user_prompt(
-//!             "deepseek-chat",
+//!             "deepseek-v4-pro",
 //!             "Explain Rust ownership in 3 bullet points.",
 //!         ))
 //!         .await?;

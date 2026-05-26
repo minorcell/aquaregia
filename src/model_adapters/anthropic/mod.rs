@@ -20,7 +20,7 @@
 //! let client = LlmClient::anthropic().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-5", "Hello!"))
+//!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-6", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);

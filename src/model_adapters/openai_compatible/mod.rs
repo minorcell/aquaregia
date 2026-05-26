@@ -33,7 +33,7 @@
 //!     .build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("deepseek-chat", "Hello!"))
+//!     .generate(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);

@@ -11,7 +11,7 @@
 //! let client = LlmClient::openai().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gpt-4o", "Hello!"))
+//!     .generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);

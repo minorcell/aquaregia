@@ -37,7 +37,7 @@ async fn agent_run_includes_instructions() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-4o-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .instructions("You are concise.")
         .build()
         .expect("agent should build");
@@ -129,7 +129,7 @@ async fn agent_tool_loop_works() {
             Ok(json!({ "city": city, "temp_c": 23 }))
         });
 
-    let agent = Agent::builder(client, "gpt-4o-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .tools([weather])
         .max_steps(3)
         .build()
@@ -175,7 +175,7 @@ async fn agent_prepare_step_can_override_messages() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-4o-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .max_steps(1)
         .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),
@@ -231,7 +231,7 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
 
     let start_event = Arc::new(Mutex::new(None::<(String, usize, usize, u32)>));
     let start_event_for_hook = Arc::clone(&start_event);
-    let agent = Agent::builder(client, "gpt-4.1-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .max_steps(2)
         .top_p(0.7)
         .prepare_step(|event| AgentPreparedStep {
@@ -272,7 +272,7 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
 
     assert_eq!(response.output_text, "prepared-plan-ok");
     assert_eq!(response.steps, 1);
-    assert_eq!(request_body["model"], "gpt-4.1-mini");
+    assert_eq!(request_body["model"], "gpt-5.4-mini");
     assert!(
         (request_body["top_p"]
             .as_f64()
@@ -295,6 +295,6 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
             .lock()
             .expect("start_event mutex should not be poisoned")
             .clone(),
-        Some(("gpt-4.1-mini".to_string(), 1, 0, 2))
+        Some(("gpt-5.4-mini".to_string(), 1, 0, 2))
     );
 }

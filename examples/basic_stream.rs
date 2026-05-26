@@ -2,7 +2,7 @@ use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
 use futures_util::StreamExt;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 
 /// 场景：流式输出，适合 CLI/Chat UI 一边生成一边展示。
 ///

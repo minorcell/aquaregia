@@ -9,7 +9,7 @@
 - `DEEPSEEK_API_KEY`（大多数示例必需）
 - `ANTHROPIC_API_KEY`（`multimodal_image` 示例必需）
 - `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com`）
-- `DEEPSEEK_MODEL`（可选，默认 `deepseek-chat`）
+- `DEEPSEEK_MODEL`（可选，默认 `deepseek-v4-pro`）
 
 ## 示例清单
 
