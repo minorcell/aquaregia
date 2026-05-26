@@ -254,15 +254,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### How it works per provider
-
-| Provider   | Mechanism                                                                 |
-| ---------- | ------------------------------------------------------------------------- |
-| OpenAI     | Responses API `text.format.json_schema` (native)                           |
-| Compatible | Chat Completions `response_format.json_schema` (native)                    |
-| Anthropic  | Tool-use trick: injects a forced `respond` tool, extracts its arguments   |
-| Google     | Function-calling trick: injects a forced `respond` function, extracts args |
-
 All providers produce the same typed output — the extraction strategy is transparent to the caller.
 
 ---

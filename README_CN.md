@@ -253,15 +253,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-### 各 Provider 实现方式
-
-| Provider   | 机制                                                               |
-| ---------- | ------------------------------------------------------------------ |
-| OpenAI     | Responses API `text.format.json_schema`（原生）                    |
-| Compatible | Chat Completions `response_format.json_schema`（原生）             |
-| Anthropic  | Tool-use 回退：注入一个强制的 `respond` 工具，提取其参数作为输出   |
-| Google     | Function-calling 回退：注入一个强制的 `respond` 函数，提取其参数   |
-
 所有 provider 产出相同的类型化输出——提取策略对调用方完全透明。
 
 ---
