@@ -350,6 +350,46 @@ impl BoundClient {
             .await
     }
 
+    fn parse_final_buffer<T: serde::de::DeserializeOwned>(
+        buffer: &str,
+    ) -> Result<T, Error> {
+        let repaired = repair_json(buffer);
+        serde_json::from_str::<T>(&repaired).map_err(|e| {
+            let mut err = Error::new(
+                ErrorCode::InvalidResponse,
+                format!(
+                    "failed to parse streamed object as {}: {}",
+                    std::any::type_name::<T>(),
+                    e
+                ),
+            );
+            err.raw_body = Some(buffer.to_string());
+            err
+        })
+    }
+
+    fn inject_output_schema<T: schemars::JsonSchema>(
+        req: &mut GenerateTextRequest,
+    ) -> Result<(), Error> {
+        let schema = schemars::schema_for!(T);
+        let json_schema = serde_json::to_value(&schema)
+            .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
+        let raw = std::any::type_name::<T>();
+        // Strip generic suffixes (`Vec<Foo>` → `Foo`) and path segments.
+        let name = raw
+            .split("::")
+            .last()
+            .unwrap_or("output")
+            .trim_end_matches(|c: char| !c.is_alphanumeric())
+            .to_string();
+        req.output_schema = Some(OutputSchema {
+            name,
+            description: None,
+            json_schema,
+        });
+        Ok(())
+    }
+
     /// Performs a non-streaming generation that returns deserialized structured output.
     ///
     /// The JSON Schema is derived automatically from `T` via [`schemars::JsonSchema`].
@@ -363,18 +403,7 @@ impl BoundClient {
         &self,
         mut req: GenerateTextRequest,
     ) -> Result<GenerateObjectResponse<T>, Error> {
-        let schema = schemars::schema_for!(T);
-        let json_schema = serde_json::to_value(&schema)
-            .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
-        req.output_schema = Some(OutputSchema {
-            name: std::any::type_name::<T>()
-                .split("::")
-                .last()
-                .unwrap_or("output")
-                .to_string(),
-            description: None,
-            json_schema,
-        });
+        Self::inject_output_schema::<T>(&mut req)?;
         let response = self.generate(req).await?;
         let object: T = match serde_json::from_str(&response.output_text) {
             Ok(obj) => obj,
@@ -415,29 +444,21 @@ impl BoundClient {
         &self,
         mut req: GenerateTextRequest,
     ) -> Result<ObjectStream<T>, Error> {
-        let schema = schemars::schema_for!(T);
-        let json_schema = serde_json::to_value(&schema)
-            .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
-        req.output_schema = Some(OutputSchema {
-            name: std::any::type_name::<T>()
-                .split("::")
-                .last()
-                .unwrap_or("output")
-                .to_string(),
-            description: None,
-            json_schema,
-        });
+        Self::inject_output_schema::<T>(&mut req)?;
 
         let mut stream = self.stream(req).await?;
         let mut buffer = String::new();
         let mut last_emitted_len = 0usize;
 
         let object_stream = async_stream::try_stream! {
+            let mut saw_done = false;
             while let Some(event) = futures_util::StreamExt::next(&mut stream).await {
                 match event? {
                     StreamEvent::TextDelta { text } => {
                         buffer.push_str(&text);
-                        // Only attempt partial parse when we have meaningful new content.
+                        // Only attempt partial parse when we have meaningful new
+                        // content.  A few leading bytes (e.g. `{"city":`) can't
+                        // produce a useful partial before the value arrives.
                         if buffer.len() - last_emitted_len < 8 {
                             continue;
                         }
@@ -448,27 +469,25 @@ impl BoundClient {
                         }
                     }
                     StreamEvent::Done => {
-                        // Final parse.
-                        let repaired = repair_json(&buffer);
-                        let object: T = serde_json::from_str(&repaired).map_err(|e| {
-                            let mut err = Error::new(
-                                ErrorCode::InvalidResponse,
-                                format!("failed to parse streamed object as {}: {}",
-                                    std::any::type_name::<T>(), e),
-                            );
-                            err.raw_body = Some(buffer.clone());
-                            err
-                        })?;
-                        yield StreamObjectEvent::Object { object };
+                        yield StreamObjectEvent::Object {
+                            object: Self::parse_final_buffer::<T>(&buffer)?,
+                        };
+                        saw_done = true;
                         break;
                     }
-                    StreamEvent::Usage { usage: _ } | StreamEvent::ReasoningStarted { .. }
-                    | StreamEvent::ReasoningDelta { .. } | StreamEvent::ReasoningDone { .. }
-                    | StreamEvent::ToolCallReady { .. } => {
-                        // Pass-through non-text events for consumers that want them.
-                        // (We don't yield Partial on these, but don't block the stream either.)
-                    }
+                    StreamEvent::Usage { .. }
+                    | StreamEvent::ReasoningStarted { .. }
+                    | StreamEvent::ReasoningDelta { .. }
+                    | StreamEvent::ReasoningDone { .. }
+                    | StreamEvent::ToolCallReady { .. } => {}
                 }
+            }
+
+            // Stream ended without Done — flush whatever remains.
+            if !saw_done && !buffer.is_empty() {
+                yield StreamObjectEvent::Object {
+                    object: Self::parse_final_buffer::<T>(&buffer)?,
+                };
             }
         };
 
