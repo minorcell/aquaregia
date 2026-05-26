@@ -376,7 +376,7 @@ async fn anthropic_stream_with_thinking() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("claude-3-5-haiku-latest")
+    let req = GenerateTextRequest::builder("claude-haiku-4-5")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -674,7 +674,7 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "weather?",
         ))
         .await
@@ -726,7 +726,7 @@ async fn anthropic_generate_with_redacted_thinking() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "hello",
         ))
         .await
@@ -760,7 +760,7 @@ async fn anthropic_invalid_response_missing_content() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "hello",
         ))
         .await
@@ -789,7 +789,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
 
     let err = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "hello",
         ))
         .await

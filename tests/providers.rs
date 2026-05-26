@@ -252,7 +252,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "hello",
         ))
         .await
