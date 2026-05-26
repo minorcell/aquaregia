@@ -168,17 +168,19 @@ pub(crate) fn repair_json(input: &str) -> String {
                 tent.pop();
             }
             // Close unmatched braces.
-            let to: (usize, usize) = tent
-                .chars()
-                .fold((0, 0), |(b, s), c| match c {
-                    '{' => (b + 1, s),
-                    '[' => (b, s + 1),
-                    '}' => (b.saturating_sub(1), s),
-                    ']' => (b, s.saturating_sub(1)),
-                    _ => (b, s),
-                });
-            for _ in 0..to.0 { tent.push('}'); }
-            for _ in 0..to.1 { tent.push(']'); }
+            let to: (usize, usize) = tent.chars().fold((0, 0), |(b, s), c| match c {
+                '{' => (b + 1, s),
+                '[' => (b, s + 1),
+                '}' => (b.saturating_sub(1), s),
+                ']' => (b, s.saturating_sub(1)),
+                _ => (b, s),
+            });
+            for _ in 0..to.0 {
+                tent.push('}');
+            }
+            for _ in 0..to.1 {
+                tent.push(']');
+            }
             if serde_json::from_str::<serde_json::Value>(&tent).is_ok() {
                 out = tent;
             } else {
@@ -217,17 +219,19 @@ pub(crate) fn repair_json(input: &str) -> String {
     }
 
     // Close unmatched braces / brackets.
-    let opens: (usize, usize) = out
-        .chars()
-        .fold((0, 0), |(b, s), c| match c {
-            '{' => (b + 1, s),
-            '[' => (b, s + 1),
-            '}' => (b.saturating_sub(1), s),
-            ']' => (b, s.saturating_sub(1)),
-            _ => (b, s),
-        });
-    for _ in 0..opens.0 { out.push('}'); }
-    for _ in 0..opens.1 { out.push(']'); }
+    let opens: (usize, usize) = out.chars().fold((0, 0), |(b, s), c| match c {
+        '{' => (b + 1, s),
+        '[' => (b, s + 1),
+        '}' => (b.saturating_sub(1), s),
+        ']' => (b, s.saturating_sub(1)),
+        _ => (b, s),
+    });
+    for _ in 0..opens.0 {
+        out.push('}');
+    }
+    for _ in 0..opens.1 {
+        out.push(']');
+    }
 
     out
 }

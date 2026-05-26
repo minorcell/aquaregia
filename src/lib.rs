@@ -54,12 +54,12 @@ pub mod client;
 pub mod error;
 /// Provider adapter traits and concrete provider implementations.
 pub mod model_adapters;
+pub(crate) mod partial_json;
 pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
 pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
-pub(crate) mod partial_json;
 
 pub use agent::{Agent, AgentBuilder};
 pub use client::{BoundClient, ClientBuilder, LlmClient};

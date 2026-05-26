@@ -1,5 +1,6 @@
 use aquaregia::{
-    ErrorCode, GenerateTextRequest, LlmClient, Message, OutputSchema, StreamObjectEvent, ToolDescriptor,
+    ErrorCode, GenerateTextRequest, LlmClient, Message, OutputSchema, StreamObjectEvent,
+    ToolDescriptor,
 };
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -205,8 +206,9 @@ async fn openai_responses_api_request_shape_with_output_schema() {
         .received_requests()
         .await
         .expect("wiremock should record requests");
-    let body: serde_json::Value =
-        requests[0].body_json().expect("request body should be valid json");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
 
     let text_format = body["text"]["format"].clone();
     assert_eq!(text_format["type"], "json_schema");
@@ -385,8 +387,9 @@ async fn openai_compatible_generate_object_request_shape() {
         .received_requests()
         .await
         .expect("wiremock should record requests");
-    let body: serde_json::Value =
-        requests[0].body_json().expect("request body should be valid json");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
 
     let rf = &body["response_format"];
     assert_eq!(rf["type"], "json_schema");
@@ -455,6 +458,9 @@ async fn stream_object_emits_progressive_partials_and_final_object() {
         }
     }
 
-    assert!(saw_partial, "should have emitted at least one Partial event");
+    assert!(
+        saw_partial,
+        "should have emitted at least one Partial event"
+    );
     assert!(saw_object, "should have emitted final Object event");
 }

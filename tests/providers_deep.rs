@@ -1324,8 +1324,9 @@ async fn anthropic_generate_object_injects_respond_tool() {
         .received_requests()
         .await
         .expect("wiremock should record requests");
-    let body: serde_json::Value =
-        requests[0].body_json().expect("request body should be valid json");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
 
     // Verify the injected "respond" tool.
     let tools = body["tools"].as_array().expect("tools should be present");
@@ -1441,8 +1442,9 @@ async fn google_generate_object_injects_respond_function() {
         .received_requests()
         .await
         .expect("wiremock should record requests");
-    let body: serde_json::Value =
-        requests[0].body_json().expect("request body should be valid json");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
 
     // Verify the injected "respond" function declaration.
     let tools = body["tools"].as_array().expect("tools should be present");

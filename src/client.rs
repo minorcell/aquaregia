@@ -50,8 +50,8 @@ use crate::model_adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
 use crate::model_adapters::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
 };
-use crate::tool::{ToolExecError, ToolRegistry};
 use crate::partial_json::repair_json;
+use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateObjectResponse,
@@ -350,9 +350,7 @@ impl BoundClient {
             .await
     }
 
-    fn parse_final_buffer<T: serde::de::DeserializeOwned>(
-        buffer: &str,
-    ) -> Result<T, Error> {
+    fn parse_final_buffer<T: serde::de::DeserializeOwned>(buffer: &str) -> Result<T, Error> {
         let repaired = repair_json(buffer);
         serde_json::from_str::<T>(&repaired).map_err(|e| {
             let mut err = Error::new(
@@ -440,7 +438,9 @@ impl BoundClient {
     ///
     /// Fields not yet emitted by the model are left at their `Default`. For this
     /// reason `T` should use `#[serde(default)]` on fields.
-    pub async fn stream_object<T: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static>(
+    pub async fn stream_object<
+        T: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static,
+    >(
         &self,
         mut req: GenerateTextRequest,
     ) -> Result<ObjectStream<T>, Error> {
