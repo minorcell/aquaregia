@@ -351,6 +351,22 @@ pub struct ToolResult {
     pub is_error: bool,
 }
 
+/// Schema specification for structured output generation.
+///
+/// When set on a [`GenerateTextRequest`], adapters use provider-native structured
+/// output mechanisms (or tool-use fallback) to constrain the model to valid JSON
+/// matching the given schema.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputSchema {
+    /// Short name sent to the provider (e.g. `"output"`).
+    pub name: String,
+    /// Optional human-readable description for the output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// JSON Schema value (typically generated via [`schemars::JsonSchema`]).
+    pub json_schema: Value,
+}
+
 /// Request for generation/streaming calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTextRequest {
@@ -361,11 +377,17 @@ pub struct GenerateTextRequest {
     pub(crate) max_output_tokens: Option<u32>,
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) tools: Option<Vec<ToolDescriptor>>,
+    pub(crate) output_schema: Option<OutputSchema>,
     #[serde(skip)]
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
 impl GenerateTextRequest {
+    /// Returns the optional output schema for structured generation.
+    pub fn output_schema(&self) -> Option<&OutputSchema> {
+        self.output_schema.as_ref()
+    }
+
     /// Builds a one-message request from a user prompt.
     pub fn from_user_prompt(model: impl Into<ModelRef>, prompt: impl Into<String>) -> Self {
         Self {
@@ -376,6 +398,7 @@ impl GenerateTextRequest {
             max_output_tokens: None,
             stop_sequences: vec![],
             tools: None,
+            output_schema: None,
             cancellation_token: None,
         }
     }
@@ -391,6 +414,7 @@ impl GenerateTextRequest {
                 max_output_tokens: None,
                 stop_sequences: vec![],
                 tools: None,
+                output_schema: None,
                 cancellation_token: None,
             },
         }
@@ -452,6 +476,18 @@ impl GenerateTextRequestBuilder {
     pub fn tools(mut self, tools: impl IntoIterator<Item = ToolDescriptor>) -> Self {
         let tools = tools.into_iter().collect::<Vec<_>>();
         self.request.tools = if tools.is_empty() { None } else { Some(tools) };
+        self
+    }
+
+    /// Sets the output schema for structured generation.
+    ///
+    /// When set, providers constrain the model to produce valid JSON matching
+    /// the given schema. Prefer [`BoundClient::generate_object`] for
+    /// automatic schema derivation from Rust types.
+    ///
+    /// [`BoundClient::generate_object`]: crate::BoundClient::generate_object
+    pub fn output_schema(mut self, output_schema: OutputSchema) -> Self {
+        self.request.output_schema = Some(output_schema);
         self
     }
 
@@ -812,6 +848,24 @@ pub struct GenerateTextResponse {
     pub raw_provider_response: Option<Value>,
 }
 
+/// Structured output returned by [`BoundClient::generate_object`].
+///
+/// [`BoundClient::generate_object`]: crate::BoundClient::generate_object
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerateObjectResponse<T> {
+    /// Deserialized structured output.
+    pub object: T,
+    #[serde(default)]
+    /// Reasoning/chain-of-thought text from the model.
+    pub reasoning_text: String,
+    /// Provider finish reason.
+    pub finish_reason: FinishReason,
+    /// Token usage for this request.
+    pub usage: Usage,
+    /// Best-effort raw provider response for debugging.
+    pub raw_provider_response: Option<Value>,
+}
+
 /// Final response of a completed agent run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponse {
@@ -1068,6 +1122,21 @@ pub enum StreamEvent {
     /// Stream finished cleanly.
     Done,
 }
+
+/// Streaming event emitted by [`ObjectStream`].
+///
+/// [`ObjectStream`]: type.ObjectStream.html
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StreamObjectEvent<T> {
+    /// Best-effort partial deserialisation. Fields that have arrived are
+    /// populated; the rest use their `Default`.
+    Partial { partial: T },
+    /// Final complete object, emitted immediately before `Done`.
+    Object { object: T },
+}
+
+/// Provider-agnostic stream of partially-populated structured output.
+pub type ObjectStream<T> = Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, Error>> + Send>>;
 
 /// Provider-agnostic stream of structured generation events.
 pub type TextStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;

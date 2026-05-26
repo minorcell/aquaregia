@@ -131,7 +131,16 @@ impl ModelAdapter for AnthropicAdapter {
             .json()
             .await
             .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
-        normalize_anthropic_response(body)
+        let mut response = normalize_anthropic_response(body)?;
+        // When using the tool-use trick for structured output, extract the
+        // synthetic "respond" tool call arguments as output_text.
+        if req.output_schema.is_some() {
+            if let Some(tc) = response.tool_calls.first() {
+                response.output_text = tc.args_json.to_string();
+                response.tool_calls.clear();
+            }
+        }
+        Ok(response)
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
@@ -473,7 +482,26 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
             ),
         );
     }
-    if let Some(tools) = &req.tools {
+    if let Some(output_schema) = &req.output_schema {
+        // Anthropic has no native structured-output endpoint; use tool-use trick:
+        // inject a forced "respond" tool whose input_schema is the target schema.
+        payload.insert(
+            "tools".to_string(),
+            Value::Array(vec![json!({
+                "type": "custom",
+                "name": "respond",
+                "description": output_schema
+                    .description
+                    .as_deref()
+                    .unwrap_or("Respond with structured output"),
+                "input_schema": output_schema.json_schema,
+            })]),
+        );
+        payload.insert(
+            "tool_choice".to_string(),
+            json!({ "type": "tool", "name": "respond" }),
+        );
+    } else if let Some(tools) = &req.tools {
         payload.insert(
             "tools".to_string(),
             Value::Array(

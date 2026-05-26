@@ -109,6 +109,7 @@ let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
 | 自定义 `base_url`             |   ✓    |     ✓     |   ✓    |         ✓         |
 | 自定义 headers / query / path |        |           |        |         ✓         |
 | `api_version`（header）       |        |     ✓     |        |                   |
+| 结构化输出                    |   ✓    |     ✓     |   ✓    |         ✓         |
 | Tool-call 流式输出            |   ✓    |     ✓     |   ✓    |         ✓         |
 | `Usage` 中的缓存 token 拆分   |   ✓    |     ✓     |   ✓    |  provider 上报时  |
 
@@ -217,6 +218,42 @@ pub struct Usage {
 ```
 
 `Usage` 实现了 `Add` 与 `AddAssign`，跨 Agent 步骤累加是一行的事。`AgentResponse.usage_total` 已经为你聚合好了。
+
+---
+
+## 结构化输出
+
+调用 `generate_object::<T>()` 即可直接拿到 Rust 类型——无需手动解析 JSON。JSON Schema 由 `schemars` 从你的类型自动推导。
+
+```rust
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherResult {
+    city: String,
+    temp_c: f64,
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?).build()?;
+
+    let req = GenerateTextRequest::builder("gpt-4o")
+        .message(Message::user_text("东京天气怎么样？"))
+        .temperature(0.2)
+        .build()?;
+
+    let result = client.generate_object::<WeatherResult>(req).await?;
+
+    println!("城市: {}，温度: {}°C", result.object.city, result.object.temp_c);
+    println!("tokens: {} in / {} out", result.usage.input_tokens, result.usage.output_tokens);
+    Ok(())
+}
+```
+
+所有 provider 产出相同的类型化输出——提取策略对调用方完全透明。
 
 ---
 
