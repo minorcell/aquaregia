@@ -30,7 +30,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("claude-3-5-haiku-latest")
+    let req = GenerateTextRequest::builder("claude-haiku-4-5")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -101,7 +101,7 @@ async fn openai_stream_emits_text_usage_done() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-4o-mini")
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(32)

@@ -25,7 +25,7 @@ async fn cancel_before_request_fires() {
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-4o-mini")
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
         .user_prompt("hello")
         .cancellation_token(token)
         .build()
@@ -55,7 +55,7 @@ async fn cancel_before_agent_step() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-4o-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .max_steps(3)
         .cancellation_token(token)
         .build()
@@ -128,7 +128,7 @@ async fn cancel_between_agent_steps() {
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-4o-mini")
+    let agent = Agent::builder(client, "gpt-5.4-mini")
         .tools([cancel_tool])
         .max_steps(5)
         .cancellation_token(token)

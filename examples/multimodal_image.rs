@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let response = client
         .generate(
-            GenerateTextRequest::builder("claude-sonnet-4-5")
+            GenerateTextRequest::builder("claude-sonnet-4-6")
                 .message(message)
                 .build()?,
         )

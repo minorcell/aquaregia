@@ -1,7 +1,7 @@
 use aquaregia::{GenerateTextRequest, LlmClient};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 
 /// 场景：一次性非流式调用（最常见的“问答/改写/总结”请求）。
 ///

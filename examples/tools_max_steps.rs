@@ -2,7 +2,7 @@ use aquaregia::{Agent, LlmClient, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-chat";
+const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 
 /// 场景：工具循环 + 最大步数保护。
 ///

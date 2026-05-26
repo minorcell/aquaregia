@@ -26,7 +26,7 @@ async fn google_generate_text_success() {
     });
 
     Mock::given(method("POST"))
-        .and(path("/models/gemini-2.0-flash:generateContent"))
+        .and(path("/models/gemini-3.5-flash:generateContent"))
         .and(header("x-goog-api-key", "test-google-key"))
         .respond_with(ResponseTemplate::new(200).set_body_json(body))
         .expect(1)
@@ -41,7 +41,7 @@ async fn google_generate_text_success() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-2.0-flash",
+            "gemini-3.5-flash",
             "hello",
         ))
         .await
@@ -98,7 +98,7 @@ async fn openai_compatible_generate_text_success() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "hello",
         ))
         .await
@@ -149,7 +149,7 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "hello",
         ))
         .await
@@ -199,7 +199,7 @@ async fn openai_compatible_generate_reasoning_content_field_takes_precedence() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-chat",
+            "deepseek-v4-pro",
             "hello",
         ))
         .await
@@ -252,7 +252,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
 
     let response = client
         .generate(GenerateTextRequest::from_user_prompt(
-            "claude-3-5-haiku-latest",
+            "claude-haiku-4-5",
             "hello",
         ))
         .await

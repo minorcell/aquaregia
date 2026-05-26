@@ -3,7 +3,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 fn anthropic_request() -> GenerateTextRequest {
-    GenerateTextRequest::builder("claude-3-5-haiku-latest")
+    GenerateTextRequest::builder("claude-haiku-4-5")
         .message(Message::user_text("hi"))
         .temperature(0.2)
         .max_output_tokens(32)

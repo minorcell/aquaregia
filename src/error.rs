@@ -11,7 +11,7 @@
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = LlmClient::openai().api_key("key").build()?;
 //!
-//! match client.generate(GenerateTextRequest::from_user_prompt("gpt-4o", "hello")).await {
+//! match client.generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "hello")).await {
 //!     Ok(out) => println!("{}", out.output_text),
 //!     Err(err) => match err.code {
 //!         ErrorCode::RateLimited => eprintln!("rate limited; retry later"),

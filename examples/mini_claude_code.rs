@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-const DEFAULT_MODEL: &str = "deepseek-chat";
+const DEFAULT_MODEL: &str = "deepseek-v4-pro";
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const MAX_STEPS: u32 = 12;
 const MAX_TOOL_OUTPUT_CHARS: usize = 12_000;
@@ -29,7 +29,7 @@ const SYSTEM_PROMPT: &str = r#"
 /// 运行：
 /// DEEPSEEK_API_KEY=... cargo run --example mini_claude_code
 /// 可选：
-/// DEEPSEEK_BASE_URL=https://api.deepseek.com DEEPSEEK_MODEL=deepseek-chat cargo run --example mini_claude_code
+/// DEEPSEEK_BASE_URL=https://api.deepseek.com DEEPSEEK_MODEL=deepseek-v4-pro cargo run --example mini_claude_code
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("DEEPSEEK_API_KEY").map_err(|_| {
