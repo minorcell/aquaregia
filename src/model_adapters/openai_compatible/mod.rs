@@ -298,7 +298,8 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
             let mut done = false;
             let mut saw_payload_frame = false;
             let mut reasoning_active = false;
-            let reasoning_block_id = "reasoning-0".to_string();
+            let mut reasoning_block_counter: u32 = 0;
+            let mut reasoning_block_id = String::new();
 
             while let Some(chunk) = byte_stream.next().await {
                 if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
@@ -342,6 +343,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                     {
                         if !reasoning_delta.is_empty() {
                             if !reasoning_active {
+                                reasoning_block_id = format!("reasoning-{reasoning_block_counter}");
                                 yield StreamEvent::ReasoningStarted {
                                     block_id: reasoning_block_id.clone(),
                                     provider_metadata: None,
@@ -378,6 +380,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                                     provider_metadata: None,
                                 };
                                 reasoning_active = false;
+                                reasoning_block_counter += 1;
                             }
                             yield StreamEvent::TextDelta {
                                 text: text_delta.to_string(),
@@ -399,6 +402,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                                 provider_metadata: None,
                             };
                             reasoning_active = false;
+                            reasoning_block_counter += 1;
                         }
                         for call in tool_calls {
                             if let Some(index) = call.get("index").and_then(Value::as_u64) {

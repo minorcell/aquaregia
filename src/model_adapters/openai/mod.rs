@@ -456,6 +456,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
                             "name": tool.name,
                             "description": tool.description,
                             "parameters": tool.input_schema,
+                            "strict": true,
                         })
                     })
                     .collect(),

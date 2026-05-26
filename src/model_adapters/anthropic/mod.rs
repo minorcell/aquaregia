@@ -481,6 +481,7 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
                     .iter()
                     .map(|tool| {
                         json!({
+                            "type": "custom",
                             "name": tool.name,
                             "description": tool.description,
                             "input_schema": tool.input_schema,
