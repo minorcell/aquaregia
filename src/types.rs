@@ -484,11 +484,6 @@ impl RunTools {
         }
     }
 
-    pub(crate) fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
-        self.messages = messages.into_iter().collect();
-        self
-    }
-
     pub(crate) fn tools<I, T>(mut self, tools: I) -> Self
     where
         I: IntoIterator<Item = T>,
@@ -1770,10 +1765,15 @@ mod tests {
 
     // ─── RunTools builder ────────────────────────────────────────────────
 
+    fn run_tools_with_messages(model: &str) -> RunTools {
+        let mut rt = RunTools::new(model);
+        rt.messages = vec![Message::user_text("hello")];
+        rt
+    }
+
     #[test]
     fn run_tools_builds_with_valid_config() {
-        let rt = RunTools::new("gpt-5.5")
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .tools(Vec::<crate::tool::Tool>::new())
             .max_steps(5)
             .temperature(0.5)
@@ -1789,8 +1789,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_accepts_zero_max_steps_as_unlimited() {
-        let req = RunTools::new("gpt-5.5")
-            .messages([Message::user_text("hello")])
+        let req = run_tools_with_messages("gpt-5.5")
             .max_steps(0)
             .build()
             .expect("0 max_steps is allowed and means unlimited");
@@ -1799,10 +1798,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_rejects_invalid_model() {
-        match RunTools::new("  ")
-            .messages([Message::user_text("hello")])
-            .build()
-        {
+        match run_tools_with_messages("  ").build() {
             Err(err) => assert!(err.message.contains("cannot be empty")),
             Ok(_) => panic!("should have failed"),
         }
@@ -1810,8 +1806,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_max_steps_is_none() {
-        let rt = RunTools::new("gpt-5.5")
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .build()
             .expect("run tools should build");
         assert_eq!(rt.max_steps, None);
@@ -1819,8 +1814,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_tool_error_policy() {
-        let rt = RunTools::new("gpt-5.5")
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .build()
             .expect("run tools should build");
         assert_eq!(rt.tool_error_policy, ToolErrorPolicy::ContinueAsToolResult);

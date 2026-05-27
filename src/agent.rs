@@ -45,11 +45,11 @@ use std::sync::Arc;
 use tokio_util::sync::CancellationToken;
 
 use crate::client::BoundClient;
-use crate::tool::{IntoTool, Tool};
+use crate::tool::IntoTool;
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, Message, PrepareStepHook,
-    RunTools, StopPredicate, ToolErrorPolicy, validate_model_ref, validate_sampling,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Message, RunTools, ToolErrorPolicy,
+    validate_model_ref, validate_sampling,
 };
 
 /// Multi-step tool-using agent bound to one provider and one default model.
@@ -69,24 +69,8 @@ use crate::types::{
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
 pub struct Agent {
     client: Arc<BoundClient>,
-    model: String,
     instructions: Option<String>,
-    tools: Vec<Tool>,
-    max_steps: Option<u32>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    max_output_tokens: Option<u32>,
-    stop_sequences: Vec<String>,
-    cancellation_token: Option<CancellationToken>,
-    prepare_step: Option<PrepareStepHook>,
-    on_start: Option<Hook<AgentStart>>,
-    on_step_start: Option<Hook<AgentStepStart>>,
-    on_tool_call_start: Option<Hook<AgentToolCallStart>>,
-    on_tool_call_finish: Option<Hook<AgentToolCallFinish>>,
-    on_step_finish: Option<Hook<AgentStep>>,
-    on_finish: Option<Hook<AgentFinish>>,
-    stop_when: Option<StopPredicate>,
-    tool_error_policy: ToolErrorPolicy,
+    template: RunTools,
 }
 
 impl Agent {
@@ -100,7 +84,7 @@ impl Agent {
 
     /// Returns the fully qualified model id (`<provider>/<model>`).
     pub fn model_id(&self) -> String {
-        self.model.clone()
+        self.template.model.clone()
     }
 
     /// Prepends instructions as a system message if configured and no system
@@ -145,63 +129,8 @@ impl Agent {
         &self,
         messages: Vec<Message>,
     ) -> Result<AgentResponse, crate::error::Error> {
-        let mut request = RunTools::new(self.model.clone())
-            .messages(messages)
-            .tools(self.tools.clone())
-            .tool_error_policy(self.tool_error_policy)
-            .stop_sequences(self.stop_sequences.clone());
-
-        if let Some(t) = &self.cancellation_token {
-            request = request.cancellation_token(t.clone());
-        }
-        if let Some(max_steps) = self.max_steps {
-            request = request.max_steps(max_steps);
-        }
-        if let Some(temperature) = self.temperature {
-            request = request.temperature(temperature);
-        }
-        if let Some(top_p) = self.top_p {
-            request = request.top_p(top_p);
-        }
-        if let Some(max_output_tokens) = self.max_output_tokens {
-            request = request.max_output_tokens(max_output_tokens);
-        }
-
-        if let Some(prepare_step) = &self.prepare_step {
-            let prepare_step = prepare_step.clone();
-            request = request.prepare_step(move |event| prepare_step(event));
-        }
-        if let Some(on_start) = &self.on_start {
-            let on_start = on_start.clone();
-            request = request.on_start(move |event: &AgentStart| on_start(event));
-        }
-        if let Some(on_step_start) = &self.on_step_start {
-            let on_step_start = on_step_start.clone();
-            request = request.on_step_start(move |event: &AgentStepStart| on_step_start(event));
-        }
-        if let Some(on_tool_call_start) = &self.on_tool_call_start {
-            let on_tool_call_start = on_tool_call_start.clone();
-            request = request
-                .on_tool_call_start(move |event: &AgentToolCallStart| on_tool_call_start(event));
-        }
-        if let Some(on_tool_call_finish) = &self.on_tool_call_finish {
-            let on_tool_call_finish = on_tool_call_finish.clone();
-            request = request
-                .on_tool_call_finish(move |event: &AgentToolCallFinish| on_tool_call_finish(event));
-        }
-        if let Some(on_step_finish) = &self.on_step_finish {
-            let on_step_finish = on_step_finish.clone();
-            request = request.on_step_finish(move |event: &AgentStep| on_step_finish(event));
-        }
-        if let Some(on_finish) = &self.on_finish {
-            let on_finish = on_finish.clone();
-            request = request.on_finish(move |event: &AgentFinish| on_finish(event));
-        }
-        if let Some(stop_when) = &self.stop_when {
-            let stop_when = stop_when.clone();
-            request = request.stop_when(move |step: &AgentStep| stop_when(step));
-        }
-
+        let mut request = self.template.clone();
+        request.messages = messages;
         self.client.run_tools(request.build()?).await
     }
 }
@@ -209,48 +138,16 @@ impl Agent {
 /// Builder for configuring an [`Agent`].
 pub struct AgentBuilder {
     client: Arc<BoundClient>,
-    model: String,
     instructions: Option<String>,
-    tools: Vec<Tool>,
-    max_steps: Option<u32>,
-    temperature: Option<f32>,
-    top_p: Option<f32>,
-    max_output_tokens: Option<u32>,
-    stop_sequences: Vec<String>,
-    cancellation_token: Option<CancellationToken>,
-    prepare_step: Option<PrepareStepHook>,
-    on_start: Option<Hook<AgentStart>>,
-    on_step_start: Option<Hook<AgentStepStart>>,
-    on_tool_call_start: Option<Hook<AgentToolCallStart>>,
-    on_tool_call_finish: Option<Hook<AgentToolCallFinish>>,
-    on_step_finish: Option<Hook<AgentStep>>,
-    on_finish: Option<Hook<AgentFinish>>,
-    stop_when: Option<StopPredicate>,
-    tool_error_policy: ToolErrorPolicy,
+    template: RunTools,
 }
 
 impl AgentBuilder {
     fn new(client: Arc<BoundClient>, model: String) -> Self {
         Self {
             client,
-            model,
             instructions: None,
-            tools: Vec::new(),
-            max_steps: None,
-            temperature: None,
-            top_p: None,
-            max_output_tokens: None,
-            stop_sequences: Vec::new(),
-            cancellation_token: None,
-            prepare_step: None,
-            on_start: None,
-            on_step_start: None,
-            on_tool_call_start: None,
-            on_tool_call_finish: None,
-            on_step_finish: None,
-            on_finish: None,
-            stop_when: None,
-            tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
+            template: RunTools::new(model),
         }
     }
 
@@ -266,8 +163,7 @@ impl AgentBuilder {
         I: IntoIterator<Item = T>,
         T: IntoTool,
     {
-        self.tools
-            .extend(tools.into_iter().map(IntoTool::into_tool));
+        self.template = self.template.tools(tools);
         self
     }
 
@@ -278,25 +174,25 @@ impl AgentBuilder {
     /// cancelled). When not set, falls back to the client's `default_max_steps`
     /// (which is `0` / unlimited by default).
     pub fn max_steps(mut self, max_steps: u32) -> Self {
-        self.max_steps = Some(max_steps);
+        self.template = self.template.max_steps(max_steps);
         self
     }
 
     /// Sets default sampling temperature in range `0.0..=2.0`.
     pub fn temperature(mut self, temperature: f32) -> Self {
-        self.temperature = Some(temperature);
+        self.template = self.template.temperature(temperature);
         self
     }
 
     /// Sets default nucleus sampling value in range `0.0..=1.0`.
     pub fn top_p(mut self, top_p: f32) -> Self {
-        self.top_p = Some(top_p);
+        self.template = self.template.top_p(top_p);
         self
     }
 
     /// Sets default maximum output token budget per step.
     pub fn max_output_tokens(mut self, max_output_tokens: u32) -> Self {
-        self.max_output_tokens = Some(max_output_tokens);
+        self.template = self.template.max_output_tokens(max_output_tokens);
         self
     }
 
@@ -305,8 +201,7 @@ impl AgentBuilder {
         mut self,
         stop_sequences: impl IntoIterator<Item = S>,
     ) -> Self {
-        self.stop_sequences
-            .extend(stop_sequences.into_iter().map(Into::into));
+        self.template = self.template.stop_sequences(stop_sequences);
         self
     }
 
@@ -316,7 +211,7 @@ impl AgentBuilder {
     /// [`crate::ErrorCode::Cancelled`]. To cancel different runs independently, build
     /// a separate agent per token.
     pub fn cancellation_token(mut self, token: CancellationToken) -> Self {
-        self.cancellation_token = Some(token);
+        self.template = self.template.cancellation_token(token);
         self
     }
 
@@ -325,7 +220,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentPrepareStep) -> AgentPreparedStep + Send + Sync + 'static,
     {
-        self.prepare_step = Some(Arc::new(callback));
+        self.template = self.template.prepare_step(callback);
         self
     }
 
@@ -334,7 +229,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentStep) + Send + Sync + 'static,
     {
-        self.on_step_finish = Some(Arc::new(callback));
+        self.template = self.template.on_step_finish(callback);
         self
     }
 
@@ -343,7 +238,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentStart) + Send + Sync + 'static,
     {
-        self.on_start = Some(Arc::new(callback));
+        self.template = self.template.on_start(callback);
         self
     }
 
@@ -352,7 +247,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentStepStart) + Send + Sync + 'static,
     {
-        self.on_step_start = Some(Arc::new(callback));
+        self.template = self.template.on_step_start(callback);
         self
     }
 
@@ -361,7 +256,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentToolCallStart) + Send + Sync + 'static,
     {
-        self.on_tool_call_start = Some(Arc::new(callback));
+        self.template = self.template.on_tool_call_start(callback);
         self
     }
 
@@ -370,7 +265,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentToolCallFinish) + Send + Sync + 'static,
     {
-        self.on_tool_call_finish = Some(Arc::new(callback));
+        self.template = self.template.on_tool_call_finish(callback);
         self
     }
 
@@ -379,7 +274,7 @@ impl AgentBuilder {
     where
         F: Fn(&AgentFinish) + Send + Sync + 'static,
     {
-        self.on_finish = Some(Arc::new(callback));
+        self.template = self.template.on_finish(callback);
         self
     }
 
@@ -388,41 +283,25 @@ impl AgentBuilder {
     where
         F: Fn(&AgentStep) -> bool + Send + Sync + 'static,
     {
-        self.stop_when = Some(Arc::new(predicate));
+        self.template = self.template.stop_when(predicate);
         self
     }
 
     /// Controls how tool execution errors are handled inside the loop.
     pub fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
-        self.tool_error_policy = policy;
+        self.template = self.template.tool_error_policy(policy);
         self
     }
 
     /// Validates configuration and builds the [`Agent`].
     pub fn build(self) -> Result<Agent, crate::error::Error> {
-        validate_model_ref(&self.model)?;
-        validate_sampling(self.temperature, self.top_p)?;
+        validate_model_ref(&self.template.model)?;
+        validate_sampling(self.template.temperature, self.template.top_p)?;
 
         Ok(Agent {
             client: self.client,
-            model: self.model,
             instructions: self.instructions,
-            tools: self.tools,
-            max_steps: self.max_steps,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            max_output_tokens: self.max_output_tokens,
-            stop_sequences: self.stop_sequences,
-            cancellation_token: self.cancellation_token,
-            prepare_step: self.prepare_step,
-            on_start: self.on_start,
-            on_step_start: self.on_step_start,
-            on_tool_call_start: self.on_tool_call_start,
-            on_tool_call_finish: self.on_tool_call_finish,
-            on_step_finish: self.on_step_finish,
-            on_finish: self.on_finish,
-            stop_when: self.stop_when,
-            tool_error_policy: self.tool_error_policy,
+            template: self.template,
         })
     }
 }
