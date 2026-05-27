@@ -13,18 +13,57 @@
 
 </div>
 
-A single crate for building LLM-powered applications and agents across any provider.
+---
+
+## Introduction
+
+### Why Aquaregia
+
+You want to call an LLM from Rust. You probably also want to call _another_ LLM from Rust six months from now, without rewriting your prompts, your tool definitions, or your streaming code.
+
+Aquaregia is a single crate that gives you one API across OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint. You swap a constructor and the same `generate`, `stream`, `generate_object`, and `Agent` calls keep working. Streaming, structured output, reasoning tokens, multimodal input, agent loops, retries, cancellation — all of it normalised behind one type.
+
+It's not a gateway, not a proxy, not a microservice. It's a Rust library you `cargo add` and call directly.
+
+### At a glance
+
+| Capability                        | What you get                                                                            |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| **One API, four providers**       | OpenAI · Anthropic · Google · OpenAI-compatible (DeepSeek, Together, Groq, …)            |
+| **Streaming & non-streaming**     | Same builder feeds `generate` or `stream`, with consistent `StreamEvent`s                |
+| **Structured output**             | `generate_object::<T>()` and `stream_object::<T>()` with `schemars`-derived schemas      |
+| **Reasoning content**             | First-class reasoning extraction, streaming reasoning deltas, reasoning-token usage      |
+| **Tool-using agents**             | Multi-step loop with `prepare_step` hooks, `max_steps`, `stop_when`, error policies      |
+| **Multimodal vision**             | Send images by URL, base64, or raw bytes — one `ImagePart` API across providers          |
+| **Cancellation & retries**        | `CancellationToken` checked everywhere; exponential backoff with `Retry-After` honored   |
+
+### When not to use it
+
+If you only ever target one provider and don't care about being portable, that provider's native SDK probably gives you a more idiomatic surface. Aquaregia earns its keep when you want to **A/B providers**, **let users pick a model at runtime**, or **future-proof against the LLM landscape moving under you**. If none of those apply, you're not the target audience — and that's fine.
 
 ---
 
-## Quick start
+## Quick Start
+
+### Install
+
+```bash
+cargo add aquaregia
+```
+
+You'll also need a Tokio runtime in your application — Aquaregia is async end-to-end.
+
+### Hello world
+
+The shortest path to a real model response:
 
 ```rust
 use aquaregia::{GenerateTextRequest, LlmClient};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
+    let client = LlmClient::openai_compatible()
+        .base_url("https://api.deepseek.com")
         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
         .build()?;
 
@@ -36,88 +75,89 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     println!("{}", response.output_text);
-    println!(
-        "usage: {} → {} tokens",
-        response.usage.input_tokens, response.usage.output_tokens
-    );
     Ok(())
 }
 ```
 
-Swap the constructor and the same call works against Anthropic, OpenAI, or Google.
+Three moving parts: a **client** (provider + auth + transport), a **request** (model + messages), and a `.generate()` call. Everything in this guide is a refinement of one of those three.
 
----
+### First streaming call
 
-## Installation
+Same client, swap `.generate` for `.stream`:
 
-```bash
-cargo add aquaregia
+```rust
+use aquaregia::StreamEvent;
+use futures_util::StreamExt;
+
+let mut stream = client
+    .stream(GenerateTextRequest::from_user_prompt(
+        "deepseek-v4-pro",
+        "Write a haiku about the borrow checker.",
+    ))
+    .await?;
+
+while let Some(event) = stream.next().await {
+    match event? {
+        StreamEvent::TextDelta { text } => print!("{text}"),
+        StreamEvent::Done               => break,
+        _                                => {}
+    }
+}
 ```
 
-You also need a Tokio runtime in your project.
+You've now seen the shape — a builder, a call, a result or an event loop. The rest of this guide unpacks each piece.
 
 ---
 
-## Providers
+## Essentials
 
-Pick a constructor to get a `BoundClient` for that provider.
+### Client
 
-| Provider          | Constructor                                              | Model argument        |
-| ----------------- | -------------------------------------------------------- | --------------------- |
-| OpenAI            | `LlmClient::openai().api_key(api_key)`                             | `"gpt-5.5"`            |
-| Anthropic         | `LlmClient::anthropic().api_key(api_key)`                          | `"claude-sonnet-4-6"` |
-| Google            | `LlmClient::google().api_key(api_key)`                             | `"gemini-3.5-flash"`  |
-| OpenAI-compatible | `LlmClient::openai_compatible().base_url(base_url).api_key(...)`    | `"deepseek-v4-pro"`     |
-
-### Client configuration
+A `LlmClient` is just a namespace of constructors. Each constructor returns a typed `ClientBuilder<S>` parameterised on the provider's settings type, which builds into a reusable `BoundClient`. Think **constructor → builder → bound client** — that's the whole shape, and it's the same regardless of which provider you pick.
 
 ```rust
 use std::time::Duration;
 
-let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?)
-    .base_url("https://api.openai.com")          // custom upstream
-    .timeout(Duration::from_secs(60))            // per-request timeout
+let client = LlmClient::openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .base_url("https://api.openai.com")          // optional: custom upstream
+    .timeout(Duration::from_secs(60))            // per-request HTTP timeout
     .max_retries(3)                              // transient-failure retries
-    .default_max_steps(8)                        // default for Agents built from this client
+    .default_max_steps(8)                        // default agent step cap
     .user_agent("my-app/1.0")
     .build()?;
 ```
 
-### Model references
+Switching providers is just a different constructor — every method you'll see below works the same way on whichever `BoundClient` you end up with.
 
-`GenerateTextRequest::from_user_prompt` and `.builder()` accept any `impl Into<String>` — a bare `&str` is the most common form:
+| Provider          | Constructor                                                         |
+| ----------------- | ------------------------------------------------------------------- |
+| OpenAI            | `LlmClient::openai().api_key(api_key)`                              |
+| Anthropic         | `LlmClient::anthropic().api_key(api_key).api_version("2023-06-01")` |
+| Google            | `LlmClient::google().api_key(api_key)`                              |
+| OpenAI-compatible | `LlmClient::openai_compatible().base_url(url).api_key(token)`       |
+
+#### Going deeper: OpenAI-compatible endpoints
+
+If your provider speaks the OpenAI chat-completions wire format but lives at a different URL — DeepSeek, Together, Groq, your own gateway — `openai_compatible()` lets you bolt on custom headers, query params, and even a different chat path:
 
 ```rust
-let req = GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!");
-```
-
-### OpenAI-compatible deep configuration
-
-```rust
-let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
+let client = LlmClient::openai_compatible()
+    .base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .header("x-trace-source", "aquaregia")
     .query_param("source", "sdk")
-    .chat_completions_path("/v1/chat/completions") // override the endpoint path
+    .chat_completions_path("/v1/chat/completions")
     .build()?;
 ```
 
-### Provider differences at a glance
-
-| Capability                       | OpenAI | Anthropic | Google | OpenAI-Compatible |
-| -------------------------------- | :----: | :-------: | :----: | :---------------: |
-| Custom `base_url`                |   ✓    |     ✓     |   ✓    |         ✓         |
-| Custom headers / query / path    |        |           |        |         ✓         |
-| `api_version` (header)           |        |     ✓     |        |                   |
-| Structured output                |   ✓    |     ✓     |   ✓    |         ✓         |
-| Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
-| Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
+If the endpoint doesn't want any `Authorization` header at all, call `.no_api_key()` instead of `.api_key(...)`.
 
 ---
 
-## Generating text
+### Generating text
 
-### One-shot `generate`
+`generate` is the workhorse: one request, one response, all content in `output_text`.
 
 ```rust
 let response = client
@@ -131,7 +171,7 @@ println!("{}", response.output_text);
 println!("finish: {:?}", response.finish_reason);
 ```
 
-Full builder when you need messages, sampling, or tools:
+`from_user_prompt(model, prompt)` is the one-line form. When you need more — system prompts, sampling controls, tools — reach for the builder:
 
 ```rust
 use aquaregia::{GenerateTextRequest, Message};
@@ -144,13 +184,20 @@ let req = GenerateTextRequest::builder("deepseek-v4-pro")
     .build()?;
 ```
 
-### Streaming
+The model argument is just a string — Aquaregia doesn't try to enumerate model IDs because every provider ships new ones every few weeks. Pass whatever your provider's docs say is current; if the provider rejects it, you'll get a clean `InvalidRequest` error back.
+
+---
+
+### Streaming responses
+
+When the consumer is a UI or a terminal, you want tokens as they arrive, not after the whole reply lands. Swap `generate` for `stream` and consume `StreamEvent`s:
 
 ```rust
 use aquaregia::StreamEvent;
 use futures_util::StreamExt;
 
 let mut stream = client.stream(request).await?;
+
 while let Some(event) = stream.next().await {
     match event? {
         StreamEvent::TextDelta { text }          => print!("{text}"),
@@ -166,21 +213,25 @@ while let Some(event) = stream.next().await {
 }
 ```
 
-All variants:
+The event stream is the union of everything a model might emit. You'll typically only match a few variants; the rest you can `_ => {}`. Here's the full menu:
 
-| Event                | Fields                                  |
-| -------------------- | --------------------------------------- |
-| `ReasoningStarted`   | `block_id`, `provider_metadata`         |
-| `ReasoningDelta`     | `block_id`, `text`, `provider_metadata` |
-| `ReasoningDone`      | `block_id`, `provider_metadata`         |
-| `TextDelta`          | `text`                                  |
-| `ToolCallReady`      | `call: ToolCall`                        |
-| `Usage`              | `usage: Usage`                          |
-| `Done`               | —                                       |
+| Event                | Fields                                  | When it fires                                  |
+| -------------------- | --------------------------------------- | ---------------------------------------------- |
+| `ReasoningStarted`   | `block_id`, `provider_metadata`         | A reasoning block begins (Anthropic / Google)  |
+| `ReasoningDelta`     | `block_id`, `text`, `provider_metadata` | Each token of thought                          |
+| `ReasoningDone`      | `block_id`, `provider_metadata`         | A reasoning block closed                       |
+| `TextDelta`          | `text`                                  | Each token of the visible answer               |
+| `ToolCallReady`      | `call: ToolCall`                        | Model finished assembling a tool call          |
+| `Usage`              | `usage: Usage`                          | Provider reports token counts                  |
+| `Done`               | —                                       | Final event of every stream                    |
+
+Once `Done` fires the stream is finished — don't poll after.
+
+---
 
 ### Reasoning
 
-Reasoning is exposed in both sync and streaming output:
+Reasoning is the model's "thinking out loud" — separate from the visible answer, exposed as its own content block by Anthropic Extended Thinking, Google's `thoughts`, and OpenAI's reasoning-token accounting. Aquaregia surfaces it uniformly:
 
 ```rust
 let out = client.generate(req).await?;
@@ -191,43 +242,29 @@ println!("rsn-tokens: {}", out.usage.reasoning_tokens);
 
 for part in &out.reasoning_parts {
     println!("[block] {}", part.text);
-    // part.provider_metadata carries signature blocks (Anthropic), thought
-    // signatures (Google), and provider-specific extras.
+    // part.provider_metadata carries signature blocks (Anthropic),
+    // thought signatures (Google), and any other provider extras.
 }
 ```
 
-| Provider   | Usage mapping                                                                                       |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| OpenAI / OpenAI-compatible | parses `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens` |
-| Anthropic  | parses `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning split unavailable       |
-| Google     | parses `cachedContentTokenCount` + `thoughtsTokenCount`                                             |
+In streaming you'll see `ReasoningStarted` → `ReasoningDelta`(s) → `ReasoningDone` for each reasoning block before the visible text starts. The token-usage split comes from whichever fields the provider populates:
 
-### `Usage` and aggregation
+| Provider                   | Reasoning-token mapping                                                                     |
+| -------------------------- | ------------------------------------------------------------------------------------------- |
+| OpenAI / OpenAI-compatible | `prompt_tokens_details.cached_tokens` + `completion_tokens_details.reasoning_tokens`        |
+| Anthropic                  | `cache_read_input_tokens` / `cache_creation_input_tokens`; reasoning-token split unavailable |
+| Google                     | `cachedContentTokenCount` + `thoughtsTokenCount`                                            |
 
-```rust
-pub struct Usage {
-    pub input_tokens:             u32, // total
-    pub input_no_cache_tokens:    u32,
-    pub input_cache_read_tokens:  u32,
-    pub input_cache_write_tokens: u32,
-    pub output_tokens:            u32, // total
-    pub output_text_tokens:       u32,
-    pub reasoning_tokens:         u32,
-    pub total_tokens:             u32,
-    pub raw_usage:                Option<serde_json::Value>,
-}
-```
-
-`Usage` implements `Add` and `AddAssign`, so totaling tokens across agent steps is a one-liner. `AgentResponse.usage_total` is already aggregated for you.
+If a provider doesn't report a number, the field stays at `0` — Aquaregia never makes up data.
 
 ---
 
-## Structured output
+### Structured output
 
-Call `generate_object::<T>()` to get a Rust type back — no manual JSON parsing required. The JSON Schema is derived automatically from your type via `schemars`.
+When you want a typed Rust value back instead of a blob of text, derive `JsonSchema` and call `generate_object::<T>()`. The schema is generated automatically and passed to the provider; the JSON response is parsed straight into `T`.
 
 ```rust
-use aquaregia::{GenerateTextRequest, LlmClient};
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
 use schemars::JsonSchema;
 use serde::Deserialize;
 
@@ -237,34 +274,57 @@ struct WeatherResult {
     temp_c: f64,
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?).build()?;
+let req = GenerateTextRequest::builder("gpt-5.5")
+    .message(Message::user_text("What is the weather in Tokyo?"))
+    .temperature(0.2)
+    .build()?;
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
-        .message(Message::user_text("What is the weather in Tokyo?"))
-        .temperature(0.2)
-        .build()?;
+let result = client.generate_object::<WeatherResult>(req).await?;
 
-    let result = client.generate_object::<WeatherResult>(req).await?;
+println!("{} → {}°C", result.object.city, result.object.temp_c);
+```
 
-    println!("City: {}, Temp: {}°C", result.object.city, result.object.temp_c);
-    println!("tokens: {} in / {} out", result.usage.input_tokens, result.usage.output_tokens);
-    Ok(())
+Providers without native structured-output mode (Anthropic, Google) fall back transparently to forced tool calls. From the caller's perspective there's no difference — you get a `T` either way.
+
+#### Streaming partial objects
+
+For UIs that should render fields as they arrive, `stream_object::<T>()` emits progressively-populated values. Each chunk is repaired and re-deserialised into a partial `T`. Fields not yet emitted by the model stay at their `Default`, so derive `Default` and add `#[serde(default)]`:
+
+```rust
+use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamObjectEvent};
+use futures_util::StreamExt;
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(default)]
+struct WeatherResult {
+    city:   String,
+    temp_c: f64,
+}
+
+let mut stream = client.stream_object::<WeatherResult>(req).await?;
+while let Some(event) = stream.next().await {
+    match event? {
+        StreamObjectEvent::Partial { partial } => {
+            println!("partial: {} ({}°C)", partial.city, partial.temp_c);
+        }
+        StreamObjectEvent::Object { object } => {
+            println!("final:   {:?}", object);
+        }
+    }
 }
 ```
 
-All providers produce the same typed output — the extraction strategy is transparent to the caller.
+Under the hood is a stack-based JSON repairer that handles truncated strings, unclosed arrays and objects, and escape sequences mid-token. A chunk that splits a field name or value still produces a valid partial — you never have to handle invalid JSON in your code. See `examples/structured_streaming.rs` for a runnable version.
 
 ---
 
-## Tools & Agents
+### Tools
 
-### Defining tools
+A tool lets the model call your Rust code mid-conversation. Think of one as a **typed `async fn` the LLM can invoke by name** — Aquaregia builds the JSON Schema from your argument type, marshals the call args back into Rust, and runs your function.
 
-Tools are built with the `tool(name)` function. Two execution styles are supported.
-
-**Typed args** — `schemars` derives the JSON Schema from your struct:
+The typed style is the one you'll reach for most:
 
 ```rust
 use aquaregia::{Tool, tool};
@@ -284,7 +344,9 @@ fn get_weather() -> Tool {
 }
 ```
 
-**Raw schema** — write the JSON Schema by hand, receive a `serde_json::Value`:
+`tool(name)` starts a builder; `.execute(closure)` consumes a `JsonSchema`-derived arg type and finishes the build. The closure returns `Result<serde_json::Value, ToolExecError>` — the model gets back whatever JSON you produce.
+
+If you'd rather hand-write the schema (unusual constraints, no derive available), use `.raw_schema(...)` + `.execute_raw(...)`:
 
 ```rust
 let fx_tool = tool("get_fx_rate")
@@ -300,14 +362,21 @@ let fx_tool = tool("get_fx_rate")
     });
 ```
 
-Tool names must match `^[a-zA-Z0-9_-]{1,64}$` and be unique within an agent.
+Tool names must match `^[a-zA-Z0-9_-]{1,64}$` and be unique within an agent. That's validated at agent build time so an invalid registry never reaches the model.
 
-### Minimal Agent
+---
+
+### Agents
+
+An `Agent` is a `generate`-plus-tools `while` loop with hooks: the model thinks → maybe calls tools → you run the tools → results go back to the model → repeat until it stops calling tools (or you cap it). You don't write the loop; you describe its inputs and outputs.
+
+The minimum agent is one tool and a step cap:
 
 ```rust
 use aquaregia::{Agent, LlmClient};
 
-let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
+let client = LlmClient::openai_compatible()
+    .base_url("https://api.deepseek.com")
     .api_key(std::env::var("DEEPSEEK_API_KEY")?)
     .build()?;
 
@@ -322,9 +391,11 @@ println!("{}", response.output_text);
 println!("steps={} total={}", response.steps, response.usage_total.total_tokens);
 ```
 
-### Event hooks
+`response.output_text` is the final user-visible answer. `response.steps` tells you how many round-trips it took; `response.usage_total` aggregates token counts across every call.
 
-The agent loop emits an event at every meaningful boundary. All hooks are `Fn + Send + Sync`, so you can attach them as closures.
+#### Event hooks
+
+Every interesting boundary in the loop emits an event. All hooks are `Fn + Send + Sync`, so you can attach closures directly — useful for logging, metrics, debug UIs:
 
 ```rust
 let agent = Agent::builder(client, "deepseek-v4-pro")
@@ -338,9 +409,9 @@ let agent = Agent::builder(client, "deepseek-v4-pro")
     .build()?;
 ```
 
-### Dynamic planning — `prepare_step`
+#### Dynamic planning with `prepare_step`
 
-`prepare_step` runs before every step and returns a fresh prepared plan — useful for shrinking the tool set, switching models, or injecting per-step instructions:
+When you need to mutate the next step before it runs — narrow the tool list, swap models, inject a system prompt for that step only — give the agent a `prepare_step` closure:
 
 ```rust
 use aquaregia::Message;
@@ -360,27 +431,31 @@ let agent = Agent::builder(client, "deepseek-v4-pro")
     .build()?;
 ```
 
-### Stopping policies
+The returned `AgentPreparedStep` is what the agent actually sends to the model for this step. Anything you don't change carries over from the previous state.
+
+#### Stopping policies
+
+Three knobs control how the loop ends:
 
 ```rust
 use aquaregia::ToolErrorPolicy;
 
 let agent = Agent::builder(client, "deepseek-v4-pro")
-    .max_steps(8)                                                                 // hard cap
-    .stop_when(|step| step.tool_calls.is_empty() && !step.output_text.is_empty()) // predicate
-    .tool_error_policy(ToolErrorPolicy::ContinueAsToolResult)                     // default
+    .max_steps(8)
+    .stop_when(|step| step.tool_calls.is_empty() && !step.output_text.is_empty())
+    .tool_error_policy(ToolErrorPolicy::ContinueAsToolResult)
     .build()?;
 ```
 
-- `max_steps` — exceeding it returns `ErrorCode::MaxStepsExceeded`.
-- `stop_when` — predicate evaluated after every step; truthy = stop early.
-- `tool_error_policy` —
-  - `ContinueAsToolResult` (default) — schema-validation failures, timeouts, and panics become `{ "error": "..." }` tool results so the model can recover.
+- **`max_steps`** — hard cap. Hitting it returns `ErrorCode::MaxStepsExceeded` instead of silently truncating.
+- **`stop_when`** — predicate checked after every step. Useful when you have a sharper definition of "done" than "no more tool calls".
+- **`tool_error_policy`** — what happens when a tool throws.
+  - `ContinueAsToolResult` (default) — schema-validation failures, timeouts, and panics become `{ "error": "..." }` results so the model can recover on the next step.
   - `FailFast` — surface as `ErrorCode::ToolExecutionFailed` / `InvalidToolArgs` immediately.
 
-### Multi-turn conversations
+#### Multi-turn conversations
 
-`AgentResponse.transcript` is a complete `Vec<Message>` (system + user + assistant + tool results) that you can feed straight back into the next turn:
+`AgentResponse.transcript` is a complete `Vec<Message>` (system + user + assistant + tool results) you can feed straight back in for the next turn — no manual reconstruction:
 
 ```rust
 let mut history = vec![Message::system_text("You are a careful assistant.")];
@@ -400,7 +475,11 @@ See `examples/mini_claude_code.rs` for a working terminal agent that uses this p
 
 ---
 
-## Multimodal vision
+### Multimodal
+
+Vision models take images alongside text. Aquaregia hides the per-provider differences behind one `ImagePart` type — you say "URL" or "bytes" once, and the right thing happens on the wire.
+
+The shortest path is `Message::user_image_url` or `Message::user_image_bytes`. For mixed content or multiple images per message, build a `Message` with explicit content parts:
 
 ```rust
 use aquaregia::{
@@ -430,16 +509,16 @@ let out = client
     .await?;
 ```
 
-Two convenience constructors plus a full-control form:
+The convenience constructors:
 
 | Constructor                                                              | Use case                                  |
 | ------------------------------------------------------------------------ | ----------------------------------------- |
-| `Message::user_image_url(url)`                                           | Single image from a URL                   |
-| `Message::user_image_bytes(bytes, mime)`                                 | Single image from raw bytes (auto base64) |
-| `Message::new(MessageRole::User, vec![Text, Image, …])`                  | Mixed content (text + image, multi-image) |
+| `Message::user_image_url(url)`                                           | One image from a URL                      |
+| `Message::user_image_bytes(bytes, mime)`                                 | One image from raw bytes (auto base64)    |
+| `Message::new(MessageRole::User, vec![Text, Image, …])`                  | Mixed content / multiple images           |
 | `ContentPart::Image(ImagePart { data, media_type, provider_metadata })`  | Full control + provider-specific hints    |
 
-Each provider sees its own native format:
+Each provider receives whatever native format it wants:
 
 | Provider            | URL                          | Base64 / Bytes                          |
 | ------------------- | ---------------------------- | --------------------------------------- |
@@ -449,9 +528,13 @@ Each provider sees its own native format:
 
 ---
 
-## Cancellation
+## Production
 
-Every request and agent run is cancellable through a `CancellationToken`.
+Code that calls an LLM in production has to deal with three boring-but-essential concerns: stopping work that's no longer wanted, surviving transient failures, and reporting errors usefully.
+
+### Cancellation
+
+Every request and agent run accepts a `CancellationToken`. Cancel the token and the operation stops at the next safe boundary — Aquaregia checks before every HTTP send (via `tokio::select!`, zero overhead on the happy path), after every SSE chunk in streaming responses, and at the top of every agent step.
 
 ```rust
 use aquaregia::{CancellationToken, ErrorCode, GenerateTextRequest};
@@ -471,104 +554,37 @@ let req = GenerateTextRequest::builder("deepseek-v4-pro")
 
 match client.generate(req).await {
     Err(e) if e.code == ErrorCode::Cancelled => println!("cancelled"),
-    other => println!("{other:?}"),
+    other                                    => println!("{other:?}"),
 }
 ```
 
-Agents bind the token at builder time:
+Agents can take the token at builder time so every `agent.run(...)` call uses the same one:
 
 ```rust
 let agent = Agent::builder(client, "deepseek-v4-pro")
     .cancellation_token(token.clone())
     .build()?;
-
-agent.run("hello").await?;
-agent.run_messages(messages).await?;
 ```
 
-Cancellation is checked **before every HTTP send** (via `tokio::select!`, zero overhead on the happy path), **after every SSE chunk** in streaming responses, and **at the top of every agent step** in the tool loop.
+### Retries & timeouts
 
----
-
-## Reliability
-
-### Retries
+Two knobs, set on the client:
 
 ```rust
-let client = LlmClient::openai().api_key(api_key)
-    .max_retries(3)                       // default: 0
+let client = LlmClient::openai()
+    .api_key(api_key)
+    .max_retries(3)                          // default: 0
     .timeout(Duration::from_secs(45))
     .build()?;
 ```
 
-Aquaregia retries automatically on transient classes (`RateLimited`, `ProviderServerError`, `Transport`, `Timeout`) using exponential backoff with jitter. The `Retry-After` header is parsed and honored when present.
+Aquaregia retries on the classes that are actually transient: `RateLimited`, `ProviderServerError`, `Transport`, `Timeout`. Backoff is exponential with jitter. If the provider returns a `Retry-After` header, Aquaregia honours it instead of using its own delay.
 
-Every `Error` carries a `retryable: bool` flag matching the same classification, so you can layer your own retry/circuit-breaker on top if you need finer control.
+Every `Error` also carries `retryable: bool` flagging the same classification, so if you need a custom retry / circuit-breaker layer, you don't have to redo the taxonomy.
 
----
+### Error handling
 
-## Framework integration example (Axum)
-
-Aquaregia intentionally keeps web framework adapters out of the crate. If you're building on Axum, adapt `TextStream` in your application layer:
-
-```rust
-use aquaregia::{BoundClient, GenerateTextRequest, StreamEvent, TextStream};
-use axum::{
-    extract::State,
-    response::{
-        IntoResponse,
-        sse::{Event, Sse},
-    },
-    routing::get,
-    Router,
-};
-use futures_util::StreamExt;
-use std::{convert::Infallible, sync::Arc};
-
-fn to_axum_sse(
-    stream: TextStream,
-) -> impl IntoResponse {
-    Sse::new(stream.map(|item| {
-        let event = match item {
-            Ok(StreamEvent::ReasoningStarted { .. }) => {
-                Event::default().event("reasoning_start").data("{}")
-            }
-            Ok(StreamEvent::ReasoningDelta { text, .. }) => {
-                Event::default().event("reasoning_token").data(text)
-            }
-            Ok(StreamEvent::ReasoningDone { .. }) => {
-                Event::default().event("reasoning_end").data("{}")
-            }
-            Ok(StreamEvent::TextDelta { text }) => Event::default().event("token").data(text),
-            Ok(StreamEvent::ToolCallReady { .. }) => Event::default().event("tool_call").data("{}"),
-            Ok(StreamEvent::Usage { .. }) => Event::default().event("usage").data("{}"),
-            Ok(StreamEvent::Done) => Event::default().event("done").data("{}"),
-            Err(err) => Event::default().event("error").data(err.message),
-        };
-        Ok::<Event, Infallible>(event)
-    }))
-}
-
-async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
-    let stream = client
-        .stream(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "Hello."))
-        .await
-        .unwrap();
-    to_axum_sse(stream)
-}
-
-let app: Router = Router::new()
-    .route("/chat", get(chat))
-    .with_state(Arc::new(client));
-```
-
-The example keeps non-text payloads minimal; in a real app, serialize tool calls, usage, and reasoning metadata into whatever wire format your frontend expects.
-
-Map the `StreamEvent` variants you care about to named SSE events, websocket messages, or any other transport format your app uses.
-
----
-
-## Error handling
+`Error` is a structured payload, not just a string. Match on `code: ErrorCode` for control flow; read the rest for diagnostics:
 
 ```rust
 use aquaregia::ErrorCode;
@@ -589,13 +605,99 @@ match client.generate(req).await {
 
 Every `Error` carries:
 
-- `code: ErrorCode` — one of 13 normalized variants
-- `provider`, `status`, `request_id`, `raw_body`, `retry_after_secs` — for logging and triage
-- `retryable: bool` — `true` iff Aquaregia's built-in retry will engage
+- `code: ErrorCode` — a normalised variant (the discriminator you actually want to switch on)
+- `provider`, `status`, `request_id`, `raw_body`, `retry_after_secs` — diagnostic fields for logs and support tickets
+- `retryable: bool` — `true` iff Aquaregia's built-in retry would engage
 
 ---
 
-## Examples
+## Integration
+
+Aquaregia keeps web framework adapters out of the crate on purpose — `TextStream` is a `Stream` of `StreamEvent` and adapts cleanly to whatever transport your app already uses.
+
+Here's the Axum SSE pattern. Every `StreamEvent` becomes a named SSE event your frontend can switch on:
+
+```rust
+use aquaregia::{BoundClient, GenerateTextRequest, StreamEvent, TextStream};
+use axum::{
+    extract::State,
+    response::{
+        IntoResponse,
+        sse::{Event, Sse},
+    },
+    routing::get,
+    Router,
+};
+use futures_util::StreamExt;
+use std::{convert::Infallible, sync::Arc};
+
+fn to_axum_sse(stream: TextStream) -> impl IntoResponse {
+    Sse::new(stream.map(|item| {
+        let event = match item {
+            Ok(StreamEvent::ReasoningStarted { .. })       => Event::default().event("reasoning_start").data("{}"),
+            Ok(StreamEvent::ReasoningDelta { text, .. })   => Event::default().event("reasoning_token").data(text),
+            Ok(StreamEvent::ReasoningDone { .. })          => Event::default().event("reasoning_end").data("{}"),
+            Ok(StreamEvent::TextDelta { text })            => Event::default().event("token").data(text),
+            Ok(StreamEvent::ToolCallReady { .. })          => Event::default().event("tool_call").data("{}"),
+            Ok(StreamEvent::Usage { .. })                  => Event::default().event("usage").data("{}"),
+            Ok(StreamEvent::Done)                          => Event::default().event("done").data("{}"),
+            Err(err)                                       => Event::default().event("error").data(err.message),
+        };
+        Ok::<Event, Infallible>(event)
+    }))
+}
+
+async fn chat(State(client): State<Arc<BoundClient>>) -> impl IntoResponse {
+    let stream = client
+        .stream(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "Hello."))
+        .await
+        .unwrap();
+    to_axum_sse(stream)
+}
+
+let app: Router = Router::new()
+    .route("/chat", get(chat))
+    .with_state(Arc::new(client));
+```
+
+For Actix, Warp, or your own gRPC layer the recipe is identical — map each `StreamEvent` variant to your wire format. The example keeps non-text payloads minimal; in a real app you'd serialise tool calls, usage, and reasoning metadata into whatever shape your frontend already speaks.
+
+---
+
+## Reference
+
+Lookup tables for when you know roughly what you want and need the exact name.
+
+### Capability matrix
+
+| Capability                       | OpenAI | Anthropic | Google | OpenAI-Compatible |
+| -------------------------------- | :----: | :-------: | :----: | :---------------: |
+| Custom `base_url`                |   ✓    |     ✓     |   ✓    |         ✓         |
+| Custom headers / query / path    |        |           |        |         ✓         |
+| `api_version` (header)           |        |     ✓     |        |                   |
+| Structured output                |   ✓    |     ✓     |   ✓    |         ✓         |
+| Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
+| Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
+
+### `Usage` fields
+
+```rust
+pub struct Usage {
+    pub input_tokens:             u32, // total
+    pub input_no_cache_tokens:    u32,
+    pub input_cache_read_tokens:  u32,
+    pub input_cache_write_tokens: u32,
+    pub output_tokens:            u32, // total
+    pub output_text_tokens:       u32,
+    pub reasoning_tokens:         u32,
+    pub total_tokens:             u32,
+    pub raw_usage:                Option<serde_json::Value>,
+}
+```
+
+`Usage` implements `Add` and `AddAssign`, so totalling tokens across agent steps is a one-liner. `AgentResponse.usage_total` is already aggregated for you.
+
+### Examples
 
 ```bash
 DEEPSEEK_API_KEY=... cargo run --example basic_generate
@@ -605,6 +707,7 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | ----------------------------- | ----------------------------------------------------------- |
 | `basic_generate`              | One-shot `generate` + usage reading                         |
 | `basic_stream`                | `stream` + `StreamEvent` handling                           |
+| `structured_streaming`        | `stream_object::<T>()` + progressive `Partial` events       |
 | `agent_minimal`               | `Agent::builder` with one typed tool                        |
 | `tools_max_steps`             | Multi-tool loop with `max_steps` and sampling caps          |
 | `prepare_hooks`               | `prepare_step`, `on_step_finish`                            |
@@ -613,6 +716,10 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | `multimodal_image`            | `Message::new` with mixed text + image parts + Anthropic vision |
 
 Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_image`. See [`examples/README.md`](./examples/README.md) for full descriptions.
+
+### API reference
+
+Full type signatures, every public item, every variant — on [docs.rs/aquaregia](https://docs.rs/aquaregia).
 
 ---
 
@@ -637,7 +744,7 @@ This repository also keeps agent-facing guidance principle-based on purpose. Fil
 
 ## Contributing & License
 
-Contributions are welcome. For behavior changes, include integration tests (happy path + error mapping + tool/stream flows where relevant).
+Contributions are welcome. For behaviour changes, include integration tests (happy path + error mapping + tool/stream flows where relevant).
 
 - [Contributing Guide](./CONTRIBUTING.md)
 - [Code of Conduct](./CODE_OF_CONDUCT.md)
