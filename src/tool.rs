@@ -1,11 +1,10 @@
-//! Tool definition, execution, and registry types for Aquaregia agents.
+//! Tool definition and execution types for Aquaregia agents.
 //!
 //! This module provides the tool abstraction for LLM function calling:
 //!
 //! - [`Tool`]: Runtime tool value with descriptor and executor
 //! - [`ToolDescriptor`]: Serializable tool metadata sent to providers
 //! - [`ToolExecutor`]: Async trait for tool execution
-//! - [`ToolRegistry`]: Validated registry of tools keyed by name
 //! - [`tool()`]: Builder for creating tools with typed arguments
 //! ## Defining Tools
 //!
@@ -49,7 +48,7 @@ use crate::error::{Error, ErrorCode};
 /// Serializable description of a callable tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDescriptor {
-    /// Unique tool name (validated by [`ToolRegistry`]).
+    /// Unique tool name (max 64 chars, `[a-zA-Z0-9_-]`).
     pub name: String,
     /// Human-readable description shown to the model.
     pub description: String,
