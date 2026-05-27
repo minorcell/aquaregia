@@ -1819,5 +1819,4 @@ mod tests {
             .expect("run tools should build");
         assert_eq!(rt.tool_error_policy, ToolErrorPolicy::ContinueAsToolResult);
     }
-
 }

@@ -75,10 +75,7 @@ pub struct Agent {
 
 impl Agent {
     /// Starts building an [`Agent`] from a provider-bound client and model.
-    pub fn builder(
-        client: impl Into<Arc<BoundClient>>,
-        model: impl Into<String>,
-    ) -> AgentBuilder {
+    pub fn builder(client: impl Into<Arc<BoundClient>>, model: impl Into<String>) -> AgentBuilder {
         AgentBuilder::new(client.into(), model.into())
     }
 
