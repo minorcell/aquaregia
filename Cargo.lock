@@ -17,6 +17,7 @@ version = "0.1.9"
 dependencies = [
  "async-stream",
  "async-trait",
+ "base64",
  "futures-core",
  "futures-util",
  "http",
