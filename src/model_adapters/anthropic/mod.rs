@@ -429,10 +429,7 @@ impl PendingToolUse {
 
 fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
-    payload.insert(
-        "model".to_string(),
-        Value::String(req.model.model().to_string()),
-    );
+    payload.insert("model".to_string(), Value::String(req.model.clone()));
     payload.insert(
         "messages".to_string(),
         Value::Array(

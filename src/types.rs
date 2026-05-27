@@ -18,84 +18,6 @@ use serde_json::Value;
 use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
 
-/// Supported provider families.
-///
-/// This enum identifies the provider family for a given request or client configuration.
-/// It is used internally for routing requests to the correct adapter implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProviderKind {
-    /// OpenAI provider family.
-    OpenAi,
-    /// Anthropic provider family.
-    Anthropic,
-    /// Google provider family.
-    Google,
-    /// OpenAI-compatible provider family (e.g., DeepSeek, local LLM servers).
-    OpenAiCompatible,
-}
-
-impl ProviderKind {
-    /// Returns the canonical provider slug.
-    ///
-    /// This method returns the normalized string identifier for the provider,
-    /// suitable for use in URLs, logging, or configuration.
-    pub fn as_slug(&self) -> &'static str {
-        match self {
-            Self::OpenAi => "openai",
-            Self::Anthropic => "anthropic",
-            Self::Google => "google",
-            Self::OpenAiCompatible => "openai-compatible",
-        }
-    }
-}
-
-/// Model reference: a provider-local model identifier string.
-///
-/// # Example
-///
-/// ```
-/// use aquaregia::ModelRef;
-///
-/// let model = ModelRef::new("gpt-5.5");
-/// assert_eq!(model.model(), "gpt-5.5");
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ModelRef {
-    model: String,
-}
-
-impl ModelRef {
-    /// Creates a model reference from a model id string.
-    pub fn new(model: impl Into<String>) -> Self {
-        Self {
-            model: model.into(),
-        }
-    }
-
-    /// Returns the model id string.
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-}
-
-impl std::fmt::Display for ModelRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.model)
-    }
-}
-
-impl From<&str> for ModelRef {
-    fn from(s: &str) -> Self {
-        ModelRef::new(s)
-    }
-}
-
-impl From<String> for ModelRef {
-    fn from(s: String) -> Self {
-        ModelRef::new(s)
-    }
-}
-
 /// Chat message role used across providers.
 ///
 /// This enum represents the standard roles in a multi-turn conversation,
@@ -370,7 +292,7 @@ pub struct OutputSchema {
 /// Request for generation/streaming calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GenerateTextRequest {
-    pub(crate) model: ModelRef,
+    pub(crate) model: String,
     pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
@@ -389,7 +311,7 @@ impl GenerateTextRequest {
     }
 
     /// Builds a one-message request from a user prompt.
-    pub fn from_user_prompt(model: impl Into<ModelRef>, prompt: impl Into<String>) -> Self {
+    pub fn from_user_prompt(model: impl Into<String>, prompt: impl Into<String>) -> Self {
         Self {
             model: model.into(),
             messages: vec![Message::user_text(prompt)],
@@ -404,7 +326,7 @@ impl GenerateTextRequest {
     }
 
     /// Starts a request builder.
-    pub fn builder(model: impl Into<ModelRef>) -> GenerateTextRequestBuilder {
+    pub fn builder(model: impl Into<String>) -> GenerateTextRequestBuilder {
         GenerateTextRequestBuilder {
             request: Self {
                 model: model.into(),
@@ -518,7 +440,7 @@ pub enum ToolErrorPolicy {
 
 #[derive(Clone)]
 pub(crate) struct RunTools {
-    pub(crate) model: ModelRef,
+    pub(crate) model: String,
     pub(crate) messages: Vec<Message>,
     pub(crate) tools: Vec<Tool>,
     pub(crate) max_steps: Option<u32>,
@@ -539,7 +461,7 @@ pub(crate) struct RunTools {
 }
 
 impl RunTools {
-    pub(crate) fn new(model: impl Into<ModelRef>) -> Self {
+    pub(crate) fn new(model: impl Into<String>) -> Self {
         Self {
             model: model.into(),
             messages: Vec::new(),
@@ -560,11 +482,6 @@ impl RunTools {
             tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
             cancellation_token: None,
         }
-    }
-
-    pub(crate) fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
-        self.messages = messages.into_iter().collect();
-        self
     }
 
     pub(crate) fn tools<I, T>(mut self, tools: I) -> Self
@@ -777,7 +694,7 @@ pub struct AgentPrepareStep {
     /// 1-based step index to be executed.
     pub step: u32,
     /// Model selected for this step.
-    pub model: ModelRef,
+    pub model: String,
     /// Messages that will be sent unless changed.
     pub messages: Vec<Message>,
     /// Tools currently available for this step.
@@ -796,7 +713,7 @@ pub struct AgentPrepareStep {
 #[derive(Debug, Clone)]
 pub struct AgentPreparedStep {
     /// Model selected for this step.
-    pub model: ModelRef,
+    pub model: String,
     /// Messages to send for this step.
     pub messages: Vec<Message>,
     /// Tools available for this step.
@@ -1180,8 +1097,8 @@ pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) fn validate_model_ref(model: &ModelRef) -> Result<(), Error> {
-    if model.model().trim().is_empty() {
+pub(crate) fn validate_model_ref(model: &str) -> Result<(), Error> {
+    if model.trim().is_empty() {
         return Err(Error::new(
             ErrorCode::InvalidRequest,
             "model name cannot be empty",
@@ -1214,68 +1131,15 @@ pub(crate) fn validate_sampling(temperature: Option<f32>, top_p: Option<f32>) ->
 mod tests {
     use super::*;
 
-    // ─── ModelRef ────────────────────────────────────────────────────────
-
-    #[test]
-    fn builds_openai_model() {
-        let model = ModelRef::new("gpt-5.4-mini");
-        assert_eq!(model.model(), "gpt-5.4-mini");
-    }
+    // ─── Model validation ────────────────────────────────────────────────
 
     #[test]
     fn rejects_empty_model_name() {
-        let model = ModelRef::new("  ");
-        let err = validate_model_ref(&model).expect_err("empty model should fail");
+        let err = validate_model_ref("  ").expect_err("empty model should fail");
         assert!(
             err.message.contains("cannot be empty"),
             "unexpected error: {}",
             err.message
-        );
-    }
-
-    #[test]
-    fn model_ref_display_matches_model_id() {
-        let model = ModelRef::new("gpt-5.4-mini");
-        assert_eq!(model.to_string(), "gpt-5.4-mini");
-    }
-
-    #[test]
-    fn model_ref_serialization_roundtrip() {
-        let model = ModelRef::new("gpt-5.5");
-        let json = serde_json::to_string(&model).unwrap();
-        let deserialized: ModelRef = serde_json::from_str(&json).unwrap();
-        assert_eq!(deserialized.model(), "gpt-5.5");
-    }
-
-    #[test]
-    fn into_model_ref_from_string() {
-        let model: ModelRef = "gpt-5.5".into();
-        assert_eq!(model.model(), "gpt-5.5");
-    }
-
-    #[test]
-    fn into_model_ref_from_owned_string() {
-        let model: ModelRef = String::from("o1").into();
-        assert_eq!(model.model(), "o1");
-    }
-
-    #[test]
-    fn into_model_ref_from_model_ref_is_identity() {
-        let original = ModelRef::new("gpt-5.5");
-        let cloned = original.clone();
-        assert_eq!(cloned.model(), "gpt-5.5");
-    }
-
-    // ─── ProviderKind ────────────────────────────────────────────────────
-
-    #[test]
-    fn provider_kind_as_slug() {
-        assert_eq!(ProviderKind::OpenAi.as_slug(), "openai");
-        assert_eq!(ProviderKind::Anthropic.as_slug(), "anthropic");
-        assert_eq!(ProviderKind::Google.as_slug(), "google");
-        assert_eq!(
-            ProviderKind::OpenAiCompatible.as_slug(),
-            "openai-compatible"
         );
     }
 
@@ -1626,7 +1490,7 @@ mod tests {
     fn agent_prepare_step_to_prepared() {
         let step = AgentPrepareStep {
             step: 1,
-            model: ModelRef::new("gpt-5.5"),
+            model: "gpt-5.5".to_string(),
             messages: vec![Message::user_text("hi")],
             tools: vec![],
             temperature: Some(0.5),
@@ -1635,7 +1499,7 @@ mod tests {
             previous_steps: vec![],
         };
         let prepared = step.to_prepared();
-        assert_eq!(prepared.model.model(), "gpt-5.5");
+        assert_eq!(prepared.model.as_str(), "gpt-5.5");
         assert_eq!(prepared.temperature, Some(0.5));
         assert_eq!(prepared.max_output_tokens, Some(100));
         assert_eq!(prepared.messages.len(), 1);
@@ -1753,9 +1617,9 @@ mod tests {
 
     #[test]
     fn builds_request_from_prompt() {
-        let request = GenerateTextRequest::from_user_prompt(ModelRef::new("gpt-5.4-mini"), "hello");
+        let request = GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hello");
         assert_eq!(request.messages.len(), 1);
-        assert_eq!(request.model.model(), "gpt-5.4-mini");
+        assert_eq!(request.model.as_str(), "gpt-5.4-mini");
     }
 
     #[test]
@@ -1778,7 +1642,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_top_p() {
-        let err = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let err = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hello"))
             .top_p(1.1)
             .build()
@@ -1788,7 +1652,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_temperature() {
-        let err = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let err = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hello"))
             .temperature(2.1)
             .build()
@@ -1798,7 +1662,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_empty_messages() {
-        let err = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let err = GenerateTextRequest::builder("gpt-5.4-mini")
             .build()
             .expect_err("empty messages should fail");
         assert!(err.message.contains("cannot be empty"));
@@ -1806,7 +1670,7 @@ mod tests {
 
     #[test]
     fn request_builder_accepts_messages_method() {
-        let req = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
             .messages(vec![Message::user_text("h1"), Message::user_text("h2")])
             .build()
             .expect("request should build");
@@ -1815,7 +1679,7 @@ mod tests {
 
     #[test]
     fn request_builder_user_prompt_replaces_messages() {
-        let req = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("old"))
             .user_prompt("replaced")
             .build()
@@ -1825,7 +1689,7 @@ mod tests {
 
     #[test]
     fn request_builder_sets_all_fields() {
-        let req = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .temperature(0.7)
             .top_p(0.9)
@@ -1843,7 +1707,7 @@ mod tests {
 
     #[test]
     fn request_builder_empty_tools_is_none() {
-        let req = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .tools(Vec::<crate::tool::ToolDescriptor>::new())
             .build()
@@ -1853,7 +1717,7 @@ mod tests {
 
     #[test]
     fn request_builder_valid_temperature_boundary() {
-        let req = GenerateTextRequest::builder(ModelRef::new("gpt-5.4-mini"))
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .temperature(2.0)
             .top_p(0.0)
@@ -1901,10 +1765,15 @@ mod tests {
 
     // ─── RunTools builder ────────────────────────────────────────────────
 
+    fn run_tools_with_messages(model: &str) -> RunTools {
+        let mut rt = RunTools::new(model);
+        rt.messages = vec![Message::user_text("hello")];
+        rt
+    }
+
     #[test]
     fn run_tools_builds_with_valid_config() {
-        let rt = RunTools::new(ModelRef::new("gpt-5.5"))
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .tools(Vec::<crate::tool::Tool>::new())
             .max_steps(5)
             .temperature(0.5)
@@ -1920,8 +1789,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_accepts_zero_max_steps_as_unlimited() {
-        let req = RunTools::new(ModelRef::new("gpt-5.5"))
-            .messages([Message::user_text("hello")])
+        let req = run_tools_with_messages("gpt-5.5")
             .max_steps(0)
             .build()
             .expect("0 max_steps is allowed and means unlimited");
@@ -1930,10 +1798,7 @@ mod tests {
 
     #[test]
     fn run_tools_build_rejects_invalid_model() {
-        match RunTools::new(ModelRef::new("  "))
-            .messages([Message::user_text("hello")])
-            .build()
-        {
+        match run_tools_with_messages("  ").build() {
             Err(err) => assert!(err.message.contains("cannot be empty")),
             Ok(_) => panic!("should have failed"),
         }
@@ -1941,8 +1806,7 @@ mod tests {
 
     #[test]
     fn run_tools_default_max_steps_is_none() {
-        let rt = RunTools::new(ModelRef::new("gpt-5.5"))
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .build()
             .expect("run tools should build");
         assert_eq!(rt.max_steps, None);
@@ -1950,11 +1814,9 @@ mod tests {
 
     #[test]
     fn run_tools_default_tool_error_policy() {
-        let rt = RunTools::new(ModelRef::new("gpt-5.5"))
-            .messages([Message::user_text("hello")])
+        let rt = run_tools_with_messages("gpt-5.5")
             .build()
             .expect("run tools should build");
         assert_eq!(rt.tool_error_policy, ToolErrorPolicy::ContinueAsToolResult);
     }
-
 }

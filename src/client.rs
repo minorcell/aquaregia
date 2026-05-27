@@ -60,9 +60,24 @@ use crate::types::{
     validate_messages, validate_model_ref, validate_sampling,
 };
 
-#[doc(hidden)]
-pub trait BuildProvider {
+mod sealed {
+    pub trait Sealed {}
+    impl Sealed for super::OpenAiAdapterSettings {}
+    impl Sealed for super::AnthropicAdapterSettings {}
+    impl Sealed for super::GoogleAdapterSettings {}
+    impl Sealed for super::OpenAiCompatibleAdapterSettings {}
+}
+
+/// Provider-settings contract consumed by [`ClientBuilder`].
+///
+/// This trait is sealed: it is implemented exactly for the four built-in
+/// `*AdapterSettings` types and cannot be implemented downstream. External
+/// providers should add an adapter to the `model_adapters` module rather
+/// than implementing this trait.
+pub trait BuildProvider: sealed::Sealed {
+    #[doc(hidden)]
     fn validate(&self) -> Result<(), Error>;
+    #[doc(hidden)]
     fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
 
@@ -528,7 +543,7 @@ impl BoundClient {
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
-                model_id: model.model().to_string(),
+                model_id: model.clone(),
                 messages: messages.clone(),
                 tool_count: tools.len(),
                 max_steps: resolved_max_steps,

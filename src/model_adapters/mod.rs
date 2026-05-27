@@ -43,6 +43,7 @@
 //! ```
 
 use async_trait::async_trait;
+use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::Response;
 
 use crate::error::Error;
@@ -101,25 +102,5 @@ pub(crate) fn map_send_error(provider_id: &str, err: reqwest::Error) -> Error {
 }
 
 pub(crate) fn base64_encode(data: &[u8]) -> String {
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
-    for chunk in data.chunks(3) {
-        let b0 = chunk[0] as usize;
-        let b1 = chunk.get(1).copied().unwrap_or(0) as usize;
-        let b2 = chunk.get(2).copied().unwrap_or(0) as usize;
-        let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(CHARS[(n >> 18) & 0x3f] as char);
-        out.push(CHARS[(n >> 12) & 0x3f] as char);
-        out.push(if chunk.len() > 1 {
-            CHARS[(n >> 6) & 0x3f] as char
-        } else {
-            '='
-        });
-        out.push(if chunk.len() > 2 {
-            CHARS[n & 0x3f] as char
-        } else {
-            '='
-        });
-    }
-    out
+    STANDARD.encode(data)
 }

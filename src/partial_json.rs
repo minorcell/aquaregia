@@ -62,53 +62,52 @@ pub(crate) fn repair_json(input: &str) -> String {
     let mut unicode_hex_remaining: u8 = 0;
 
     // Helper: push `swap` before the new value state.
-    let process_value_start =
-        |stack: &mut Vec<State>,
-         c: char,
-         swap: State,
-         last_valid_index: &mut i64,
-         literal_start: &mut Option<usize>,
-         i: usize| {
-            match c {
-                '"' => {
-                    *last_valid_index = i as i64;
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideString);
-                }
-                'f' | 't' | 'n' => {
-                    *last_valid_index = i as i64;
-                    *literal_start = Some(i);
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideLiteral);
-                }
-                '-' => {
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideNumber);
-                }
-                '0'..='9' => {
-                    *last_valid_index = i as i64;
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideNumber);
-                }
-                '{' => {
-                    *last_valid_index = i as i64;
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideObjectStart);
-                }
-                '[' => {
-                    *last_valid_index = i as i64;
-                    stack.pop();
-                    stack.push(swap);
-                    stack.push(State::InsideArrayStart);
-                }
-                _ => {}
+    let process_value_start = |stack: &mut Vec<State>,
+                               c: char,
+                               swap: State,
+                               last_valid_index: &mut i64,
+                               literal_start: &mut Option<usize>,
+                               i: usize| {
+        match c {
+            '"' => {
+                *last_valid_index = i as i64;
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideString);
             }
-        };
+            'f' | 't' | 'n' => {
+                *last_valid_index = i as i64;
+                *literal_start = Some(i);
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideLiteral);
+            }
+            '-' => {
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideNumber);
+            }
+            '0'..='9' => {
+                *last_valid_index = i as i64;
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideNumber);
+            }
+            '{' => {
+                *last_valid_index = i as i64;
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideObjectStart);
+            }
+            '[' => {
+                *last_valid_index = i as i64;
+                stack.pop();
+                stack.push(swap);
+                stack.push(State::InsideArrayStart);
+            }
+            _ => {}
+        }
+    };
 
     for i in 0..n {
         let c = chars[i];
@@ -117,7 +116,12 @@ pub(crate) fn repair_json(input: &str) -> String {
         match current {
             State::Root => {
                 process_value_start(
-                    &mut stack, c, State::Finish, &mut last_valid_index, &mut literal_start, i,
+                    &mut stack,
+                    c,
+                    State::Finish,
+                    &mut last_valid_index,
+                    &mut literal_start,
+                    i,
                 );
             }
 
@@ -133,13 +137,12 @@ pub(crate) fn repair_json(input: &str) -> String {
                 _ => {}
             },
 
-            State::InsideObjectAfterComma => match c {
-                '"' => {
+            State::InsideObjectAfterComma => {
+                if c == '"' {
                     stack.pop();
                     stack.push(State::InsideObjectKey);
                 }
-                _ => {}
-            },
+            }
 
             State::InsideObjectKey => {
                 // We're inside a key string — just wait for the closing quote.
@@ -156,13 +159,12 @@ pub(crate) fn repair_json(input: &str) -> String {
                 }
             }
 
-            State::InsideObjectAfterKey => match c {
-                ':' => {
+            State::InsideObjectAfterKey => {
+                if c == ':' {
                     stack.pop();
                     stack.push(State::InsideObjectBeforeValue);
                 }
-                _ => {}
-            },
+            }
 
             State::InsideObjectBeforeValue => {
                 process_value_start(
@@ -529,7 +531,10 @@ mod tests {
     fn complete_array_of_objects() {
         let s = r#"{"people":[{"name":"A"},{"name":"B"}]}"#;
         let v = parse_value(s).unwrap();
-        assert_eq!(v, serde_json::json!({"people": [{"name": "A"}, {"name": "B"}]}));
+        assert_eq!(
+            v,
+            serde_json::json!({"people": [{"name": "A"}, {"name": "B"}]})
+        );
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -871,10 +876,7 @@ mod tests {
         let partial = r#"{"people":[{"name":"A"},{"na"#;
         let v = parse_value(partial).unwrap();
         // Truncated key inside second object — `{` was valid so we get an empty `{}`.
-        assert_eq!(
-            v,
-            serde_json::json!({"people": [{"name": "A"}, {}]})
-        );
+        assert_eq!(v, serde_json::json!({"people": [{"name": "A"}, {}]}));
     }
 
     #[test]
@@ -978,10 +980,7 @@ mod tests {
     fn comma_inside_string_does_not_switch_stage() {
         let s = r#"{"greeting":"hello, world"}"#;
         let v = parse_value(s).unwrap();
-        assert_eq!(
-            v,
-            serde_json::json!({"greeting": "hello, world"})
-        );
+        assert_eq!(v, serde_json::json!({"greeting": "hello, world"}));
     }
 
     #[test]
