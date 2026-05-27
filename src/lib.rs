@@ -96,7 +96,6 @@ pub use types::{
     MediaData,
     Message,
     MessageRole,
-    ModelRef,
     ObjectStream,
     OutputSchema,
     ReasoningPart,

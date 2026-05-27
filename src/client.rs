@@ -528,7 +528,7 @@ impl BoundClient {
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
-                model_id: model.model().to_string(),
+                model_id: model.clone(),
                 messages: messages.clone(),
                 tool_count: tools.len(),
                 max_steps: resolved_max_steps,

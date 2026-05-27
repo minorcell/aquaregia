@@ -393,7 +393,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     let mut payload = Map::new();
     payload.insert(
         "model".to_string(),
-        Value::String(req.model.model().to_string()),
+        Value::String(req.model.clone()),
     );
     payload.insert("stream".to_string(), Value::Bool(stream));
 

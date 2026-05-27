@@ -48,9 +48,8 @@ use crate::client::BoundClient;
 use crate::tool::{IntoTool, Tool};
 use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, Message, ModelRef,
-    PrepareStepHook, RunTools, StopPredicate, ToolErrorPolicy, validate_model_ref,
-    validate_sampling,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Hook, Message, PrepareStepHook,
+    RunTools, StopPredicate, ToolErrorPolicy, validate_model_ref, validate_sampling,
 };
 
 /// Multi-step tool-using agent bound to one provider and one default model.
@@ -70,7 +69,7 @@ use crate::types::{
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
 pub struct Agent {
     client: Arc<BoundClient>,
-    model: ModelRef,
+    model: String,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u32>,
@@ -94,14 +93,14 @@ impl Agent {
     /// Starts building an [`Agent`] from a provider-bound client and model.
     pub fn builder(
         client: impl Into<Arc<BoundClient>>,
-        model: impl Into<ModelRef>,
+        model: impl Into<String>,
     ) -> AgentBuilder {
         AgentBuilder::new(client.into(), model.into())
     }
 
     /// Returns the fully qualified model id (`<provider>/<model>`).
     pub fn model_id(&self) -> String {
-        self.model.model().to_string()
+        self.model.clone()
     }
 
     /// Prepends instructions as a system message if configured and no system
@@ -210,7 +209,7 @@ impl Agent {
 /// Builder for configuring an [`Agent`].
 pub struct AgentBuilder {
     client: Arc<BoundClient>,
-    model: ModelRef,
+    model: String,
     instructions: Option<String>,
     tools: Vec<Tool>,
     max_steps: Option<u32>,
@@ -231,7 +230,7 @@ pub struct AgentBuilder {
 }
 
 impl AgentBuilder {
-    fn new(client: Arc<BoundClient>, model: ModelRef) -> Self {
+    fn new(client: Arc<BoundClient>, model: String) -> Self {
         Self {
             client,
             model,

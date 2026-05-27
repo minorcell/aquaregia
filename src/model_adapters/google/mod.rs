@@ -119,7 +119,7 @@ impl ModelAdapter for GoogleAdapter {
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
             .http
-            .post(self.generate_url(req.model.model()))
+            .post(self.generate_url(req.model.as_str()))
             .header("x-goog-api-key", &self.api_key)
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
@@ -156,7 +156,7 @@ impl ModelAdapter for GoogleAdapter {
         let cancel_token_stream = cancel_token.clone();
         let send_fut = self
             .http
-            .post(self.stream_url(req.model.model()))
+            .post(self.stream_url(req.model.as_str()))
             .header("x-goog-api-key", &self.api_key)
             .header(CONTENT_TYPE, "application/json")
             .json(&payload)
