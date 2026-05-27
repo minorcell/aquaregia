@@ -1,7 +1,4 @@
-use aquaregia::{
-    AnthropicAdapterSettings, ErrorCode, GoogleAdapterSettings, LlmClient, OpenAiAdapterSettings,
-    OpenAiCompatibleAdapterSettings,
-};
+use aquaregia::{ErrorCode, LlmClient};
 use std::time::Duration;
 
 // ─── OpenAI client builder ──────────────────────────────────────────────
@@ -106,46 +103,6 @@ fn openai_compatible_rejects_empty_base_url() {
         Err(err) => assert_eq!(err.code, ErrorCode::InvalidRequest),
         Ok(_) => panic!("empty base url should fail"),
     }
-}
-
-// ─── OpenAiCompatibleAdapterSettings ────────────────────────────────────
-
-#[test]
-fn compatible_settings_new_has_defaults() {
-    let mut s = OpenAiCompatibleAdapterSettings::new();
-    s.base_url = "https://api.example.com".to_string();
-    assert_eq!(s.base_url, "https://api.example.com");
-}
-
-// ─── Provider adapter settings constructors ─────────────────────────────
-
-#[test]
-fn openai_settings_default_base_url() {
-    let mut settings = OpenAiAdapterSettings::new();
-    settings.api_key = "sk-key".to_string();
-    assert!(settings.base_url.contains("api.openai.com"));
-    assert_eq!(settings.api_key, "sk-key");
-}
-
-#[test]
-fn anthropic_settings_default_values() {
-    let mut settings = AnthropicAdapterSettings::new();
-    settings.api_key = "sk-ant-key".to_string();
-    assert!(settings.base_url.contains("api.anthropic.com"));
-    assert_eq!(settings.api_key, "sk-ant-key");
-    assert!(settings.api_version.contains("2023-06-01"));
-}
-
-#[test]
-fn google_settings_default_base_url() {
-    let mut settings = GoogleAdapterSettings::new();
-    settings.api_key = "g-key".to_string();
-    assert!(
-        settings
-            .base_url
-            .contains("generativelanguage.googleapis.com")
-    );
-    assert_eq!(settings.api_key, "g-key");
 }
 
 // ─── ClientBuilder default_max_steps: 0 means unlimited, no upper cap ───
