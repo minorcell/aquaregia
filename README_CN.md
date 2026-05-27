@@ -85,7 +85,7 @@ let client = LlmClient::openai().api_key(std::env::var("OPENAI_API_KEY")?)
 
 ### 模型引用
 
-`GenerateTextRequest::from_user_prompt` 和 `.builder()` 接受任何 `impl Into<ModelRef>` —— 最常用的是裸 `&str`：
+`GenerateTextRequest::from_user_prompt` 和 `.builder()` 接受任何 `impl Into<String>` —— 最常用的是裸 `&str`：
 
 ```rust
 let req = GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!");
