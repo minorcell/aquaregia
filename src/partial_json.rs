@@ -46,7 +46,7 @@ enum State {
 /// 4. For `INSIDE_LITERAL`, complete truncated `true`/`false`/`null`.
 pub(crate) fn repair_json(input: &str) -> String {
     let s = input.trim();
-    if s.is_empty() || !s.starts_with('{') {
+    if s.is_empty() || (!s.starts_with('{') && !s.starts_with('[')) {
         return "{}".to_string();
     }
 
@@ -56,6 +56,10 @@ pub(crate) fn repair_json(input: &str) -> String {
     let mut stack: Vec<State> = vec![State::Root];
     let mut last_valid_index: i64 = -1;
     let mut literal_start: Option<usize> = None;
+    // Tracks remaining hex chars in a `\uXXXX` escape sequence (4→0).
+    // While > 0, `InsideString` suppresses `last_valid_index` updates
+    // so that an incomplete unicode escape is sliced away on repair.
+    let mut unicode_hex_remaining: u8 = 0;
 
     // Helper: push `swap` before the new value state.
     let process_value_start =
@@ -175,22 +179,41 @@ pub(crate) fn repair_json(input: &str) -> String {
                 process_after_object_value(c, i, &mut stack, &mut last_valid_index);
             }
 
-            State::InsideString => match c {
-                '"' => {
-                    stack.pop();
-                    last_valid_index = i as i64;
+            State::InsideString => {
+                if unicode_hex_remaining > 0 {
+                    if c.is_ascii_hexdigit() {
+                        unicode_hex_remaining -= 1;
+                        if unicode_hex_remaining == 0 {
+                            last_valid_index = i as i64;
+                        }
+                    }
+                    // Non-hex-digit during an incomplete unicode escape —
+                    // stay in InsideString, hex_remaining stays > 0, and
+                    // last_valid_index is never advanced, so the broken
+                    // escape will be sliced away on repair.
+                } else {
+                    match c {
+                        '"' => {
+                            stack.pop();
+                            last_valid_index = i as i64;
+                        }
+                        '\\' => {
+                            stack.push(State::InsideStringEscape);
+                        }
+                        _ => {
+                            last_valid_index = i as i64;
+                        }
+                    }
                 }
-                '\\' => {
-                    stack.push(State::InsideStringEscape);
-                }
-                _ => {
-                    last_valid_index = i as i64;
-                }
-            },
+            }
 
             State::InsideStringEscape => {
                 stack.pop();
-                last_valid_index = i as i64;
+                if c == 'u' {
+                    unicode_hex_remaining = 4;
+                } else {
+                    last_valid_index = i as i64;
+                }
             }
 
             State::InsideArrayStart => match c {
@@ -1160,5 +1183,101 @@ mod tests {
         let s = r#"{"text":"hello 👋"}"#;
         let v = parse_value(s).unwrap();
         assert_eq!(v, serde_json::json!({"text": "hello 👋"}));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Unicode escape sequences
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn complete_unicode_escape() {
+        // b = 'b'
+        let s = r#"{"text":"b"}"#;
+        let v = parse_value(s).unwrap();
+        assert_eq!(v, serde_json::json!({"text": "b"}));
+    }
+
+    #[test]
+    fn truncated_unicode_escape_two_hex() {
+        // \u00 is incomplete — escape sliced away, no crash.
+        let partial = r#"{"text":"\u00"#;
+        let repaired = repair_json(partial);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "repaired `{}` should parse",
+            repaired
+        );
+    }
+
+    #[test]
+    fn truncated_unicode_escape_three_hex() {
+        let partial = r#"{"text":"\u006"#;
+        let repaired = repair_json(partial);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "repaired `{}` should parse",
+            repaired
+        );
+    }
+
+    #[test]
+    fn truncated_unicode_escape_no_hex() {
+        // \u with zero hex chars — escape sliced away.
+        let partial = r#"{"text":"\u"#;
+        let repaired = repair_json(partial);
+        assert!(
+            serde_json::from_str::<serde_json::Value>(&repaired).is_ok(),
+            "repaired `{}` should parse",
+            repaired
+        );
+    }
+
+    #[test]
+    fn truncated_unicode_escape_with_non_hex() {
+        // \u00 followed by non-hex char — escape abandoned.
+        let partial = r#"{"text":"\u00x"#;
+        let repaired = repair_json(partial);
+        let v: serde_json::Value = serde_json::from_str(&repaired).unwrap();
+        // The incomplete escape + garbage is sliced away; we get an empty string.
+        assert_eq!(v, serde_json::json!({"text": ""}));
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // Root-level arrays
+    // ═══════════════════════════════════════════════════════════════════════════
+
+    #[test]
+    fn root_array_empty() {
+        let s = "[]";
+        let v = parse_value(s).unwrap();
+        assert_eq!(v, serde_json::json!([]));
+    }
+
+    #[test]
+    fn root_array_truncated() {
+        let partial = "[1,2,3";
+        let v = parse_value(partial).unwrap();
+        assert_eq!(v, serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn root_array_of_objects_truncated() {
+        let partial = "[{\"id\":1},{\"id\":2";
+        let v = parse_value(partial).unwrap();
+        assert_eq!(v, serde_json::json!([{"id": 1}, {"id": 2}]));
+    }
+
+    #[test]
+    fn root_array_opening_bracket_only() {
+        let partial = "[";
+        let v = parse_value(partial).unwrap();
+        assert_eq!(v, serde_json::json!([]));
+    }
+
+    #[test]
+    fn root_array_with_trailing_comma() {
+        let partial = "[1,";
+        let v = parse_value(partial).unwrap();
+        assert_eq!(v, serde_json::json!([1]));
     }
 }

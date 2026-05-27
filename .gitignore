@@ -1,4 +1,4 @@
-target/
-/references
-/ai-sdk
 .DS_Store
+/docs
+/reference
+/target
