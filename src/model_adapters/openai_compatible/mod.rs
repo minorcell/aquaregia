@@ -68,10 +68,10 @@ pub const DEFAULT_PATH: &str = "/v1/chat/completions";
 /// Runtime settings for OpenAI-compatible endpoints.
 pub struct OpenAiCompatibleAdapterSettings {
     pub base_url: String,
-    api_key: Option<String>,
-    headers: HashMap<String, String>,
-    query_params: HashMap<String, String>,
-    chat_completions_path: String,
+    pub(crate) api_key: Option<String>,
+    pub(crate) headers: HashMap<String, String>,
+    pub(crate) query_params: HashMap<String, String>,
+    pub(crate) chat_completions_path: String,
 }
 
 impl OpenAiCompatibleAdapterSettings {
@@ -114,26 +114,6 @@ impl OpenAiCompatibleAdapterSettings {
     pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
         self.chat_completions_path = path.into();
         self
-    }
-
-    pub(crate) fn set_api_key(&mut self, api_key: impl Into<String>) {
-        self.api_key = Some(api_key.into());
-    }
-
-    pub(crate) fn clear_api_key(&mut self) {
-        self.api_key = None;
-    }
-
-    pub(crate) fn insert_header(&mut self, name: impl Into<String>, value: impl Into<String>) {
-        self.headers.insert(name.into(), value.into());
-    }
-
-    pub(crate) fn insert_query_param(&mut self, name: impl Into<String>, value: impl Into<String>) {
-        self.query_params.insert(name.into(), value.into());
-    }
-
-    pub(crate) fn set_chat_completions_path(&mut self, path: impl Into<String>) {
-        self.chat_completions_path = path.into();
     }
 }
 
@@ -313,7 +293,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                 let frames = drain_sse_frames(&mut buffer);
                 for frame in frames {
                     saw_payload_frame = true;
-                    let data = frame.data.trim();
+                    let data = frame.trim();
                     if data == "[DONE]" {
                         if reasoning_active {
                             yield StreamEvent::ReasoningDone {

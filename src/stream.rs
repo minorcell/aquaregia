@@ -3,24 +3,19 @@
 //! Used by streaming adapters to drain frames from incrementally received
 //! response bodies. Not exposed to library users.
 
-#[derive(Debug, Clone)]
-pub(crate) struct SseFrame {
-    pub data: String,
-}
-
-pub(crate) fn drain_sse_frames(buffer: &mut String) -> Vec<SseFrame> {
+pub(crate) fn drain_sse_frames(buffer: &mut String) -> Vec<String> {
     let mut out = Vec::new();
     while let Some(idx) = buffer.find("\n\n") {
         let raw = buffer[..idx].to_string();
         buffer.drain(..idx + 2);
-        if let Some(frame) = parse_frame(&raw) {
-            out.push(frame);
+        if let Some(data) = parse_frame(&raw) {
+            out.push(data);
         }
     }
     out
 }
 
-fn parse_frame(raw: &str) -> Option<SseFrame> {
+fn parse_frame(raw: &str) -> Option<String> {
     let mut data_lines = Vec::new();
 
     for line in raw.lines() {
@@ -36,9 +31,7 @@ fn parse_frame(raw: &str) -> Option<SseFrame> {
         return None;
     }
 
-    Some(SseFrame {
-        data: data_lines.join("\n"),
-    })
+    Some(data_lines.join("\n"))
 }
 
 #[cfg(test)]
@@ -51,8 +44,8 @@ mod tests {
             String::from("event: one\ndata: {\"a\":1}\n\ndata: [DONE]\n\nincomplete: tail");
         let frames = drain_sse_frames(&mut buffer);
         assert_eq!(frames.len(), 2);
-        assert_eq!(frames[0].data, "{\"a\":1}");
-        assert_eq!(frames[1].data, "[DONE]");
+        assert_eq!(frames[0], "{\"a\":1}");
+        assert_eq!(frames[1], "[DONE]");
         assert_eq!(buffer, "incomplete: tail");
     }
 }

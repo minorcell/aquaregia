@@ -155,7 +155,7 @@ impl ModelAdapter for OpenAiAdapter {
 
                 let frames = drain_sse_frames(&mut buffer);
                 for frame in frames {
-                    let data = frame.data.trim();
+                    let data = frame.trim();
                     if data == "[DONE]" {
                         // Defensive: treat [DONE] as terminal if response.completed was missed.
                         if !done {

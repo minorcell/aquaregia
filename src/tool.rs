@@ -228,13 +228,9 @@ where
     }
 }
 
-pub(crate) struct RegisteredTool {
-    pub tool: Tool,
-}
-
 /// Validated registry keyed by tool name.
 pub(crate) struct ToolRegistry {
-    entries: HashMap<String, RegisteredTool>,
+    entries: HashMap<String, Tool>,
 }
 
 impl ToolRegistry {
@@ -261,13 +257,13 @@ impl ToolRegistry {
                 ));
             }
 
-            entries.insert(name, RegisteredTool { tool });
+            entries.insert(name, tool);
         }
 
         Ok(Self { entries })
     }
 
-    pub(crate) fn resolve(&self, name: &str) -> Option<&RegisteredTool> {
+    pub(crate) fn resolve(&self, name: &str) -> Option<&Tool> {
         self.entries.get(name)
     }
 }
