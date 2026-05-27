@@ -535,7 +535,6 @@ pub(crate) struct RunTools {
     pub(crate) on_finish: Option<Hook<AgentFinish>>,
     pub(crate) stop_when: Option<StopPredicate>,
     pub(crate) tool_error_policy: ToolErrorPolicy,
-    pub(crate) tool_concurrency: usize,
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
@@ -559,7 +558,6 @@ impl RunTools {
             on_finish: None,
             stop_when: None,
             tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
-            tool_concurrency: 0,
             cancellation_token: None,
         }
     }
@@ -673,16 +671,6 @@ impl RunTools {
 
     pub(crate) fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
-        self
-    }
-
-    /// Sets the maximum number of tool calls to execute concurrently.
-    ///
-    /// A value of `0` (default) means unlimited concurrency via [`futures_util::future::join_all`].
-    /// A value of `1` forces sequential execution.
-    #[allow(dead_code)]
-    pub(crate) fn tool_concurrency(mut self, concurrency: usize) -> Self {
-        self.tool_concurrency = concurrency;
         self
     }
 
@@ -1969,12 +1957,4 @@ mod tests {
         assert_eq!(rt.tool_error_policy, ToolErrorPolicy::ContinueAsToolResult);
     }
 
-    #[test]
-    fn run_tools_default_tool_concurrency() {
-        let rt = RunTools::new(ModelRef::new("gpt-5.5"))
-            .messages([Message::user_text("hello")])
-            .build()
-            .expect("run tools should build");
-        assert_eq!(rt.tool_concurrency, 0);
-    }
 }

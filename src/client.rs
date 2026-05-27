@@ -291,31 +291,31 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 
     /// Sets a bearer token for OpenAI-compatible requests.
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.settings.set_api_key(api_key);
+        self.settings.api_key = Some(api_key.into());
         self
     }
 
     /// Sends requests without an `Authorization` bearer token.
     pub fn no_api_key(mut self) -> Self {
-        self.settings.clear_api_key();
+        self.settings.api_key = None;
         self
     }
 
     /// Adds or replaces a custom HTTP header.
     pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.settings.insert_header(name, value);
+        self.settings.headers.insert(name.into(), value.into());
         self
     }
 
     /// Adds or replaces a query parameter on the chat completions endpoint.
     pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.settings.insert_query_param(name, value);
+        self.settings.query_params.insert(name.into(), value.into());
         self
     }
 
     /// Overrides the chat completions path (default: `/v1/chat/completions`).
     pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
-        self.settings.set_chat_completions_path(path);
+        self.settings.chat_completions_path = path.into();
         self
     }
 }
@@ -513,7 +513,6 @@ impl BoundClient {
             on_finish,
             stop_when,
             tool_error_policy,
-            tool_concurrency,
             cancellation_token,
         } = req;
 
@@ -660,14 +659,13 @@ impl BoundClient {
                 &response.tool_calls,
                 step,
                 tool_error_policy,
-                tool_concurrency,
                 on_tool_call_start.as_ref(),
                 on_tool_call_finish.as_ref(),
             )
             .await?;
             let mut tool_messages = executed_tool_calls
                 .iter()
-                .map(|entry| Message::tool_result(entry.result.clone()))
+                .map(|r| Message::tool_result(r.clone()))
                 .collect::<Vec<_>>();
             let step_state = AgentStep {
                 step,
@@ -677,10 +675,7 @@ impl BoundClient {
                 finish_reason: response.finish_reason.clone(),
                 usage: response.usage.clone(),
                 tool_calls: response.tool_calls.clone(),
-                tool_results: executed_tool_calls
-                    .iter()
-                    .map(|entry| entry.result.clone())
-                    .collect(),
+                tool_results: executed_tool_calls.clone(),
             };
             step_results.push(step_state.clone());
             next_messages.append(&mut tool_messages);
@@ -741,15 +736,7 @@ fn backoff_delay(attempt: u8) -> Duration {
     let cap_ms = 2_000u64;
     let exp = 2u64.saturating_pow(attempt as u32);
     let ms = (base_ms.saturating_mul(exp)).min(cap_ms);
-    // Simple jitter: stagger by ±25% to avoid thundering herd.
-    let jitter = (ms as f64 * 0.25) as i64;
-    let offset = (std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .subsec_nanos() as i64)
-        % (jitter * 2 + 1)
-        - jitter;
-    Duration::from_millis((ms as i64 + offset).max(0) as u64)
+    Duration::from_millis(ms)
 }
 
 fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
@@ -789,21 +776,15 @@ fn emit_on_finish(
     });
 }
 
-#[derive(Debug, Clone)]
-struct ExecutedToolCall {
-    result: ToolResult,
-}
-
 async fn execute_tool_calls(
     registry: &ToolRegistry,
     calls: &[ToolCall],
     step: u32,
     policy: ToolErrorPolicy,
-    concurrency: usize,
     on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
     on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
-) -> Result<Vec<ExecutedToolCall>, Error> {
-    let mut executions = Vec::with_capacity(calls.len());
+) -> Result<Vec<ToolResult>, Error> {
+    let mut results_out = Vec::with_capacity(calls.len());
     let mut tasks = Vec::with_capacity(calls.len());
     for call in calls {
         let Some(registered) = registry.resolve(&call.tool_name) else {
@@ -820,7 +801,7 @@ async fn execute_tool_calls(
             });
         }
 
-        let executor = Arc::clone(&registered.tool.executor);
+        let executor = Arc::clone(&registered.executor);
         let call = call.clone();
         let args_json = call.args_json.clone();
         tasks.push(async move {
@@ -831,15 +812,7 @@ async fn execute_tool_calls(
         });
     }
 
-    let results = if concurrency == 1 {
-        let mut sequential = Vec::with_capacity(tasks.len());
-        for task in tasks {
-            sequential.push(task.await);
-        }
-        sequential
-    } else {
-        join_all(tasks).await
-    };
+    let results = join_all(tasks).await;
     for (call, result, duration_ms) in results {
         let (output_json, is_error) = match result {
             Ok(output_json) => (output_json, false),
@@ -884,12 +857,10 @@ async fn execute_tool_calls(
             });
         }
 
-        executions.push(ExecutedToolCall {
-            result: tool_result,
-        });
+        results_out.push(tool_result);
     }
 
-    Ok(executions)
+    Ok(results_out)
 }
 
 #[cfg(test)]

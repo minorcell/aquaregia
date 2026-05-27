@@ -167,13 +167,12 @@ impl Error {
     /// * `code` - The error category
     /// * `message` - Human-readable diagnostic message
     pub fn new(code: ErrorCode, message: impl Into<String>) -> Self {
-        let code_value = code;
         Self {
             code,
             message: message.into(),
             provider: None,
             status: None,
-            retryable: is_retryable(code_value),
+            retryable: is_retryable(code),
             request_id: None,
             raw_body: None,
             retry_after_secs: None,

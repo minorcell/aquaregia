@@ -185,7 +185,7 @@ impl ModelAdapter for AnthropicAdapter {
 
                 let frames = drain_sse_frames(&mut buffer);
                 for frame in frames {
-                    let data = frame.data.trim();
+                    let data = frame.trim();
                     if data.is_empty() {
                         continue;
                     }
