@@ -18,37 +18,6 @@ use serde_json::Value;
 use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
 
-/// Supported provider families.
-///
-/// This enum identifies the provider family for a given request or client configuration.
-/// It is used internally for routing requests to the correct adapter implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ProviderKind {
-    /// OpenAI provider family.
-    OpenAi,
-    /// Anthropic provider family.
-    Anthropic,
-    /// Google provider family.
-    Google,
-    /// OpenAI-compatible provider family (e.g., DeepSeek, local LLM servers).
-    OpenAiCompatible,
-}
-
-impl ProviderKind {
-    /// Returns the canonical provider slug.
-    ///
-    /// This method returns the normalized string identifier for the provider,
-    /// suitable for use in URLs, logging, or configuration.
-    pub fn as_slug(&self) -> &'static str {
-        match self {
-            Self::OpenAi => "openai",
-            Self::Anthropic => "anthropic",
-            Self::Google => "google",
-            Self::OpenAiCompatible => "openai-compatible",
-        }
-    }
-}
-
 /// Model reference: a provider-local model identifier string.
 ///
 /// # Example
@@ -1264,19 +1233,6 @@ mod tests {
         let original = ModelRef::new("gpt-5.5");
         let cloned = original.clone();
         assert_eq!(cloned.model(), "gpt-5.5");
-    }
-
-    // ─── ProviderKind ────────────────────────────────────────────────────
-
-    #[test]
-    fn provider_kind_as_slug() {
-        assert_eq!(ProviderKind::OpenAi.as_slug(), "openai");
-        assert_eq!(ProviderKind::Anthropic.as_slug(), "anthropic");
-        assert_eq!(ProviderKind::Google.as_slug(), "google");
-        assert_eq!(
-            ProviderKind::OpenAiCompatible.as_slug(),
-            "openai-compatible"
-        );
     }
 
     // ─── Message validation ──────────────────────────────────────────────

@@ -99,7 +99,6 @@ pub use types::{
     ModelRef,
     ObjectStream,
     OutputSchema,
-    ProviderKind,
     ReasoningPart,
     StreamEvent,
     StreamObjectEvent,
