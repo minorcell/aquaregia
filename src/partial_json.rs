@@ -137,13 +137,12 @@ pub(crate) fn repair_json(input: &str) -> String {
                 _ => {}
             },
 
-            State::InsideObjectAfterComma => match c {
-                '"' => {
+            State::InsideObjectAfterComma => {
+                if c == '"' {
                     stack.pop();
                     stack.push(State::InsideObjectKey);
                 }
-                _ => {}
-            },
+            }
 
             State::InsideObjectKey => {
                 // We're inside a key string — just wait for the closing quote.
@@ -160,13 +159,12 @@ pub(crate) fn repair_json(input: &str) -> String {
                 }
             }
 
-            State::InsideObjectAfterKey => match c {
-                ':' => {
+            State::InsideObjectAfterKey => {
+                if c == ':' {
                     stack.pop();
                     stack.push(State::InsideObjectBeforeValue);
                 }
-                _ => {}
-            },
+            }
 
             State::InsideObjectBeforeValue => {
                 process_value_start(
