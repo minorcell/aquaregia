@@ -75,9 +75,7 @@ mod sealed {
 /// providers should add an adapter to the `model_adapters` module rather
 /// than implementing this trait.
 pub trait BuildProvider: sealed::Sealed {
-    #[doc(hidden)]
     fn validate(&self) -> Result<(), Error>;
-    #[doc(hidden)]
     fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
 

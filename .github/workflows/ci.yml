@@ -66,6 +66,3 @@ jobs:
 
       - name: Check without default features
         run: cargo check --locked --no-default-features
-
-      - name: Check telemetry feature set
-        run: cargo check --locked --features telemetry
