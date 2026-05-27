@@ -23,20 +23,20 @@
 - 场景：流式输出到 CLI/UI。
 - 重点：`stream` 消费 `StreamEvent`；可同时处理 `ReasoningStarted/ReasoningDelta/ReasoningDone`、`TextDelta`、`Usage`、`Done`。
 
-3. `agent_minimal.rs`
+3. `structured_streaming.rs`
+
+- 场景：流式拿结构化输出，字段逐个到达即可消费。
+- 重点：`stream_object::<T>()`、`StreamObjectEvent::Partial`/`Object`、`#[serde(default)]` 默认值约定、内置 partial JSON 修复。
+
+4. `agent_minimal.rs`
 
 - 场景：最小 Agent + 单工具。
 - 重点：`Agent::builder(client, model)`、`tool()` builder、`tools([...])` 批量注册、`max_steps(...)`。
 
-4. `tools_max_steps.rs`
+5. `tools_max_steps.rs`
 
 - 场景：循环 + 多工具 + 步数保护。
 - 重点：多个 tool 定义、`max_steps`、多步推理收敛。
-
-5. `google_generate.rs`
-
-- 场景：一次性调用（OpenAI-compatible 接口）。
-- 重点：`generate` 的最小调用路径。
 
 6. `openai_compatible_custom.rs`
 
@@ -63,12 +63,13 @@
 
 1. `basic_generate.rs`
 2. `basic_stream.rs`
-3. `agent_minimal.rs`
-4. `tools_max_steps.rs`
-5. `openai_compatible_custom.rs`
-6. `mini_claude_code.rs`
-7. `prepare_hooks.rs`
-8. `multimodal_image.rs`
+3. `structured_streaming.rs`
+4. `agent_minimal.rs`
+5. `tools_max_steps.rs`
+6. `openai_compatible_custom.rs`
+7. `mini_claude_code.rs`
+8. `prepare_hooks.rs`
+9. `multimodal_image.rs`
 
 ## Web 框架集成说明
 
