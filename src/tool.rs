@@ -119,14 +119,6 @@ impl IntoTool for Tool {
     }
 }
 
-impl<F> IntoTool for F
-where
-    F: FnOnce() -> Tool,
-{
-    fn into_tool(self) -> Tool {
-        self()
-    }
-}
 
 /// Builder for creating typed or raw JSON tools.
 pub struct ToolBuilder {
@@ -444,13 +436,6 @@ mod tests {
     fn into_tool_for_tool_is_identity() {
         let t = make_tool("echo");
         let into: Tool = t.into_tool();
-        assert_eq!(into.descriptor.name, "echo");
-    }
-
-    #[test]
-    fn into_tool_for_closure_calls_closure() {
-        let t = make_tool("echo");
-        let into: Tool = (move || t.clone()).into_tool();
         assert_eq!(into.descriptor.name, "echo");
     }
 
