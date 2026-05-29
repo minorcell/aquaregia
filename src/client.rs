@@ -56,8 +56,8 @@ use crate::types::{
     AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateObjectResponse,
     GenerateTextRequest, GenerateTextResponse, Message, ObjectStream, OutputSchema, RunTools,
-    StreamEvent, StreamObjectEvent, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
-    validate_messages, validate_model_ref, validate_sampling,
+    StreamEvent, StreamObjectEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
+    Usage, validate_messages, validate_model_ref, validate_sampling,
 };
 
 mod sealed {
@@ -760,13 +760,15 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
         parts.push(ContentPart::Reasoning(reasoning.clone()));
     }
     if !response.output_text.is_empty() {
-        parts.push(ContentPart::Text(response.output_text.clone()));
+        parts.push(ContentPart::Text(TextPart::new(
+            response.output_text.clone(),
+        )));
     }
     for call in &response.tool_calls {
         parts.push(ContentPart::ToolCall(call.clone()));
     }
     if parts.is_empty() {
-        parts.push(ContentPart::Text(String::new()));
+        parts.push(ContentPart::Text(TextPart::new(String::new())));
     }
     Message::assistant_with_parts(parts)
 }

@@ -676,7 +676,7 @@ fn text_content_from_parts(parts: &[ContentPart]) -> Value {
         .iter()
         .filter_map(|part| {
             if let ContentPart::Text(text) = part {
-                Some(text.clone())
+                Some(text.text.clone())
             } else {
                 None
             }
@@ -706,7 +706,7 @@ fn openai_user_content(parts: &[ContentPart]) -> Value {
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text })),
+                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text.text })),
                     ContentPart::Image(img) => Some(openai_image_content_part(img)),
                     _ => None,
                 })

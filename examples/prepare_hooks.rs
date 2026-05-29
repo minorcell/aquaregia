@@ -95,7 +95,7 @@ fn user_mentions_keyword(messages: &[Message], keyword: &str) -> bool {
             return false;
         }
         message.parts().iter().any(|part| match part {
-            ContentPart::Text(text) => text.to_ascii_lowercase().contains(&keyword),
+            ContentPart::Text(text) => text.text.to_ascii_lowercase().contains(&keyword),
             _ => false,
         })
     })

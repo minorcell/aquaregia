@@ -443,8 +443,8 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                 for part in &message.parts {
                     match part {
                         ContentPart::Text(text) => {
-                            if !text.is_empty() {
-                                parts.push(json!({ "text": text }));
+                            if !text.text.is_empty() {
+                                parts.push(json!({ "text": text.text }));
                             }
                         }
                         ContentPart::Reasoning(reasoning) => {
@@ -529,7 +529,7 @@ fn text_parts_from_message(message: &Message) -> Vec<Value> {
         .parts
         .iter()
         .filter_map(|part| match part {
-            ContentPart::Text(text) if !text.is_empty() => Some(json!({ "text": text })),
+            ContentPart::Text(text) if !text.text.is_empty() => Some(json!({ "text": text.text })),
             ContentPart::Image(image) => Some(google_image_part(image)),
             _ => None,
         })
@@ -558,7 +558,7 @@ fn text_content_from_parts(parts: &[ContentPart]) -> String {
         .iter()
         .filter_map(|part| {
             if let ContentPart::Text(text) = part {
-                Some(text.clone())
+                Some(text.text.clone())
             } else {
                 None
             }

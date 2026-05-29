@@ -402,7 +402,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         .flat_map(|m| m.parts.iter())
         .filter_map(|p| {
             if let ContentPart::Text(t) = p {
-                Some(t.as_str())
+                Some(t.text.as_str())
             } else {
                 None
             }
@@ -507,7 +507,7 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
                     .iter()
                     .filter_map(|p| {
                         if let ContentPart::Text(t) = p {
-                            Some(t.as_str())
+                            Some(t.text.as_str())
                         } else {
                             None
                         }
@@ -558,7 +558,9 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(json!({ "type": "input_text", "text": text })),
+                    ContentPart::Text(text) => {
+                        Some(json!({ "type": "input_text", "text": text.text }))
+                    }
                     ContentPart::Image(img) => Some(image_content_item(img)),
                     _ => None,
                 })
@@ -569,7 +571,7 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
             .iter()
             .filter_map(|p| {
                 if let ContentPart::Text(t) = p {
-                    Some(t.as_str())
+                    Some(t.text.as_str())
                 } else {
                     None
                 }

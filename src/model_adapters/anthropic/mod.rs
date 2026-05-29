@@ -452,7 +452,7 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         .filter(|msg| msg.role == MessageRole::System)
         .flat_map(|msg| {
             msg.parts.iter().filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text.clone()),
+                ContentPart::Text(text) => Some(text.text.clone()),
                 _ => None,
             })
         })
@@ -544,7 +544,7 @@ fn to_anthropic_message(message: &Message) -> Value {
                 match part {
                     ContentPart::Text(text) => content.push(json!({
                         "type": "text",
-                        "text": text,
+                        "text": text.text,
                     })),
                     ContentPart::Image(image) => {
                         content.push(anthropic_image_block(image));

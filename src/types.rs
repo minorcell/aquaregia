@@ -91,7 +91,7 @@ impl Message {
     pub fn system_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::System,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
         }
     }
@@ -106,7 +106,7 @@ impl Message {
     pub fn user_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
         }
     }
@@ -121,7 +121,7 @@ impl Message {
     pub fn assistant_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Assistant,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
         }
     }
@@ -212,6 +212,27 @@ pub struct ImagePart {
     pub provider_metadata: Option<Value>,
 }
 
+/// Text content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TextPart {
+    /// Text body.
+    pub text: String,
+}
+
+impl TextPart {
+    /// Creates a text part from any string-like value.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self { text: text.into() }
+    }
+}
+
+impl<T: Into<String>> From<T> for TextPart {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
 /// Content block used in a message.
 ///
 /// This enum represents the different types of content that can appear
@@ -220,7 +241,7 @@ pub struct ImagePart {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
     /// Plain text content.
-    Text(String),
+    Text(TextPart),
     /// Image content for vision inputs.
     Image(ImagePart),
     /// Provider reasoning content (chain-of-thought traces).
@@ -1199,8 +1220,11 @@ mod tests {
 
     #[test]
     fn message_new_rejects_tool_role_without_tool_result() {
-        let err = Message::new(MessageRole::Tool, vec![ContentPart::Text("x".into())])
-            .expect_err("tool role without ToolResult should fail");
+        let err = Message::new(
+            MessageRole::Tool,
+            vec![ContentPart::Text(TextPart::new("x"))],
+        )
+        .expect_err("tool role without ToolResult should fail");
         assert!(err.message.contains("ToolResult"));
     }
 
@@ -1262,7 +1286,7 @@ mod tests {
 
     #[test]
     fn message_assistant_with_parts() {
-        let msg = Message::assistant_with_parts(vec![ContentPart::Text("output".into())]);
+        let msg = Message::assistant_with_parts(vec![ContentPart::Text(TextPart::new("output"))]);
         assert_eq!(msg.role(), MessageRole::Assistant);
     }
 
@@ -1270,10 +1294,10 @@ mod tests {
 
     #[test]
     fn content_part_text_serialization() {
-        let part = ContentPart::Text("hello".into());
+        let part = ContentPart::Text(TextPart::new("hello"));
         let json = serde_json::to_string(&part).unwrap();
         let back: ContentPart = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back, ContentPart::Text(ref t) if t == "hello"));
+        assert!(matches!(back, ContentPart::Text(ref t) if t.text == "hello"));
     }
 
     #[test]
