@@ -1,6 +1,8 @@
 //! Integration tests for provider_options passthrough.
 
-use aquaregia::{Agent, GenerateTextRequest, LlmClient, Message, tool};
+use aquaregia::{
+    Agent, ContentPart, GenerateTextRequest, LlmClient, Message, MessageRole, TextPart, tool,
+};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -48,7 +50,7 @@ fn request_without_provider_options_omits_field() {
 fn request_deserializes_provider_options() {
     let json_str = r#"{
         "model": "claude-sonnet-4-6",
-        "messages": [{"role": "User", "parts": [{"Text": "hello"}], "name": null}],
+        "messages": [{"role": "User", "parts": [{"Text": {"text": "hello"}}], "name": null}],
         "temperature": null,
         "top_p": null,
         "max_output_tokens": null,
@@ -192,4 +194,134 @@ async fn agent_without_provider_options_sends_no_marker() {
 
     let response = agent.run("hello").await.expect("agent run should succeed");
     assert_eq!(response.output_text, "hi");
+}
+
+#[tokio::test]
+async fn message_level_provider_options_ride_each_message() {
+    // The risk: per-Message provider_options is silently dropped by the
+    // adapter when serializing the request. We assert the marker key appears
+    // on the user message in the outbound body.
+    let server = MockServer::start().await;
+
+    let body = json!({
+        "choices": [{
+            "message": { "content": "ok" },
+            "finish_reason": "stop"
+        }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("\"msg_marker_field\""))
+        .and(body_string_contains("\"msg-marker-value\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
+        .api_key("test-key")
+        .build()
+        .expect("client should build");
+
+    let message = Message::user_text("hello").with_provider_options(json!({
+        "openai-compatible": { "msg_marker_field": "msg-marker-value" }
+    }));
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        .message(message)
+        .build()
+        .unwrap();
+
+    let resp = client.generate(req).await.expect("generate should succeed");
+    assert_eq!(resp.output_text, "ok");
+}
+
+#[tokio::test]
+async fn text_block_provider_options_ride_each_text_block() {
+    // The risk: per-TextPart provider_options is dropped on the wire, which
+    // would silently break Anthropic-style cache_control breakpoints. We use
+    // openai-compatible here for mockability; the same adapter rule is
+    // exercised in all four implementations.
+    //
+    // Setting options on a text block also forces user/system content into
+    // the typed-array form (a plain string cannot carry per-block fields),
+    // so the wire must include the canonical `{"type":"text", ...}` shape.
+    let server = MockServer::start().await;
+
+    let body = json!({
+        "choices": [{
+            "message": { "content": "ok" },
+            "finish_reason": "stop"
+        }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("\"block_marker_field\""))
+        .and(body_string_contains("\"block-marker-value\""))
+        .and(body_string_contains("\"type\":\"text\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
+        .api_key("test-key")
+        .build()
+        .expect("client should build");
+
+    let text = TextPart::new("cache me").with_provider_options(json!({
+        "openai-compatible": { "block_marker_field": "block-marker-value" }
+    }));
+    let message = Message::new(MessageRole::User, vec![ContentPart::Text(text)]).unwrap();
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        .message(message)
+        .build()
+        .unwrap();
+
+    let resp = client.generate(req).await.expect("generate should succeed");
+    assert_eq!(resp.output_text, "ok");
+}
+
+#[tokio::test]
+async fn text_without_provider_options_stays_plain_string() {
+    // Boundary: when no text part carries provider_options and there are no
+    // images, the openai-compatible adapter must keep the canonical plain
+    // string content shape. Switching to the typed-array form unconditionally
+    // would inflate every request and break vendor endpoints that only accept
+    // strings for `content`.
+    let server = MockServer::start().await;
+
+    let body = json!({
+        "choices": [{ "message": { "content": "ok" }, "finish_reason": "stop" }],
+        "usage": { "prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2 }
+    });
+
+    // Plain string content: the user content is the literal string, not an
+    // object with "type":"text".
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("\"content\":\"hello\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = LlmClient::openai_compatible()
+        .base_url(server.uri())
+        .api_key("test-key")
+        .build()
+        .expect("client should build");
+
+    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        .user_prompt("hello")
+        .build()
+        .unwrap();
+
+    let resp = client.generate(req).await.expect("generate should succeed");
+    assert_eq!(resp.output_text, "ok");
 }

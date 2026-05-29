@@ -104,3 +104,21 @@ pub(crate) fn map_send_error(provider_id: &str, err: reqwest::Error) -> Error {
 pub(crate) fn base64_encode(data: &[u8]) -> String {
     STANDARD.encode(data)
 }
+
+/// Merges the slug-keyed block of a `provider_options` JSON object into
+/// `target`. Non-object blocks and missing slugs are silently skipped, matching
+/// the opaque-passthrough contract documented for `provider_options`.
+pub(crate) fn merge_provider_options(
+    target: &mut serde_json::Map<String, serde_json::Value>,
+    source: Option<&serde_json::Value>,
+    slug: &str,
+) {
+    if let Some(obj) = source
+        .and_then(|v| v.get(slug))
+        .and_then(serde_json::Value::as_object)
+    {
+        for (key, value) in obj {
+            target.insert(key.clone(), value.clone());
+        }
+    }
+}

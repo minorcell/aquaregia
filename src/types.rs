@@ -54,6 +54,9 @@ pub struct Message {
     pub(crate) parts: Vec<ContentPart>,
     /// Optional author/tool name for attribution.
     pub(crate) name: Option<String>,
+    /// Provider-specific options merged into this message's serialized form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_options: Option<Value>,
 }
 
 impl Message {
@@ -77,6 +80,7 @@ impl Message {
             role,
             parts,
             name: None,
+            provider_options: None,
         })
     }
 
@@ -93,6 +97,7 @@ impl Message {
             role: MessageRole::System,
             parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -108,6 +113,7 @@ impl Message {
             role: MessageRole::User,
             parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -123,6 +129,7 @@ impl Message {
             role: MessageRole::Assistant,
             parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -139,7 +146,24 @@ impl Message {
             role: MessageRole::Tool,
             parts: vec![ContentPart::ToolResult(result)],
             name: None,
+            provider_options: None,
         }
+    }
+
+    /// Attaches provider-specific options to this message.
+    ///
+    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// name. Adapters extract their slug and merge the entries into the
+    /// outbound message object (e.g. for Anthropic message-level
+    /// `cache_control`).
+    pub fn with_provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
+        self
+    }
+
+    /// Returns the optional provider-specific options attached to this message.
+    pub fn provider_options(&self) -> Option<&Value> {
+        self.provider_options.as_ref()
     }
 
     /// Returns the message role.
@@ -158,6 +182,7 @@ impl Message {
             role: MessageRole::Assistant,
             parts,
             name: None,
+            provider_options: None,
         }
     }
 
@@ -171,6 +196,7 @@ impl Message {
                 provider_metadata: None,
             })],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -184,6 +210,7 @@ impl Message {
                 provider_metadata: None,
             })],
             name: None,
+            provider_options: None,
         }
     }
 }
@@ -214,16 +241,31 @@ pub struct ImagePart {
 
 /// Text content block.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(transparent)]
 pub struct TextPart {
     /// Text body.
     pub text: String,
+    /// Provider-specific options merged into this block's serialized form.
+    ///
+    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// name. Adapters extract their slug and merge the entries into the
+    /// outbound block object (e.g. for Anthropic `cache_control` breakpoints).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<Value>,
 }
 
 impl TextPart {
     /// Creates a text part from any string-like value.
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
+        Self {
+            text: text.into(),
+            provider_options: None,
+        }
+    }
+
+    /// Attaches provider-specific options to this text block.
+    pub fn with_provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
+        self
     }
 }
 
@@ -1855,6 +1897,7 @@ mod tests {
             role: MessageRole::User,
             parts: vec![],
             name: None,
+            provider_options: None,
         }])
         .expect_err("message with empty parts should fail");
         assert!(err.message.contains("cannot be empty"));
