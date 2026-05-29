@@ -300,6 +300,8 @@ pub struct GenerateTextRequest {
     pub(crate) stop_sequences: Vec<String>,
     pub(crate) tools: Option<Vec<ToolDescriptor>>,
     pub(crate) output_schema: Option<OutputSchema>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_options: Option<Value>,
     #[serde(skip)]
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
@@ -308,6 +310,11 @@ impl GenerateTextRequest {
     /// Returns the optional output schema for structured generation.
     pub fn output_schema(&self) -> Option<&OutputSchema> {
         self.output_schema.as_ref()
+    }
+
+    /// Returns the optional provider-specific options.
+    pub fn provider_options(&self) -> Option<&Value> {
+        self.provider_options.as_ref()
     }
 
     /// Builds a one-message request from a user prompt.
@@ -321,6 +328,7 @@ impl GenerateTextRequest {
             stop_sequences: vec![],
             tools: None,
             output_schema: None,
+            provider_options: None,
             cancellation_token: None,
         }
     }
@@ -337,6 +345,7 @@ impl GenerateTextRequest {
                 stop_sequences: vec![],
                 tools: None,
                 output_schema: None,
+                provider_options: None,
                 cancellation_token: None,
             },
         }
@@ -410,6 +419,36 @@ impl GenerateTextRequestBuilder {
     /// [`BoundClient::generate_object`]: crate::BoundClient::generate_object
     pub fn output_schema(mut self, output_schema: OutputSchema) -> Self {
         self.request.output_schema = Some(output_schema);
+        self
+    }
+
+    /// Sets provider-specific options passed through to the adapter.
+    ///
+    /// The value should be a JSON object keyed by provider slug (e.g. `"anthropic"`,
+    /// `"openai"`, `"google"`). Each adapter extracts and merges its own options
+    /// into the request payload without validation.
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aquaregia::GenerateTextRequest;
+    /// use serde_json::json;
+    ///
+    /// let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    ///     .user_prompt("Explain Rust ownership")
+    ///     .provider_options(json!({
+    ///         "anthropic": {
+    ///             "thinking": {
+    ///                 "type": "enabled",
+    ///                 "budget_tokens": 10000
+    ///             }
+    ///         }
+    ///     }))
+    ///     .build()
+    ///     .unwrap();
+    /// ```
+    pub fn provider_options(mut self, options: Value) -> Self {
+        self.request.provider_options = Some(options);
         self
     }
 
@@ -1725,6 +1764,33 @@ mod tests {
             .expect("request should build");
         assert_eq!(req.temperature, Some(2.0));
         assert_eq!(req.top_p, Some(0.0));
+    }
+
+    #[test]
+    fn request_builder_sets_provider_options() {
+        let options = serde_json::json!({
+            "anthropic": {
+                "thinking": {
+                    "type": "enabled",
+                    "budget_tokens": 10000
+                }
+            }
+        });
+        let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+            .message(Message::user_text("hi"))
+            .provider_options(options.clone())
+            .build()
+            .expect("request should build");
+        assert_eq!(req.provider_options, Some(options));
+    }
+
+    #[test]
+    fn request_builder_provider_options_defaults_to_none() {
+        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+            .message(Message::user_text("hi"))
+            .build()
+            .expect("request should build");
+        assert!(req.provider_options.is_none());
     }
 
     // ─── Validate functions ──────────────────────────────────────────────

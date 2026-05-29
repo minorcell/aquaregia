@@ -629,6 +629,7 @@ impl BoundClient {
                         )
                     },
                     output_schema: None,
+                    provider_options: None,
                     cancellation_token: cancellation_token.clone(),
                 })
                 .await?;

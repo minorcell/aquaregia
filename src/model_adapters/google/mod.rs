@@ -392,6 +392,17 @@ fn build_google_payload(req: &GenerateTextRequest) -> Value {
         );
     }
 
+    // Merge provider-specific options if present
+    if let Some(provider_options) = &req.provider_options {
+        if let Some(google_options) = provider_options.get(PROVIDER_SLUG) {
+            if let Some(obj) = google_options.as_object() {
+                for (key, value) in obj {
+                    payload.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
     Value::Object(payload)
 }
 

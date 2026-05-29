@@ -528,6 +528,48 @@ Each provider receives whatever native format it wants:
 
 ---
 
+### Provider-specific options
+
+The core request type sticks to the lowest common denominator — model, messages, sampling, tools. But every provider ships knobs that don't generalise: Anthropic's thinking budget, Google's safety thresholds, parameters that land on one provider and nowhere else. Rather than bloat the core type with fields that mean nothing to three out of four providers, Aquaregia gives you an escape hatch: `provider_options`.
+
+You pass a JSON object keyed by provider slug. The core never parses it — each adapter picks out its own key and merges those fields into the request body it sends. Anything the provider's API accepts, you can set:
+
+```rust
+use aquaregia::GenerateTextRequest;
+use serde_json::json;
+
+let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    .user_prompt("Prove the infinitude of primes.")
+    .provider_options(json!({
+        "anthropic": {
+            "thinking": { "type": "enabled", "budget_tokens": 10000 }
+        }
+    }))
+    .build()?;
+```
+
+The slug (`"anthropic"`) is what routes the options, so a single request can carry settings for several providers — only the matching adapter reads its own block, the rest is ignored. That means you can keep one `provider_options` value and reuse it as you A/B across providers:
+
+```rust
+.provider_options(json!({
+    "anthropic": { "thinking": { "type": "enabled", "budget_tokens": 10000 } },
+    "google":    { "safetySettings": [
+        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH" }
+    ]}
+}))
+```
+
+| Provider slug       | Merged into                          |
+| ------------------- | ------------------------------------ |
+| `anthropic`         | Messages API request body (top level) |
+| `openai`            | Responses API request body (top level) |
+| `google`            | `generateContent` request body (top level) |
+| `openai-compatible` | Chat Completions request body (top level) |
+
+Because the merge is opaque, the responsibility is yours: keys you set override what the adapter computed, and a malformed value surfaces as a provider-side `InvalidRequest` rather than a compile error. This is the deliberate trade — full reach into provider features, no waiting on the core type to add a field. Options merge at the **top level** of the request body; per-message and per-content-block placement (needed for things like Anthropic prompt-caching breakpoints) is a separate, finer-grained mechanism.
+
+---
+
 ## Production
 
 Code that calls an LLM in production has to deal with three boring-but-essential concerns: stopping work that's no longer wanted, surviving transient failures, and reporting errors usefully.
@@ -678,6 +720,7 @@ Lookup tables for when you know roughly what you want and need the exact name.
 | Structured output                |   ✓    |     ✓     |   ✓    |         ✓         |
 | Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
 | Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
+| `provider_options` passthrough   |   ✓    |     ✓     |   ✓    |         ✓         |
 
 ### `Usage` fields
 
