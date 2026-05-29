@@ -44,7 +44,7 @@ use crate::model_adapters::{
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
     Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
@@ -546,8 +546,8 @@ fn to_anthropic_message(message: &Message) -> Value {
                         );
                         content.push(Value::Object(block));
                     }
-                    ContentPart::Image(image) => {
-                        content.push(anthropic_image_block(image));
+                    ContentPart::File(file) => {
+                        content.push(anthropic_file_block(file));
                     }
                     ContentPart::Reasoning(reasoning) => {
                         let signature = reasoning
@@ -628,25 +628,21 @@ fn to_anthropic_message(message: &Message) -> Value {
     }
 }
 
-fn anthropic_image_block(image: &ImagePart) -> Value {
-    match &image.data {
+fn anthropic_file_block(file: &FilePart) -> Value {
+    match &file.data {
         MediaData::Url(url) => json!({
             "type": "image",
             "source": { "type": "url", "url": url }
         }),
-        MediaData::Base64(b64) => {
-            let media_type = image.media_type.as_deref().unwrap_or("image/jpeg");
-            json!({
-                "type": "image",
-                "source": { "type": "base64", "media_type": media_type, "data": b64 }
-            })
-        }
+        MediaData::Base64(b64) => json!({
+            "type": "image",
+            "source": { "type": "base64", "media_type": file.media_type, "data": b64 }
+        }),
         MediaData::Bytes(bytes) => {
             let data = base64_encode(bytes);
-            let media_type = image.media_type.as_deref().unwrap_or("image/jpeg");
             json!({
                 "type": "image",
-                "source": { "type": "base64", "media_type": media_type, "data": data }
+                "source": { "type": "base64", "media_type": file.media_type, "data": data }
             })
         }
     }

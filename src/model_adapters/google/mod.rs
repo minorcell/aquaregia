@@ -44,7 +44,7 @@ use crate::model_adapters::{
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
     Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
@@ -465,7 +465,7 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                             }));
                         }
                         ContentPart::ToolResult(_) => {}
-                        ContentPart::Image(_) => {}
+                        ContentPart::File(_) => {}
                     }
                 }
                 if !parts.is_empty() {
@@ -514,7 +514,7 @@ fn text_parts_from_message(message: &Message) -> Vec<Value> {
         .iter()
         .filter_map(|part| match part {
             ContentPart::Text(text) if !text.text.is_empty() => Some(google_text_part(text)),
-            ContentPart::Image(image) => Some(google_image_part(image)),
+            ContentPart::File(file) => Some(google_file_part(file)),
             _ => None,
         })
         .collect()
@@ -535,19 +535,16 @@ fn google_message_object(role: &str, parts: Vec<Value>, message: &Message) -> Va
     Value::Object(obj)
 }
 
-fn google_image_part(image: &ImagePart) -> Value {
-    match &image.data {
+fn google_file_part(file: &FilePart) -> Value {
+    match &file.data {
         MediaData::Url(url) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            json!({ "fileData": { "mimeType": mt, "fileUri": url } })
+            json!({ "fileData": { "mimeType": file.media_type, "fileUri": url } })
         }
         MediaData::Base64(b64) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            json!({ "inlineData": { "mimeType": mt, "data": b64 } })
+            json!({ "inlineData": { "mimeType": file.media_type, "data": b64 } })
         }
         MediaData::Bytes(bytes) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            json!({ "inlineData": { "mimeType": mt, "data": base64_encode(bytes) } })
+            json!({ "inlineData": { "mimeType": file.media_type, "data": base64_encode(bytes) } })
         }
     }
 }

@@ -58,7 +58,7 @@ use crate::model_adapters::{
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
     Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
@@ -699,22 +699,22 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
 
 /// Returns Chat Completions `content` for a `user`/`system` message.
 ///
-/// Plain string by default; switches to the typed content-array form when an
-/// image is present, or when any text part carries `provider_options` (since
-/// per-block fields like Anthropic-style `cache_control` markers can only
-/// ride a block object, not a bare string).
+/// Plain string by default; switches to the typed content-array form when a
+/// file part is present, or when any text part carries `provider_options`
+/// (since per-block fields like Anthropic-style `cache_control` markers can
+/// only ride a block object, not a bare string).
 fn openai_content_value(parts: &[ContentPart]) -> Value {
-    let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
+    let has_files = parts.iter().any(|p| matches!(p, ContentPart::File(_)));
     let has_text_options = parts
         .iter()
         .any(|p| matches!(p, ContentPart::Text(t) if t.provider_options.is_some()));
-    if has_images || has_text_options {
+    if has_files || has_text_options {
         Value::Array(
             parts
                 .iter()
                 .filter_map(|part| match part {
                     ContentPart::Text(text) => Some(openai_text_block(text)),
-                    ContentPart::Image(img) => Some(openai_image_content_part(img)),
+                    ContentPart::File(file) => Some(openai_file_content_part(file)),
                     _ => None,
                 })
                 .collect(),
@@ -732,16 +732,12 @@ fn openai_text_block(text: &TextPart) -> Value {
     Value::Object(block)
 }
 
-fn openai_image_content_part(image: &ImagePart) -> Value {
-    let url = match &image.data {
+fn openai_file_content_part(file: &FilePart) -> Value {
+    let url = match &file.data {
         MediaData::Url(url) => url.clone(),
-        MediaData::Base64(b64) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, b64)
-        }
+        MediaData::Base64(b64) => format!("data:{};base64,{}", file.media_type, b64),
         MediaData::Bytes(bytes) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, base64_encode(bytes))
+            format!("data:{};base64,{}", file.media_type, base64_encode(bytes))
         }
     };
     json!({ "type": "image_url", "image_url": { "url": url } })
