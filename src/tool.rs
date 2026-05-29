@@ -119,7 +119,6 @@ impl IntoTool for Tool {
     }
 }
 
-
 /// Builder for creating typed or raw JSON tools.
 pub struct ToolBuilder {
     descriptor: ToolDescriptor,
