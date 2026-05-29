@@ -85,6 +85,7 @@ pub use types::{
     AgentToolCallStart,
     // Messages
     ContentPart,
+    FilePart,
     // Streaming
     FinishReason,
     // Structured output
@@ -92,7 +93,6 @@ pub use types::{
     // Requests & responses
     GenerateTextRequest,
     GenerateTextResponse,
-    ImagePart,
     MediaData,
     Message,
     MessageRole,

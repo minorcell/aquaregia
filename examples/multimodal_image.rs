@@ -4,7 +4,8 @@
 //!   ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image
 
 use aquaregia::{
-    ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
+    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole,
+    TextPart,
 };
 
 #[tokio::main]
@@ -16,15 +17,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let message = Message::new(
         MessageRole::User,
         vec![
-            ContentPart::Text("What's in this image?".into()),
-            ContentPart::Image(ImagePart {
-                data: MediaData::Url(
+            ContentPart::Text(TextPart::new("What's in this image?")),
+            ContentPart::File(FilePart::new(
+                MediaData::Url(
                     "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg"
                         .into(),
                 ),
-                media_type: None,
-                provider_metadata: None,
-            }),
+                "image/jpeg",
+            )),
         ],
     )?;
 
@@ -38,20 +38,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("{}", response.output_text);
 
-    // Example: image from raw bytes (e.g. read from a file)
-    let _image_bytes_example = Message::user_image_bytes(vec![/* raw JPEG bytes */], "image/jpeg");
+    // Example: image from raw bytes (e.g. read from a file).
+    let _bytes_example = Message::user_file_bytes(vec![/* raw JPEG bytes */], "image/jpeg");
 
-    // Example: image from base64
-    let _image_b64_example = Message::user_image_url(
-        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
+    // Example: image from URL (mediaType is now mandatory and must match the
+    // resource — adapters no longer guess "image/jpeg" when it is omitted).
+    let _url_example = Message::user_file_url("https://example.com/diagram.png", "image/png");
+
+    // Example: explicit FilePart with base64 data and an attached filename.
+    let _explicit_example = ContentPart::File(
+        FilePart::new(
+            MediaData::Base64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".into()),
+            "image/png",
+        )
+        .with_filename("dot.png"),
     );
-
-    // Example: explicit ImagePart with base64
-    let _explicit_example = ContentPart::Image(ImagePart {
-        data: MediaData::Base64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==".to_string()),
-        media_type: Some("image/png".to_string()),
-        provider_metadata: None,
-    });
 
     Ok(())
 }

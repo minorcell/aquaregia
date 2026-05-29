@@ -186,29 +186,27 @@ impl Message {
         }
     }
 
-    /// Creates a user message with a single image URL.
-    pub fn user_image_url(url: impl Into<String>) -> Self {
+    /// Creates a user message with a single file URL (image / PDF / audio / ...).
+    pub fn user_file_url(url: impl Into<String>, media_type: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
-            parts: vec![ContentPart::Image(ImagePart {
-                data: MediaData::Url(url.into()),
-                media_type: None,
-                provider_metadata: None,
-            })],
+            parts: vec![ContentPart::File(FilePart::new(
+                MediaData::Url(url.into()),
+                media_type,
+            ))],
             name: None,
             provider_options: None,
         }
     }
 
-    /// Creates a user message with image bytes and MIME type.
-    pub fn user_image_bytes(bytes: Vec<u8>, media_type: impl Into<String>) -> Self {
+    /// Creates a user message with file bytes and IANA media type.
+    pub fn user_file_bytes(bytes: Vec<u8>, media_type: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
-            parts: vec![ContentPart::Image(ImagePart {
-                data: MediaData::Bytes(bytes),
-                media_type: Some(media_type.into()),
-                provider_metadata: None,
-            })],
+            parts: vec![ContentPart::File(FilePart::new(
+                MediaData::Bytes(bytes),
+                media_type,
+            ))],
             name: None,
             provider_options: None,
         }
@@ -226,17 +224,50 @@ pub enum MediaData {
     Bytes(Vec<u8>),
 }
 
-/// Image content block for vision inputs.
+/// File content block for multimodal inputs (image, PDF, audio, ...).
+///
+/// Aligns with the `FilePart` shape in the AI SDK v3 language-model spec:
+/// the `media_type` is an IANA media type (e.g. `"image/jpeg"`,
+/// `"application/pdf"`, `"audio/mpeg"`) that the adapter uses to pick the
+/// provider-side representation. Unlike v3 it does not collapse `Url` and
+/// base64 string into one stringly-typed union — Aquaregia keeps the
+/// three-way [`MediaData`] enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImagePart {
-    /// Image data.
+pub struct FilePart {
+    /// File data.
     pub data: MediaData,
-    /// MIME type (e.g. `"image/jpeg"`).
-    /// Required for Bytes/Base64; optional for Url.
-    pub media_type: Option<String>,
+    /// IANA media type. Required.
+    pub media_type: String,
+    /// Optional filename (provider-side hints, e.g. PDF uploads).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    /// Optional provider-specific metadata.
-    pub provider_metadata: Option<Value>,
+    pub filename: Option<String>,
+    /// Provider-specific options merged into this block's serialized form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<Value>,
+}
+
+impl FilePart {
+    /// Creates a file part with explicit IANA media type.
+    pub fn new(data: MediaData, media_type: impl Into<String>) -> Self {
+        Self {
+            data,
+            media_type: media_type.into(),
+            filename: None,
+            provider_options: None,
+        }
+    }
+
+    /// Attaches an optional filename hint.
+    pub fn with_filename(mut self, filename: impl Into<String>) -> Self {
+        self.filename = Some(filename.into());
+        self
+    }
+
+    /// Attaches provider-specific options to this file block.
+    pub fn with_provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
+        self
+    }
 }
 
 /// Text content block.
@@ -284,8 +315,8 @@ impl<T: Into<String>> From<T> for TextPart {
 pub enum ContentPart {
     /// Plain text content.
     Text(TextPart),
-    /// Image content for vision inputs.
-    Image(ImagePart),
+    /// File content for multimodal inputs (image, PDF, audio, ...).
+    File(FilePart),
     /// Provider reasoning content (chain-of-thought traces).
     Reasoning(ReasoningPart),
     /// Tool call requested by the model.
@@ -1315,14 +1346,14 @@ mod tests {
     }
 
     #[test]
-    fn message_user_image_url() {
-        let msg = Message::user_image_url("https://example.com/img.jpg");
+    fn message_user_file_url() {
+        let msg = Message::user_file_url("https://example.com/img.jpg", "image/jpeg");
         assert_eq!(msg.role(), MessageRole::User);
     }
 
     #[test]
-    fn message_user_image_bytes() {
-        let msg = Message::user_image_bytes(vec![0xFF, 0xD8], "image/jpeg");
+    fn message_user_file_bytes() {
+        let msg = Message::user_file_bytes(vec![0xFF, 0xD8], "image/jpeg");
         assert_eq!(msg.role(), MessageRole::User);
     }
 
@@ -1332,7 +1363,7 @@ mod tests {
         assert_eq!(msg.role(), MessageRole::Assistant);
     }
 
-    // ─── ContentPart / MediaData / ImagePart / ReasoningPart serialization
+    // ─── ContentPart / MediaData / FilePart / ReasoningPart serialization
 
     #[test]
     fn content_part_text_serialization() {
@@ -1343,15 +1374,14 @@ mod tests {
     }
 
     #[test]
-    fn content_part_image_serialization() {
-        let part = ContentPart::Image(ImagePart {
-            data: MediaData::Url("https://x.com/i.jpg".into()),
-            media_type: Some("image/png".into()),
-            provider_metadata: None,
-        });
+    fn content_part_file_serialization() {
+        let part = ContentPart::File(FilePart::new(
+            MediaData::Url("https://x.com/i.jpg".into()),
+            "image/png",
+        ));
         let json = serde_json::to_string(&part).unwrap();
         let back: ContentPart = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back, ContentPart::Image(_)));
+        assert!(matches!(back, ContentPart::File(ref f) if f.media_type == "image/png"));
     }
 
     #[test]

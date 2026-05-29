@@ -55,10 +55,11 @@ use serde_json::{Map, Value, json};
 use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{
     ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+    unsupported_media_type,
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
+    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
     Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
@@ -229,7 +230,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
         &self,
         req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
-        let payload = build_openai_payload(req, false);
+        let payload = build_openai_payload(req, false)?;
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
@@ -254,7 +255,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
-        let payload = build_openai_payload(req, true);
+        let payload = build_openai_payload(req, true)?;
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -502,13 +503,15 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
-    payload.insert(
-        "messages".to_string(),
-        Value::Array(req.messages.iter().map(to_openai_message).collect()),
-    );
+    let messages = req
+        .messages
+        .iter()
+        .map(to_openai_message)
+        .collect::<Result<Vec<_>, _>>()?;
+    payload.insert("messages".to_string(), Value::Array(messages));
     payload.insert("stream".to_string(), Value::Bool(stream));
 
     if let Some(temperature) = req.temperature {
@@ -568,21 +571,21 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
 
     merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
-    Value::Object(payload)
+    Ok(Value::Object(payload))
 }
 
-fn to_openai_message(message: &Message) -> Value {
+fn to_openai_message(message: &Message) -> Result<Value, Error> {
     let mut obj = match message.role {
         MessageRole::System => {
             let mut m = Map::new();
             m.insert("role".into(), Value::String("system".into()));
-            m.insert("content".into(), openai_content_value(&message.parts));
+            m.insert("content".into(), openai_content_value(&message.parts)?);
             m
         }
         MessageRole::User => {
             let mut m = Map::new();
             m.insert("role".into(), Value::String("user".into()));
-            m.insert("content".into(), openai_content_value(&message.parts));
+            m.insert("content".into(), openai_content_value(&message.parts)?);
             m
         }
         MessageRole::Assistant => {
@@ -653,7 +656,7 @@ fn to_openai_message(message: &Message) -> Value {
         }
     };
     merge_provider_options(&mut obj, message.provider_options.as_ref(), PROVIDER_SLUG);
-    Value::Object(obj)
+    Ok(Value::Object(obj))
 }
 
 /// Renders a tool-result payload as a plain string.
@@ -699,29 +702,27 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
 
 /// Returns Chat Completions `content` for a `user`/`system` message.
 ///
-/// Plain string by default; switches to the typed content-array form when an
-/// image is present, or when any text part carries `provider_options` (since
-/// per-block fields like Anthropic-style `cache_control` markers can only
-/// ride a block object, not a bare string).
-fn openai_content_value(parts: &[ContentPart]) -> Value {
-    let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
+/// Plain string by default; switches to the typed content-array form when a
+/// file part is present, or when any text part carries `provider_options`
+/// (since per-block fields like Anthropic-style `cache_control` markers can
+/// only ride a block object, not a bare string).
+fn openai_content_value(parts: &[ContentPart]) -> Result<Value, Error> {
+    let has_files = parts.iter().any(|p| matches!(p, ContentPart::File(_)));
     let has_text_options = parts
         .iter()
         .any(|p| matches!(p, ContentPart::Text(t) if t.provider_options.is_some()));
-    if has_images || has_text_options {
-        Value::Array(
-            parts
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(openai_text_block(text)),
-                    ContentPart::Image(img) => Some(openai_image_content_part(img)),
-                    _ => None,
-                })
-                .collect(),
-        )
-    } else {
-        text_content_from_parts(parts)
+    if has_files || has_text_options {
+        let mut items = Vec::new();
+        for part in parts {
+            match part {
+                ContentPart::Text(text) => items.push(openai_text_block(text)),
+                ContentPart::File(file) => items.push(openai_file_content_part(file)?),
+                _ => {}
+            }
+        }
+        return Ok(Value::Array(items));
     }
+    Ok(text_content_from_parts(parts))
 }
 
 fn openai_text_block(text: &TextPart) -> Value {
@@ -732,19 +733,18 @@ fn openai_text_block(text: &TextPart) -> Value {
     Value::Object(block)
 }
 
-fn openai_image_content_part(image: &ImagePart) -> Value {
-    let url = match &image.data {
+fn openai_file_content_part(file: &FilePart) -> Result<Value, Error> {
+    if !file.media_type.starts_with("image/") {
+        return Err(unsupported_media_type(PROVIDER_SLUG, &file.media_type));
+    }
+    let url = match &file.data {
         MediaData::Url(url) => url.clone(),
-        MediaData::Base64(b64) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, b64)
-        }
+        MediaData::Base64(b64) => format!("data:{};base64,{}", file.media_type, b64),
         MediaData::Bytes(bytes) => {
-            let mt = image.media_type.as_deref().unwrap_or("image/jpeg");
-            format!("data:{};base64,{}", mt, base64_encode(bytes))
+            format!("data:{};base64,{}", file.media_type, base64_encode(bytes))
         }
     };
-    json!({ "type": "image_url", "image_url": { "url": url } })
+    Ok(json!({ "type": "image_url", "image_url": { "url": url } }))
 }
 
 fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
