@@ -517,6 +517,17 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
+    // Merge provider-specific options if present
+    if let Some(provider_options) = &req.provider_options {
+        if let Some(anthropic_options) = provider_options.get(PROVIDER_SLUG) {
+            if let Some(obj) = anthropic_options.as_object() {
+                for (key, value) in obj {
+                    payload.insert(key.clone(), value.clone());
+                }
+            }
+        }
+    }
+
     Value::Object(payload)
 }
 

@@ -528,6 +528,48 @@ let out = client
 
 ---
 
+### Provider 专属选项
+
+核心请求类型只保留最小公约数——model、messages、采样、tools。但每家 provider 都带着无法泛化的旋钮：Anthropic 的 thinking budget、Google 的安全阈值、只落在一家而别处没有的参数。与其用对三家 provider 毫无意义的字段把核心类型撑大，Aquaregia 给你一个逃逸通道：`provider_options`。
+
+你传一个按 provider slug 作 key 的 JSON 对象。核心层从不解析它——每个 adapter 挑出自己那个 key，把里面的字段 merge 进它要发出去的请求体。provider API 接受什么,你就能设什么：
+
+```rust
+use aquaregia::GenerateTextRequest;
+use serde_json::json;
+
+let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    .user_prompt("Prove the infinitude of primes.")
+    .provider_options(json!({
+        "anthropic": {
+            "thinking": { "type": "enabled", "budget_tokens": 10000 }
+        }
+    }))
+    .build()?;
+```
+
+slug（`"anthropic"`）决定这段选项路由给谁,所以一个请求可以同时携带多家 provider 的设置——只有匹配的 adapter 读自己那块,其余被忽略。这意味着你可以保留同一个 `provider_options` 值,在 A/B 切换 provider 时反复复用：
+
+```rust
+.provider_options(json!({
+    "anthropic": { "thinking": { "type": "enabled", "budget_tokens": 10000 } },
+    "google":    { "safetySettings": [
+        { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH" }
+    ]}
+}))
+```
+
+| Provider slug       | merge 进                              |
+| ------------------- | ------------------------------------- |
+| `anthropic`         | Messages API 请求体（顶层）           |
+| `openai`            | Responses API 请求体（顶层）          |
+| `google`            | `generateContent` 请求体（顶层）      |
+| `openai-compatible` | Chat Completions 请求体（顶层）       |
+
+因为 merge 是 opaque 的,责任也在你这边：你设的 key 会覆盖 adapter 算出来的值,格式错误的值会以 provider 端的 `InvalidRequest` 浮现,而不是编译错误。这是有意的取舍——直达 provider 特性、不必等核心类型加字段。选项 merge 在请求体的**顶层**;按消息、按 content block 的更细粒度放置（Anthropic prompt-caching 断点这类需求要用到）是另一套独立机制。
+
+---
+
 ## 生产化
 
 生产环境调 LLM 要面对三个枯燥但绕不开的事：停止不再需要的工作、扛住瞬时失败、把错误报得有用。
@@ -678,6 +720,7 @@ Actix、Warp、或你自家的 gRPC 层用同样的食谱——把每个 `Stream
 | Structured output                 |   ✓    |     ✓     |   ✓    |         ✓         |
 | Tool-call streaming               |   ✓    |     ✓     |   ✓    |         ✓         |
 | `Usage` 中 cache-token 拆分       |   ✓    |     ✓     |   ✓    |   有就报          |
+| `provider_options` 透传           |   ✓    |     ✓     |   ✓    |         ✓         |
 
 ### `Usage` 字段
 
