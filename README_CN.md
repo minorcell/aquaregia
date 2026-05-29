@@ -607,6 +607,27 @@ opaque 契约在每一层都成立——adapter 只读自己的 slug、merge 它
 | `Message::with_provider_options(…)`                   | `messages` / `input` 数组里对应的那个 message 对象      |
 | `TextPart::with_provider_options(…)`                  | 对应的 text content block                               |
 
+#### Provider 自带的 native 工具
+
+Anthropic 的 `web_search_20250305`、OpenAI 的 `web_search` / `file_search` / `code_interpreter`、Google 的 `googleSearch` 这些都是 native 工具：provider 在服务端执行,把结果直接喂回同一轮——你这边没有 executor、agent 循环也没有什么可派发。它们落在请求体的 `tools` 数组里,也就是 `provider_options` 本来就会 merge 的位置。所以 Aquaregia 不为它们准备单独的 "ProviderTool" 类型,直接注入即可：
+
+```rust
+let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    .user_prompt("Rust 1.85 发布了什么？")
+    .provider_options(json!({
+        "anthropic": {
+            "tools": [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3
+            }]
+        }
+    }))
+    .build()?;
+```
+
+merge 行为有一个细节要知道：顶层 key 是**覆盖**而不是合并。对 `tools` 字段尤其要注意——如果同时 `.tools([your_tool])`,adapter 会算出 `tools: [<your_tool>]`,然后 `provider_options.anthropic.tools` 会把它覆盖掉。要让 native 工具和用户工具一起跑,就把两边都塞进同一个 `provider_options.<slug>.tools` 数组、不再调 `.tools(...)`——adapter 会把整个数组原样发出去。可运行的纯 native 例子见 `examples/anthropic_web_search.rs`。
+
 ---
 
 ## 生产化

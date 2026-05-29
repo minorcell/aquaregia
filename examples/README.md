@@ -65,6 +65,12 @@
 - 重点：`TextPart::with_provider_options(...)` 把 `cache_control` 直接挂在内容块上、`Usage` 里的 `input_cache_write_tokens` / `input_cache_read_tokens` 读取。
 - 运行：`ANTHROPIC_API_KEY=<key> cargo run --example anthropic_prompt_caching`
 
+11. `anthropic_web_search.rs`
+
+- 场景：调用 Anthropic 的 native `web_search` 工具——provider 在服务端执行，不需要 executor。
+- 重点：通过 `provider_options` 把 native 工具直接注入到请求体的 `tools` 数组、`provider_options` 顶层覆盖语义。
+- 运行：`ANTHROPIC_API_KEY=<key> cargo run --example anthropic_web_search`
+
 ## 建议阅读顺序
 
 1. `basic_generate.rs`
@@ -77,6 +83,7 @@
 8. `prepare_hooks.rs`
 9. `multimodal_image.rs`
 10. `anthropic_prompt_caching.rs`
+11. `anthropic_web_search.rs`
 
 ## Web 框架集成说明
 

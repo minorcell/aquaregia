@@ -607,6 +607,27 @@ The same opaqueness contract holds at every level — adapters read their slug, 
 | `Message::with_provider_options(…)`                  | The corresponding message object inside `messages` / `input` |
 | `TextPart::with_provider_options(…)`                 | The corresponding text content block                         |
 
+#### Provider-native tools
+
+Anthropic's `web_search_20250305`, OpenAI's `web_search` / `file_search` / `code_interpreter`, Google's `googleSearch` and friends are all "native" tools: the provider executes them server-side and feeds the result straight back into the same turn, so there is no executor on your side and nothing for the agent loop to dispatch. They go into the request body's `tools` array — exactly the field `provider_options` already merges. So Aquaregia doesn't ship a separate "ProviderTool" type for them; you inject them directly:
+
+```rust
+let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    .user_prompt("What did Rust 1.85 ship?")
+    .provider_options(json!({
+        "anthropic": {
+            "tools": [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3
+            }]
+        }
+    }))
+    .build()?;
+```
+
+One thing to know about the merge: top-level keys **overwrite** what the adapter computed for that key. That matters for `tools` specifically — if you also pass `.tools([your_tool])`, the adapter will compute a `tools: [<your_tool>]` array, then `provider_options.anthropic.tools` will overwrite it. To run native and user tools together, put both in the same `provider_options.<slug>.tools` array and skip `.tools(...)` entirely; the adapter passes the merged array through verbatim. See `examples/anthropic_web_search.rs` for a runnable native-only call.
+
 ---
 
 ## Production
