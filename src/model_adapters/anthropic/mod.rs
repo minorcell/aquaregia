@@ -41,6 +41,7 @@ use serde_json::{Map, Value, json};
 use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{
     ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+    unsupported_media_type,
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -108,7 +109,7 @@ impl ModelAdapter for AnthropicAdapter {
         &self,
         req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
-        let payload = build_anthropic_payload(req, false);
+        let payload = build_anthropic_payload(req, false)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
@@ -146,7 +147,7 @@ impl ModelAdapter for AnthropicAdapter {
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
-        let payload = build_anthropic_payload(req, true);
+        let payload = build_anthropic_payload(req, true)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -429,19 +430,16 @@ impl PendingToolUse {
     }
 }
 
-fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
-    payload.insert(
-        "messages".to_string(),
-        Value::Array(
-            req.messages
-                .iter()
-                .filter(|msg| msg.role != MessageRole::System)
-                .map(to_anthropic_message)
-                .collect(),
-        ),
-    );
+    let messages = req
+        .messages
+        .iter()
+        .filter(|msg| msg.role != MessageRole::System)
+        .map(to_anthropic_message)
+        .collect::<Result<Vec<_>, _>>()?;
+    payload.insert("messages".to_string(), Value::Array(messages));
     payload.insert("stream".to_string(), Value::Bool(stream));
     payload.insert(
         "max_tokens".to_string(),
@@ -521,10 +519,10 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
 
     merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
-    Value::Object(payload)
+    Ok(Value::Object(payload))
 }
 
-fn to_anthropic_message(message: &Message) -> Value {
+fn to_anthropic_message(message: &Message) -> Result<Value, Error> {
     match message.role {
         MessageRole::User | MessageRole::Assistant => {
             let role = if message.role == MessageRole::User {
@@ -547,7 +545,7 @@ fn to_anthropic_message(message: &Message) -> Value {
                         content.push(Value::Object(block));
                     }
                     ContentPart::File(file) => {
-                        content.push(anthropic_file_block(file));
+                        content.push(anthropic_file_block(file)?);
                     }
                     ContentPart::Reasoning(reasoning) => {
                         let signature = reasoning
@@ -595,7 +593,7 @@ fn to_anthropic_message(message: &Message) -> Value {
             msg.insert("role".into(), json!(role));
             msg.insert("content".into(), Value::Array(content));
             merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
-            Value::Object(msg)
+            Ok(Value::Object(msg))
         }
         MessageRole::Tool => {
             let tool_result = message.parts.iter().find_map(|part| {
@@ -619,33 +617,37 @@ fn to_anthropic_message(message: &Message) -> Value {
             msg.insert("role".into(), json!("user"));
             msg.insert("content".into(), content);
             merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
-            Value::Object(msg)
+            Ok(Value::Object(msg))
         }
-        MessageRole::System => json!({
+        MessageRole::System => Ok(json!({
             "role": "user",
             "content": [],
-        }),
+        })),
     }
 }
 
-fn anthropic_file_block(file: &FilePart) -> Value {
-    match &file.data {
-        MediaData::Url(url) => json!({
-            "type": "image",
-            "source": { "type": "url", "url": url }
-        }),
+fn anthropic_file_block(file: &FilePart) -> Result<Value, Error> {
+    let block_type = if file.media_type.starts_with("image/") {
+        "image"
+    } else if file.media_type == "application/pdf" {
+        "document"
+    } else {
+        return Err(unsupported_media_type(PROVIDER_SLUG, &file.media_type));
+    };
+    let source = match &file.data {
+        MediaData::Url(url) => json!({ "type": "url", "url": url }),
         MediaData::Base64(b64) => json!({
-            "type": "image",
-            "source": { "type": "base64", "media_type": file.media_type, "data": b64 }
+            "type": "base64",
+            "media_type": file.media_type,
+            "data": b64,
         }),
-        MediaData::Bytes(bytes) => {
-            let data = base64_encode(bytes);
-            json!({
-                "type": "image",
-                "source": { "type": "base64", "media_type": file.media_type, "data": data }
-            })
-        }
-    }
+        MediaData::Bytes(bytes) => json!({
+            "type": "base64",
+            "media_type": file.media_type,
+            "data": base64_encode(bytes),
+        }),
+    };
+    Ok(json!({ "type": block_type, "source": source }))
 }
 
 fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Error> {

@@ -7,7 +7,8 @@
 按示例设置对应环境变量（只需配置你要运行的那个示例）：
 
 - `DEEPSEEK_API_KEY`（大多数示例必需）
-- `ANTHROPIC_API_KEY`（`multimodal_image` 示例必需）
+- `ANTHROPIC_API_KEY`（`multimodal_image` / `multimodal_pdf` / `anthropic_*` 示例必需）
+- `PDF_PATH`（`multimodal_pdf` 示例必需，本地 PDF 文件路径）
 - `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com`）
 - `DEEPSEEK_MODEL`（可选，默认 `deepseek-v4-pro`）
 
@@ -56,16 +57,22 @@
 9. `multimodal_image.rs`
 
 - 场景：向视觉模型发送图像（URL / base64 / 原始字节）。
-- 重点：`Message::new` 组合文字 + 图像 part、`Message::user_image_bytes`、`ImagePart`、`MediaData`。
+- 重点：`Message::new` 组合文字 + 图像 part、`Message::user_file_bytes` / `user_file_url`、`FilePart`、`MediaData`、IANA `media_type` 必传。
 - 运行：`ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image`
 
-10. `anthropic_prompt_caching.rs`
+10. `multimodal_pdf.rs`
+
+- 场景：把一个本地 PDF 发给 Claude 做摘要。`FilePart` + `application/pdf` 自动派发到 Anthropic `document` block，无需新增类型。
+- 重点：`FilePart::new(MediaData::Bytes(...), "application/pdf").with_filename(...)`。
+- 运行：`ANTHROPIC_API_KEY=<key> PDF_PATH=<path> cargo run --example multimodal_pdf`
+
+11. `anthropic_prompt_caching.rs`
 
 - 场景：用 Anthropic prompt caching 把长 system 上下文设为缓存断点，重复调用时复用。
 - 重点：`TextPart::with_provider_options(...)` 把 `cache_control` 直接挂在内容块上、`Usage` 里的 `input_cache_write_tokens` / `input_cache_read_tokens` 读取。
 - 运行：`ANTHROPIC_API_KEY=<key> cargo run --example anthropic_prompt_caching`
 
-11. `anthropic_web_search.rs`
+12. `anthropic_web_search.rs`
 
 - 场景：调用 Anthropic 的 native `web_search` 工具——provider 在服务端执行，不需要 executor。
 - 重点：通过 `provider_options` 把 native 工具直接注入到请求体的 `tools` 数组、`provider_options` 顶层覆盖语义。
@@ -82,8 +89,9 @@
 7. `mini_claude_code.rs`
 8. `prepare_hooks.rs`
 9. `multimodal_image.rs`
-10. `anthropic_prompt_caching.rs`
-11. `anthropic_web_search.rs`
+10. `multimodal_pdf.rs`
+11. `anthropic_prompt_caching.rs`
+12. `anthropic_web_search.rs`
 
 ## Web 框架集成说明
 

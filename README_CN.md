@@ -34,7 +34,7 @@ Aquaregia 是一个 crate，让你用同一套 API 调用 OpenAI、Anthropic、G
 | **结构化输出**                    | `generate_object::<T>()` 与 `stream_object::<T>()`，schema 由 `schemars` 自动推导          |
 | **推理内容**                      | 一等公民式的 reasoning 提取、流式 reasoning delta、reasoning-token usage                   |
 | **工具型 Agent**                  | 多步循环 + `prepare_step` 钩子 + `max_steps` + `stop_when` + 错误策略                      |
-| **多模态视觉**                    | URL / base64 / 原始字节都支持——一套 `ImagePart` API 通吃所有 provider                       |
+| **多模态输入**                    | 图像 / PDF / 其他文件，URL / base64 / 原始字节——一套 `FilePart` API                          |
 | **取消与重试**                    | `CancellationToken` 全程检查；transient 错误指数退避，遵循 `Retry-After`                   |
 
 ### 什么时候不该用
@@ -477,13 +477,11 @@ loop {
 
 ### 多模态
 
-视觉模型既吃文本也吃图像。Aquaregia 用一个 `ImagePart` 把各 provider 之间的差异屏蔽掉——你说一次"URL"或"bytes"，正确的事情就发生在线路上。
-
-最短路径是 `Message::user_image_url` 或 `Message::user_image_bytes`。当一条消息要混合内容或多张图，用 explicit content parts 构造 `Message`：
+图像、PDF 等二进制输入走同一个 `FilePart` 类型，靠 IANA `media_type` 区分。最短路径是 `Message::user_file_url` / `Message::user_file_bytes`；混合内容或多文件用 explicit content parts 构造 `Message`：
 
 ```rust
 use aquaregia::{
-    ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
+    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole, TextPart,
 };
 
 let client = LlmClient::anthropic().api_key(std::env::var("ANTHROPIC_API_KEY")?).build()?;
@@ -494,14 +492,13 @@ let out = client
             .message(Message::new(
                 MessageRole::User,
                 vec![
-                    ContentPart::Text("What's in this image?".into()),
-                    ContentPart::Image(ImagePart {
-                        data: MediaData::Url(
+                    ContentPart::Text(TextPart::new("What's in this image?")),
+                    ContentPart::File(FilePart::new(
+                        MediaData::Url(
                             "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg".into(),
                         ),
-                        media_type: None,
-                        provider_metadata: None,
-                    }),
+                        "image/jpeg",
+                    )),
                 ],
             )?)
             .build()?,
@@ -511,20 +508,22 @@ let out = client
 
 便捷构造器：
 
-| 构造器                                                                   | 用途                                       |
-| ------------------------------------------------------------------------ | ------------------------------------------ |
-| `Message::user_image_url(url)`                                           | 单张图像，来自 URL                          |
-| `Message::user_image_bytes(bytes, mime)`                                 | 单张图像，来自原始字节（自动 base64）       |
-| `Message::new(MessageRole::User, vec![Text, Image, …])`                  | 混合内容 / 多图                             |
-| `ContentPart::Image(ImagePart { data, media_type, provider_metadata })`  | 完整控制 + provider 私有附加                |
+| 构造器                                                                                       | 用途                                              |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------- |
+| `Message::user_file_url(url, media_type)`                                                    | 单文件，来自 URL                                  |
+| `Message::user_file_bytes(bytes, media_type)`                                                | 单文件，来自原始字节（自动 base64）               |
+| `Message::new(MessageRole::User, vec![Text, File, …])`                                       | 混合内容 / 多文件                                 |
+| `FilePart::new(data, media_type).with_filename(...).with_provider_options(...)`              | 完整控制：filename 提示、per-block provider 选项  |
 
-每个 provider 拿到的都是自己的原生格式：
+`media_type` 是必传字段——填 IANA 字符串如 `image/jpeg`、`image/png`、`application/pdf`。adapter 按它派发：
 
-| Provider            | URL                          | Base64 / Bytes                          |
-| ------------------- | ---------------------------- | --------------------------------------- |
-| Anthropic           | `source.type: url`           | `source.type: base64`                   |
-| OpenAI / Compatible | `image_url` with remote URL  | `image_url` with `data:<mime>;base64,…` |
-| Google              | `fileData.fileUri`           | `inlineData.data`                       |
+| `media_type`         | Anthropic              | OpenAI Responses                      | OpenAI-compatible | Google                       |
+| -------------------- | ---------------------- | ------------------------------------- | ----------------- | ---------------------------- |
+| `image/*`            | `image` block          | `input_image` (`image_url` data URL)  | `image_url`       | `inlineData` / `fileData`    |
+| `application/pdf`    | `document` block       | `input_file`（可带 `filename`）       | ✗ 本地拒绝         | `inlineData` / `fileData`    |
+| 其它                  | ✗ 本地拒绝              | ✗ 本地拒绝                            | ✗ 本地拒绝         | 直传 mimeType                |
+
+不支持的 `media_type` 会**在发出请求前**就以 `ErrorCode::InvalidRequest` 报错——没有静默 fallback。Google 把 `media_type` 原样透传，因此 API 侧支持最广（image / PDF / audio / video 多种子类型）；其它三家只接受它们能表达的类型。
 
 ---
 
@@ -817,8 +816,9 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | `openai_compatible_custom`    | 自定义 headers / query params / chat path                     |
 | `mini_claude_code`            | TUI Code Agent —— `bash` / `read` / `write` / `edit` 工具     |
 | `multimodal_image`            | `Message::new` 组合文字 + 图像 part + Anthropic 视觉           |
+| `multimodal_pdf`              | 把本地 PDF 发给 Claude 做摘要（`FilePart` + `application/pdf`）|
 
-大多数示例需要 `DEEPSEEK_API_KEY`；`multimodal_image` 需要 `ANTHROPIC_API_KEY`。完整说明见 [`examples/README.md`](./examples/README.md)。
+大多数示例需要 `DEEPSEEK_API_KEY`；`multimodal_image` / `multimodal_pdf` 需要 `ANTHROPIC_API_KEY`（PDF 还要 `PDF_PATH`）。完整说明见 [`examples/README.md`](./examples/README.md)。
 
 ### API 参考
 

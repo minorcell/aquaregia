@@ -34,7 +34,7 @@ It's not a gateway, not a proxy, not a microservice. It's a Rust library you `ca
 | **Structured output**             | `generate_object::<T>()` and `stream_object::<T>()` with `schemars`-derived schemas      |
 | **Reasoning content**             | First-class reasoning extraction, streaming reasoning deltas, reasoning-token usage      |
 | **Tool-using agents**             | Multi-step loop with `prepare_step` hooks, `max_steps`, `stop_when`, error policies      |
-| **Multimodal vision**             | Send images by URL, base64, or raw bytes — one `ImagePart` API across providers          |
+| **Multimodal input**              | Send images, PDFs, and other files by URL, base64, or raw bytes — one `FilePart` API     |
 | **Cancellation & retries**        | `CancellationToken` checked everywhere; exponential backoff with `Retry-After` honored   |
 
 ### When not to use it
@@ -477,13 +477,11 @@ See `examples/mini_claude_code.rs` for a working terminal agent that uses this p
 
 ### Multimodal
 
-Vision models take images alongside text. Aquaregia hides the per-provider differences behind one `ImagePart` type — you say "URL" or "bytes" once, and the right thing happens on the wire.
-
-The shortest path is `Message::user_image_url` or `Message::user_image_bytes`. For mixed content or multiple images per message, build a `Message` with explicit content parts:
+Images, PDFs, and other binary inputs all ride the same `FilePart` type, distinguished by an IANA `media_type`. The shortest path is `Message::user_file_url` / `Message::user_file_bytes`; for mixed content or multiple files per message, build a `Message` with explicit content parts:
 
 ```rust
 use aquaregia::{
-    ContentPart, GenerateTextRequest, ImagePart, LlmClient, MediaData, Message, MessageRole,
+    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole, TextPart,
 };
 
 let client = LlmClient::anthropic().api_key(std::env::var("ANTHROPIC_API_KEY")?).build()?;
@@ -494,14 +492,13 @@ let out = client
             .message(Message::new(
                 MessageRole::User,
                 vec![
-                    ContentPart::Text("What's in this image?".into()),
-                    ContentPart::Image(ImagePart {
-                        data: MediaData::Url(
+                    ContentPart::Text(TextPart::new("What's in this image?")),
+                    ContentPart::File(FilePart::new(
+                        MediaData::Url(
                             "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3a/Cat03.jpg/1200px-Cat03.jpg".into(),
                         ),
-                        media_type: None,
-                        provider_metadata: None,
-                    }),
+                        "image/jpeg",
+                    )),
                 ],
             )?)
             .build()?,
@@ -511,20 +508,22 @@ let out = client
 
 The convenience constructors:
 
-| Constructor                                                              | Use case                                  |
-| ------------------------------------------------------------------------ | ----------------------------------------- |
-| `Message::user_image_url(url)`                                           | One image from a URL                      |
-| `Message::user_image_bytes(bytes, mime)`                                 | One image from raw bytes (auto base64)    |
-| `Message::new(MessageRole::User, vec![Text, Image, …])`                  | Mixed content / multiple images           |
-| `ContentPart::Image(ImagePart { data, media_type, provider_metadata })`  | Full control + provider-specific hints    |
+| Constructor                                                                                | Use case                                                |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------- |
+| `Message::user_file_url(url, media_type)`                                                  | One file from a URL                                     |
+| `Message::user_file_bytes(bytes, media_type)`                                              | One file from raw bytes (auto base64)                   |
+| `Message::new(MessageRole::User, vec![Text, File, …])`                                     | Mixed content / multiple files                          |
+| `FilePart::new(data, media_type).with_filename(...).with_provider_options(...)`            | Full control: filename hint, per-block provider options |
 
-Each provider receives whatever native format it wants:
+`media_type` is mandatory — IANA-style strings such as `image/jpeg`, `image/png`, `application/pdf`. Adapters dispatch on it:
 
-| Provider            | URL                          | Base64 / Bytes                          |
-| ------------------- | ---------------------------- | --------------------------------------- |
-| Anthropic           | `source.type: url`           | `source.type: base64`                   |
-| OpenAI / Compatible | `image_url` with remote URL  | `image_url` with `data:<mime>;base64,…` |
-| Google              | `fileData.fileUri`           | `inlineData.data`                       |
+| `media_type`         | Anthropic                | OpenAI Responses                          | OpenAI-compatible | Google                       |
+| -------------------- | ------------------------ | ----------------------------------------- | ----------------- | ---------------------------- |
+| `image/*`            | `image` block            | `input_image` (`image_url` data URL)      | `image_url`       | `inlineData` / `fileData`    |
+| `application/pdf`    | `document` block         | `input_file` (with optional `filename`)   | ✗ rejected locally | `inlineData` / `fileData`    |
+| anything else        | ✗ rejected locally       | ✗ rejected locally                        | ✗ rejected locally | passed through (mimeType)    |
+
+Unsupported `media_type` surfaces as a local `ErrorCode::InvalidRequest` before any network round-trip — no silent fallback. Google receives the `media_type` verbatim and supports the broadest set (image / PDF / audio / video subtypes) at the API level; the others reject what they cannot represent.
 
 ---
 
@@ -817,8 +816,9 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | `openai_compatible_custom`    | Custom headers / query params / chat path                   |
 | `mini_claude_code`            | TUI code agent — `bash` / `read` / `write` / `edit` tools   |
 | `multimodal_image`            | `Message::new` with mixed text + image parts + Anthropic vision |
+| `multimodal_pdf`              | Send a local PDF to Claude (`FilePart` + `application/pdf`)     |
 
-Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_image`. See [`examples/README.md`](./examples/README.md) for full descriptions.
+Set `DEEPSEEK_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `multimodal_image` / `multimodal_pdf` (the PDF demo also needs `PDF_PATH`). See [`examples/README.md`](./examples/README.md) for full descriptions.
 
 ### API reference
 

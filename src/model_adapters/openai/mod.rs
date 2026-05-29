@@ -32,6 +32,7 @@ use serde_json::{Map, Value, json};
 use crate::error::{Error, ErrorCode};
 use crate::model_adapters::{
     ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+    unsupported_media_type,
 };
 use crate::stream::drain_sse_frames;
 use crate::types::{
@@ -86,7 +87,7 @@ impl ModelAdapter for OpenAiAdapter {
         &self,
         req: &GenerateTextRequest,
     ) -> Result<GenerateTextResponse, Error> {
-        let payload = build_payload(req, false);
+        let payload = build_payload(req, false)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
@@ -114,7 +115,7 @@ impl ModelAdapter for OpenAiAdapter {
     }
 
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
-        let payload = build_payload(req, true);
+        let payload = build_payload(req, true)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -391,7 +392,7 @@ struct PartialFnCall {
 }
 
 /// Builds the Responses API request payload.
-fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
+fn build_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     payload.insert("stream".to_string(), Value::Bool(stream));
@@ -416,7 +417,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
     }
 
     // Non-system messages become the `input` array.
-    let input = build_input(&req.messages);
+    let input = build_input(&req.messages)?;
     payload.insert("input".to_string(), Value::Array(input));
 
     if let Some(temperature) = req.temperature {
@@ -480,17 +481,17 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
 
     merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
-    Value::Object(payload)
+    Ok(Value::Object(payload))
 }
 
 /// Converts the non-system messages to Responses API `input` items.
-fn build_input(messages: &[Message]) -> Vec<Value> {
+fn build_input(messages: &[Message]) -> Result<Vec<Value>, Error> {
     let mut items: Vec<Value> = Vec::new();
     for message in messages {
         match message.role {
             MessageRole::System => {} // handled as `instructions`
             MessageRole::User => {
-                let content = user_content_items(&message.parts);
+                let content = user_content_items(&message.parts)?;
                 let mut item = Map::new();
                 item.insert("type".into(), Value::String("message".into()));
                 item.insert("role".into(), Value::String("user".into()));
@@ -553,7 +554,7 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
             }
         }
     }
-    items
+    Ok(items)
 }
 
 /// Converts user message parts to Responses API content items.
@@ -562,36 +563,34 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
 /// terse on the wire. When any text part carries `provider_options` (e.g.
 /// per-block markers), text parts are emitted as separate items so each one
 /// can carry its own options.
-fn user_content_items(parts: &[ContentPart]) -> Value {
+fn user_content_items(parts: &[ContentPart]) -> Result<Value, Error> {
     let has_files = parts.iter().any(|p| matches!(p, ContentPart::File(_)));
     let has_text_options = parts
         .iter()
         .any(|p| matches!(p, ContentPart::Text(t) if t.provider_options.is_some()));
     if has_files || has_text_options {
-        Value::Array(
-            parts
-                .iter()
-                .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(openai_input_text_block(text)),
-                    ContentPart::File(file) => Some(file_content_item(file)),
-                    _ => None,
-                })
-                .collect(),
-        )
-    } else {
-        let text: String = parts
-            .iter()
-            .filter_map(|p| {
-                if let ContentPart::Text(t) = p {
-                    Some(t.text.as_str())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        json!([{ "type": "input_text", "text": text }])
+        let mut items = Vec::new();
+        for part in parts {
+            match part {
+                ContentPart::Text(text) => items.push(openai_input_text_block(text)),
+                ContentPart::File(file) => items.push(file_content_item(file)?),
+                _ => {}
+            }
+        }
+        return Ok(Value::Array(items));
     }
+    let text: String = parts
+        .iter()
+        .filter_map(|p| {
+            if let ContentPart::Text(t) = p {
+                Some(t.text.as_str())
+            } else {
+                None
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    Ok(json!([{ "type": "input_text", "text": text }]))
 }
 
 fn openai_input_text_block(text: &TextPart) -> Value {
@@ -602,15 +601,47 @@ fn openai_input_text_block(text: &TextPart) -> Value {
     Value::Object(block)
 }
 
-fn file_content_item(file: &FilePart) -> Value {
-    let url = match &file.data {
-        MediaData::Url(url) => url.clone(),
-        MediaData::Base64(b64) => format!("data:{};base64,{}", file.media_type, b64),
-        MediaData::Bytes(bytes) => {
-            format!("data:{};base64,{}", file.media_type, base64_encode(bytes))
+fn file_content_item(file: &FilePart) -> Result<Value, Error> {
+    if file.media_type.starts_with("image/") {
+        let url = match &file.data {
+            MediaData::Url(url) => url.clone(),
+            MediaData::Base64(b64) => format!("data:{};base64,{}", file.media_type, b64),
+            MediaData::Bytes(bytes) => {
+                format!("data:{};base64,{}", file.media_type, base64_encode(bytes))
+            }
+        };
+        Ok(json!({ "type": "input_image", "image_url": { "url": url } }))
+    } else if file.media_type == "application/pdf" {
+        let mut item = Map::new();
+        item.insert("type".into(), Value::String("input_file".into()));
+        if let Some(name) = &file.filename {
+            item.insert("filename".into(), Value::String(name.clone()));
         }
-    };
-    json!({ "type": "input_image", "image_url": { "url": url } })
+        match &file.data {
+            MediaData::Url(url) => {
+                item.insert("file_url".into(), Value::String(url.clone()));
+            }
+            MediaData::Base64(b64) => {
+                item.insert(
+                    "file_data".into(),
+                    Value::String(format!("data:{};base64,{}", file.media_type, b64)),
+                );
+            }
+            MediaData::Bytes(bytes) => {
+                item.insert(
+                    "file_data".into(),
+                    Value::String(format!(
+                        "data:{};base64,{}",
+                        file.media_type,
+                        base64_encode(bytes)
+                    )),
+                );
+            }
+        }
+        Ok(Value::Object(item))
+    } else {
+        Err(unsupported_media_type(PROVIDER_SLUG, &file.media_type))
+    }
 }
 
 fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {

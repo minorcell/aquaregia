@@ -122,3 +122,18 @@ pub(crate) fn merge_provider_options(
         }
     }
 }
+
+/// Builds an `InvalidRequest` error for a `FilePart` whose `media_type` the
+/// adapter cannot translate. Subtype-level support is decided by the upstream
+/// API at request time; this helper is only for top-level categories the
+/// adapter has no representation for (e.g. PDFs in a chat-completions-only
+/// path, or arbitrary types in an image-only path).
+pub(crate) fn unsupported_media_type(slug: &str, media_type: &str) -> crate::error::Error {
+    crate::error::Error::new(
+        crate::error::ErrorCode::InvalidRequest,
+        format!(
+            "{} adapter does not support media_type {} for file parts",
+            slug, media_type
+        ),
+    )
+}
