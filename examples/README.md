@@ -59,6 +59,12 @@
 - 重点：`Message::new` 组合文字 + 图像 part、`Message::user_image_bytes`、`ImagePart`、`MediaData`。
 - 运行：`ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image`
 
+10. `anthropic_prompt_caching.rs`
+
+- 场景：用 Anthropic prompt caching 把长 system 上下文设为缓存断点，重复调用时复用。
+- 重点：`TextPart::with_provider_options(...)` 把 `cache_control` 直接挂在内容块上、`Usage` 里的 `input_cache_write_tokens` / `input_cache_read_tokens` 读取。
+- 运行：`ANTHROPIC_API_KEY=<key> cargo run --example anthropic_prompt_caching`
+
 ## 建议阅读顺序
 
 1. `basic_generate.rs`
@@ -70,6 +76,7 @@
 7. `mini_claude_code.rs`
 8. `prepare_hooks.rs`
 9. `multimodal_image.rs`
+10. `anthropic_prompt_caching.rs`
 
 ## Web 框架集成说明
 
