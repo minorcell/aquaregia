@@ -39,7 +39,9 @@ use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
+use crate::model_adapters::{
+    ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
@@ -452,7 +454,7 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         .filter(|msg| msg.role == MessageRole::System)
         .flat_map(|msg| {
             msg.parts.iter().filter_map(|part| match part {
-                ContentPart::Text(text) => Some(text.clone()),
+                ContentPart::Text(text) => Some(text.text.clone()),
                 _ => None,
             })
         })
@@ -517,16 +519,7 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
-    // Merge provider-specific options if present
-    if let Some(provider_options) = &req.provider_options {
-        if let Some(anthropic_options) = provider_options.get(PROVIDER_SLUG) {
-            if let Some(obj) = anthropic_options.as_object() {
-                for (key, value) in obj {
-                    payload.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    }
+    merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
     Value::Object(payload)
 }
@@ -542,10 +535,17 @@ fn to_anthropic_message(message: &Message) -> Value {
             let mut content = Vec::new();
             for part in &message.parts {
                 match part {
-                    ContentPart::Text(text) => content.push(json!({
-                        "type": "text",
-                        "text": text,
-                    })),
+                    ContentPart::Text(text) => {
+                        let mut block = Map::new();
+                        block.insert("type".into(), json!("text"));
+                        block.insert("text".into(), json!(text.text));
+                        merge_provider_options(
+                            &mut block,
+                            text.provider_options.as_ref(),
+                            PROVIDER_SLUG,
+                        );
+                        content.push(Value::Object(block));
+                    }
                     ContentPart::Image(image) => {
                         content.push(anthropic_image_block(image));
                     }
@@ -591,10 +591,11 @@ fn to_anthropic_message(message: &Message) -> Value {
                     ContentPart::ToolResult(_) => {}
                 }
             }
-            json!({
-                "role": role,
-                "content": content,
-            })
+            let mut msg = Map::new();
+            msg.insert("role".into(), json!(role));
+            msg.insert("content".into(), Value::Array(content));
+            merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
+            Value::Object(msg)
         }
         MessageRole::Tool => {
             let tool_result = message.parts.iter().find_map(|part| {
@@ -604,22 +605,21 @@ fn to_anthropic_message(message: &Message) -> Value {
                     None
                 }
             });
-            if let Some(result) = tool_result {
-                json!({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": result.call_id,
-                        "content": result.output_json.to_string(),
-                        "is_error": result.is_error,
-                    }]
-                })
+            let content = if let Some(result) = tool_result {
+                json!([{
+                    "type": "tool_result",
+                    "tool_use_id": result.call_id,
+                    "content": result.output_json.to_string(),
+                    "is_error": result.is_error,
+                }])
             } else {
-                json!({
-                    "role": "user",
-                    "content": [],
-                })
-            }
+                Value::Array(Vec::new())
+            };
+            let mut msg = Map::new();
+            msg.insert("role".into(), json!("user"));
+            msg.insert("content".into(), content);
+            merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
+            Value::Object(msg)
         }
         MessageRole::System => json!({
             "role": "user",

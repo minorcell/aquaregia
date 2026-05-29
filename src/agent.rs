@@ -44,6 +44,8 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
+use serde_json::Value;
+
 use crate::client::BoundClient;
 use crate::tool::IntoTool;
 use crate::types::{
@@ -290,6 +292,19 @@ impl AgentBuilder {
         self
     }
 
+    /// Sets provider-specific options passed through on every step.
+    ///
+    /// Same shape as [`GenerateTextRequestBuilder::provider_options`]: a JSON
+    /// object keyed by provider slug (e.g. `"anthropic"`, `"openai"`). Each
+    /// adapter extracts its own block and merges it into the request payload
+    /// for every step in the loop.
+    ///
+    /// [`GenerateTextRequestBuilder::provider_options`]: crate::GenerateTextRequest::builder
+    pub fn provider_options(mut self, options: Value) -> Self {
+        self.template = self.template.provider_options(options);
+        self
+    }
+
     /// Validates configuration and builds the [`Agent`].
     pub fn build(self) -> Result<Agent, crate::error::Error> {
         validate_model_ref(&self.template.model)?;
@@ -307,6 +322,23 @@ impl AgentBuilder {
 mod tests {
     use super::Agent;
     use crate::LlmClient;
+    use serde_json::json;
+
+    #[test]
+    fn builder_accepts_provider_options() {
+        let client = LlmClient::openai()
+            .api_key("test-key")
+            .base_url("https://api.openai.com")
+            .build()
+            .expect("client should build");
+        let options = json!({ "anthropic": { "thinking": { "budget_tokens": 1024 } } });
+        let agent = Agent::builder(client, "claude-sonnet-4-6")
+            .provider_options(options.clone())
+            .build()
+            .expect("agent should build");
+
+        assert_eq!(agent.template.provider_options.as_ref(), Some(&options));
+    }
 
     #[test]
     fn builder_accepts_typed_model() {

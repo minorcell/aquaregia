@@ -566,7 +566,67 @@ The slug (`"anthropic"`) is what routes the options, so a single request can car
 | `google`            | `generateContent` request body (top level) |
 | `openai-compatible` | Chat Completions request body (top level) |
 
-Because the merge is opaque, the responsibility is yours: keys you set override what the adapter computed, and a malformed value surfaces as a provider-side `InvalidRequest` rather than a compile error. This is the deliberate trade — full reach into provider features, no waiting on the core type to add a field. Options merge at the **top level** of the request body; per-message and per-content-block placement (needed for things like Anthropic prompt-caching breakpoints) is a separate, finer-grained mechanism.
+Because the merge is opaque, the responsibility is yours: keys you set override what the adapter computed, and a malformed value surfaces as a provider-side `InvalidRequest` rather than a compile error. This is the deliberate trade — full reach into provider features, no waiting on the core type to add a field.
+
+The same setter is on `Agent::builder(...)` — once configured, the options ride every step of the tool loop:
+
+```rust
+let agent = Agent::builder(client, "claude-sonnet-4-6")
+    .tools([weather])
+    .provider_options(json!({
+        "anthropic": { "thinking": { "type": "enabled", "budget_tokens": 10000 } }
+    }))
+    .build()?;
+```
+
+#### Per-message and per-content-block options
+
+Some provider features attach to a single message or even a single content block — Anthropic's `cache_control` breakpoint is the canonical example: it tells the API where to start a prompt cache, and *where* you put it is the whole point. The same `provider_options` shape works at message and block level:
+
+```rust
+use aquaregia::{ContentPart, Message, MessageRole, TextPart};
+
+let cached_system = TextPart::new(LONG_SYSTEM_PROMPT).with_provider_options(json!({
+    "anthropic": { "cache_control": { "type": "ephemeral" } }
+}));
+
+let system = Message::new(
+    MessageRole::System,
+    vec![ContentPart::Text(cached_system)],
+)?;
+```
+
+`Message::with_provider_options(...)` is the message-level analogue, merged into the message object itself rather than a block within it.
+
+The same opaqueness contract holds at every level — adapters read their slug, merge what they find, and never invent semantics. For OpenAI's Responses API and the openai-compatible Chat Completions adapter, attaching `provider_options` to a text block also forces the `content` field into the typed-array form (a bare string can't carry per-block fields).
+
+| Setter                          | Merged into                                                  |
+| ------------------------------- | ------------------------------------------------------------ |
+| `GenerateTextRequest::builder().provider_options(…)` | Request body, top level                                      |
+| `Agent::builder().provider_options(…)`               | Every per-step request body, top level                       |
+| `Message::with_provider_options(…)`                  | The corresponding message object inside `messages` / `input` |
+| `TextPart::with_provider_options(…)`                 | The corresponding text content block                         |
+
+#### Provider-native tools
+
+Anthropic's `web_search_20250305`, OpenAI's `web_search` / `file_search` / `code_interpreter`, Google's `googleSearch` and friends are all "native" tools: the provider executes them server-side and feeds the result straight back into the same turn, so there is no executor on your side and nothing for the agent loop to dispatch. They go into the request body's `tools` array — exactly the field `provider_options` already merges. So Aquaregia doesn't ship a separate "ProviderTool" type for them; you inject them directly:
+
+```rust
+let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    .user_prompt("What did Rust 1.85 ship?")
+    .provider_options(json!({
+        "anthropic": {
+            "tools": [{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 3
+            }]
+        }
+    }))
+    .build()?;
+```
+
+One thing to know about the merge: top-level keys **overwrite** what the adapter computed for that key. That matters for `tools` specifically — if you also pass `.tools([your_tool])`, the adapter will compute a `tools: [<your_tool>]` array, then `provider_options.anthropic.tools` will overwrite it. To run native and user tools together, put both in the same `provider_options.<slug>.tools` array and skip `.tools(...)` entirely; the adapter passes the merged array through verbatim. See `examples/anthropic_web_search.rs` for a runnable native-only call.
 
 ---
 

@@ -54,6 +54,9 @@ pub struct Message {
     pub(crate) parts: Vec<ContentPart>,
     /// Optional author/tool name for attribution.
     pub(crate) name: Option<String>,
+    /// Provider-specific options merged into this message's serialized form.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) provider_options: Option<Value>,
 }
 
 impl Message {
@@ -77,6 +80,7 @@ impl Message {
             role,
             parts,
             name: None,
+            provider_options: None,
         })
     }
 
@@ -91,8 +95,9 @@ impl Message {
     pub fn system_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::System,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -106,8 +111,9 @@ impl Message {
     pub fn user_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::User,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -121,8 +127,9 @@ impl Message {
     pub fn assistant_text(text: impl Into<String>) -> Self {
         Self {
             role: MessageRole::Assistant,
-            parts: vec![ContentPart::Text(text.into())],
+            parts: vec![ContentPart::Text(TextPart::new(text))],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -139,7 +146,24 @@ impl Message {
             role: MessageRole::Tool,
             parts: vec![ContentPart::ToolResult(result)],
             name: None,
+            provider_options: None,
         }
+    }
+
+    /// Attaches provider-specific options to this message.
+    ///
+    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// name. Adapters extract their slug and merge the entries into the
+    /// outbound message object (e.g. for Anthropic message-level
+    /// `cache_control`).
+    pub fn with_provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
+        self
+    }
+
+    /// Returns the optional provider-specific options attached to this message.
+    pub fn provider_options(&self) -> Option<&Value> {
+        self.provider_options.as_ref()
     }
 
     /// Returns the message role.
@@ -158,6 +182,7 @@ impl Message {
             role: MessageRole::Assistant,
             parts,
             name: None,
+            provider_options: None,
         }
     }
 
@@ -171,6 +196,7 @@ impl Message {
                 provider_metadata: None,
             })],
             name: None,
+            provider_options: None,
         }
     }
 
@@ -184,6 +210,7 @@ impl Message {
                 provider_metadata: None,
             })],
             name: None,
+            provider_options: None,
         }
     }
 }
@@ -212,6 +239,42 @@ pub struct ImagePart {
     pub provider_metadata: Option<Value>,
 }
 
+/// Text content block.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TextPart {
+    /// Text body.
+    pub text: String,
+    /// Provider-specific options merged into this block's serialized form.
+    ///
+    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// name. Adapters extract their slug and merge the entries into the
+    /// outbound block object (e.g. for Anthropic `cache_control` breakpoints).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_options: Option<Value>,
+}
+
+impl TextPart {
+    /// Creates a text part from any string-like value.
+    pub fn new(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            provider_options: None,
+        }
+    }
+
+    /// Attaches provider-specific options to this text block.
+    pub fn with_provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
+        self
+    }
+}
+
+impl<T: Into<String>> From<T> for TextPart {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
 /// Content block used in a message.
 ///
 /// This enum represents the different types of content that can appear
@@ -220,7 +283,7 @@ pub struct ImagePart {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ContentPart {
     /// Plain text content.
-    Text(String),
+    Text(TextPart),
     /// Image content for vision inputs.
     Image(ImagePart),
     /// Provider reasoning content (chain-of-thought traces).
@@ -496,6 +559,7 @@ pub(crate) struct RunTools {
     pub(crate) on_finish: Option<Hook<AgentFinish>>,
     pub(crate) stop_when: Option<StopPredicate>,
     pub(crate) tool_error_policy: ToolErrorPolicy,
+    pub(crate) provider_options: Option<Value>,
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
@@ -519,6 +583,7 @@ impl RunTools {
             on_finish: None,
             stop_when: None,
             tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
+            provider_options: None,
             cancellation_token: None,
         }
     }
@@ -627,6 +692,11 @@ impl RunTools {
 
     pub(crate) fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
+        self
+    }
+
+    pub(crate) fn provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
         self
     }
 
@@ -1192,8 +1262,11 @@ mod tests {
 
     #[test]
     fn message_new_rejects_tool_role_without_tool_result() {
-        let err = Message::new(MessageRole::Tool, vec![ContentPart::Text("x".into())])
-            .expect_err("tool role without ToolResult should fail");
+        let err = Message::new(
+            MessageRole::Tool,
+            vec![ContentPart::Text(TextPart::new("x"))],
+        )
+        .expect_err("tool role without ToolResult should fail");
         assert!(err.message.contains("ToolResult"));
     }
 
@@ -1255,7 +1328,7 @@ mod tests {
 
     #[test]
     fn message_assistant_with_parts() {
-        let msg = Message::assistant_with_parts(vec![ContentPart::Text("output".into())]);
+        let msg = Message::assistant_with_parts(vec![ContentPart::Text(TextPart::new("output"))]);
         assert_eq!(msg.role(), MessageRole::Assistant);
     }
 
@@ -1263,10 +1336,10 @@ mod tests {
 
     #[test]
     fn content_part_text_serialization() {
-        let part = ContentPart::Text("hello".into());
+        let part = ContentPart::Text(TextPart::new("hello"));
         let json = serde_json::to_string(&part).unwrap();
         let back: ContentPart = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back, ContentPart::Text(ref t) if t == "hello"));
+        assert!(matches!(back, ContentPart::Text(ref t) if t.text == "hello"));
     }
 
     #[test]
@@ -1824,6 +1897,7 @@ mod tests {
             role: MessageRole::User,
             parts: vec![],
             name: None,
+            provider_options: None,
         }])
         .expect_err("message with empty parts should fail");
         assert!(err.message.contains("cannot be empty"));

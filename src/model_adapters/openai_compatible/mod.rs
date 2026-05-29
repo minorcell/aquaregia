@@ -53,11 +53,13 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
+use crate::model_adapters::{
+    ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -564,30 +566,25 @@ fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
-    // Merge provider-specific options if present
-    if let Some(provider_options) = &req.provider_options {
-        if let Some(openai_compatible_options) = provider_options.get(PROVIDER_SLUG) {
-            if let Some(obj) = openai_compatible_options.as_object() {
-                for (key, value) in obj {
-                    payload.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    }
+    merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
     Value::Object(payload)
 }
 
 fn to_openai_message(message: &Message) -> Value {
-    match message.role {
-        MessageRole::System => json!({
-            "role": "system",
-            "content": text_content_from_parts(&message.parts),
-        }),
-        MessageRole::User => json!({
-            "role": "user",
-            "content": openai_user_content(&message.parts),
-        }),
+    let mut obj = match message.role {
+        MessageRole::System => {
+            let mut m = Map::new();
+            m.insert("role".into(), Value::String("system".into()));
+            m.insert("content".into(), openai_content_value(&message.parts));
+            m
+        }
+        MessageRole::User => {
+            let mut m = Map::new();
+            m.insert("role".into(), Value::String("user".into()));
+            m.insert("content".into(), openai_content_value(&message.parts));
+            m
+        }
         MessageRole::Assistant => {
             let reasoning_content = reasoning_content_from_parts(&message.parts);
             let tool_calls: Vec<Value> = message
@@ -631,7 +628,7 @@ fn to_openai_message(message: &Message) -> Value {
             if !tool_calls.is_empty() {
                 payload.insert("tool_calls".to_string(), Value::Array(tool_calls));
             }
-            Value::Object(payload)
+            payload
         }
         MessageRole::Tool => {
             let tool_result = message.parts.iter().find_map(|part| {
@@ -641,21 +638,22 @@ fn to_openai_message(message: &Message) -> Value {
                     None
                 }
             });
-
+            let mut m = Map::new();
+            m.insert("role".into(), Value::String("tool".into()));
             if let Some(result) = tool_result {
-                json!({
-                    "role": "tool",
-                    "tool_call_id": result.call_id,
-                    "content": tool_result_content_string(&result.output_json),
-                })
+                m.insert("tool_call_id".into(), Value::String(result.call_id.clone()));
+                m.insert(
+                    "content".into(),
+                    Value::String(tool_result_content_string(&result.output_json)),
+                );
             } else {
-                json!({
-                    "role": "tool",
-                    "content": "",
-                })
+                m.insert("content".into(), Value::String(String::new()));
             }
+            m
         }
-    }
+    };
+    merge_provider_options(&mut obj, message.provider_options.as_ref(), PROVIDER_SLUG);
+    Value::Object(obj)
 }
 
 /// Renders a tool-result payload as a plain string.
@@ -676,7 +674,7 @@ fn text_content_from_parts(parts: &[ContentPart]) -> Value {
         .iter()
         .filter_map(|part| {
             if let ContentPart::Text(text) = part {
-                Some(text.clone())
+                Some(text.text.clone())
             } else {
                 None
             }
@@ -699,14 +697,23 @@ fn reasoning_content_from_parts(parts: &[ContentPart]) -> String {
         .join("")
 }
 
-fn openai_user_content(parts: &[ContentPart]) -> Value {
+/// Returns Chat Completions `content` for a `user`/`system` message.
+///
+/// Plain string by default; switches to the typed content-array form when an
+/// image is present, or when any text part carries `provider_options` (since
+/// per-block fields like Anthropic-style `cache_control` markers can only
+/// ride a block object, not a bare string).
+fn openai_content_value(parts: &[ContentPart]) -> Value {
     let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
-    if has_images {
+    let has_text_options = parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::Text(t) if t.provider_options.is_some()));
+    if has_images || has_text_options {
         Value::Array(
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(json!({ "type": "text", "text": text })),
+                    ContentPart::Text(text) => Some(openai_text_block(text)),
                     ContentPart::Image(img) => Some(openai_image_content_part(img)),
                     _ => None,
                 })
@@ -715,6 +722,14 @@ fn openai_user_content(parts: &[ContentPart]) -> Value {
     } else {
         text_content_from_parts(parts)
     }
+}
+
+fn openai_text_block(text: &TextPart) -> Value {
+    let mut block = Map::new();
+    block.insert("type".into(), Value::String("text".into()));
+    block.insert("text".into(), Value::String(text.text.clone()));
+    merge_provider_options(&mut block, text.provider_options.as_ref(), PROVIDER_SLUG);
+    Value::Object(block)
 }
 
 fn openai_image_content_part(image: &ImagePart) -> Value {

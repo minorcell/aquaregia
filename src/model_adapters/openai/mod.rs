@@ -30,11 +30,13 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
+use crate::model_adapters::{
+    ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai";
@@ -402,7 +404,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         .flat_map(|m| m.parts.iter())
         .filter_map(|p| {
             if let ContentPart::Text(t) = p {
-                Some(t.as_str())
+                Some(t.text.as_str())
             } else {
                 None
             }
@@ -476,16 +478,7 @@ fn build_payload(req: &GenerateTextRequest, stream: bool) -> Value {
         );
     }
 
-    // Merge provider-specific options if present
-    if let Some(provider_options) = &req.provider_options {
-        if let Some(openai_options) = provider_options.get(PROVIDER_SLUG) {
-            if let Some(obj) = openai_options.as_object() {
-                for (key, value) in obj {
-                    payload.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    }
+    merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
     Value::Object(payload)
 }
@@ -498,7 +491,12 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
             MessageRole::System => {} // handled as `instructions`
             MessageRole::User => {
                 let content = user_content_items(&message.parts);
-                items.push(json!({ "type": "message", "role": "user", "content": content }));
+                let mut item = Map::new();
+                item.insert("type".into(), Value::String("message".into()));
+                item.insert("role".into(), Value::String("user".into()));
+                item.insert("content".into(), content);
+                merge_provider_options(&mut item, message.provider_options.as_ref(), PROVIDER_SLUG);
+                items.push(Value::Object(item));
             }
             MessageRole::Assistant => {
                 // Text parts → message item.
@@ -507,7 +505,7 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
                     .iter()
                     .filter_map(|p| {
                         if let ContentPart::Text(t) = p {
-                            Some(t.as_str())
+                            Some(t.text.as_str())
                         } else {
                             None
                         }
@@ -515,11 +513,19 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
                     .collect::<Vec<_>>()
                     .join("");
                 if !text.is_empty() {
-                    items.push(json!({
-                        "type": "message",
-                        "role": "assistant",
-                        "content": [{ "type": "output_text", "text": text }],
-                    }));
+                    let mut item = Map::new();
+                    item.insert("type".into(), Value::String("message".into()));
+                    item.insert("role".into(), Value::String("assistant".into()));
+                    item.insert(
+                        "content".into(),
+                        json!([{ "type": "output_text", "text": text }]),
+                    );
+                    merge_provider_options(
+                        &mut item,
+                        message.provider_options.as_ref(),
+                        PROVIDER_SLUG,
+                    );
+                    items.push(Value::Object(item));
                 }
                 // Each ToolCall part → a separate function_call item.
                 for part in &message.parts {
@@ -551,14 +557,22 @@ fn build_input(messages: &[Message]) -> Vec<Value> {
 }
 
 /// Converts user message parts to Responses API content items.
+///
+/// Text parts are joined into a single `input_text` item by default to stay
+/// terse on the wire. When any text part carries `provider_options` (e.g.
+/// per-block markers), text parts are emitted as separate items so each one
+/// can carry its own options.
 fn user_content_items(parts: &[ContentPart]) -> Value {
     let has_images = parts.iter().any(|p| matches!(p, ContentPart::Image(_)));
-    if has_images {
+    let has_text_options = parts
+        .iter()
+        .any(|p| matches!(p, ContentPart::Text(t) if t.provider_options.is_some()));
+    if has_images || has_text_options {
         Value::Array(
             parts
                 .iter()
                 .filter_map(|part| match part {
-                    ContentPart::Text(text) => Some(json!({ "type": "input_text", "text": text })),
+                    ContentPart::Text(text) => Some(openai_input_text_block(text)),
                     ContentPart::Image(img) => Some(image_content_item(img)),
                     _ => None,
                 })
@@ -569,7 +583,7 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
             .iter()
             .filter_map(|p| {
                 if let ContentPart::Text(t) = p {
-                    Some(t.as_str())
+                    Some(t.text.as_str())
                 } else {
                     None
                 }
@@ -578,6 +592,14 @@ fn user_content_items(parts: &[ContentPart]) -> Value {
             .join("");
         json!([{ "type": "input_text", "text": text }])
     }
+}
+
+fn openai_input_text_block(text: &TextPart) -> Value {
+    let mut block = Map::new();
+    block.insert("type".into(), Value::String("input_text".into()));
+    block.insert("text".into(), Value::String(text.text.clone()));
+    merge_provider_options(&mut block, text.provider_options.as_ref(), PROVIDER_SLUG);
+    Value::Object(block)
 }
 
 fn image_content_item(image: &ImagePart) -> Value {

@@ -39,11 +39,13 @@ use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
 use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{ModelAdapter, base64_encode, check_response_status, map_send_error};
+use crate::model_adapters::{
+    ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
+};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FinishReason, GenerateTextRequest, GenerateTextResponse, ImagePart, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -392,16 +394,7 @@ fn build_google_payload(req: &GenerateTextRequest) -> Value {
         );
     }
 
-    // Merge provider-specific options if present
-    if let Some(provider_options) = &req.provider_options {
-        if let Some(google_options) = provider_options.get(PROVIDER_SLUG) {
-            if let Some(obj) = google_options.as_object() {
-                for (key, value) in obj {
-                    payload.insert(key.clone(), value.clone());
-                }
-            }
-        }
-    }
+    merge_provider_options(&mut payload, req.provider_options.as_ref(), PROVIDER_SLUG);
 
     Value::Object(payload)
 }
@@ -432,10 +425,7 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
             MessageRole::User => {
                 let parts = text_parts_from_message(message);
                 if !parts.is_empty() {
-                    contents.push(json!({
-                        "role": "user",
-                        "parts": parts,
-                    }));
+                    contents.push(google_message_object("user", parts, message));
                 }
             }
             MessageRole::Assistant => {
@@ -443,8 +433,8 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                 for part in &message.parts {
                     match part {
                         ContentPart::Text(text) => {
-                            if !text.is_empty() {
-                                parts.push(json!({ "text": text }));
+                            if !text.text.is_empty() {
+                                parts.push(google_text_part(text));
                             }
                         }
                         ContentPart::Reasoning(reasoning) => {
@@ -479,10 +469,7 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                     }
                 }
                 if !parts.is_empty() {
-                    contents.push(json!({
-                        "role": "model",
-                        "parts": parts,
-                    }));
+                    contents.push(google_message_object("model", parts, message));
                 }
             }
             MessageRole::Tool => {
@@ -506,10 +493,7 @@ fn to_google_messages(messages: &[Message]) -> (Vec<Value>, Option<String>) {
                     }
                 }
                 if !parts.is_empty() {
-                    contents.push(json!({
-                        "role": "user",
-                        "parts": parts,
-                    }));
+                    contents.push(google_message_object("user", parts, message));
                 }
             }
         }
@@ -529,11 +513,26 @@ fn text_parts_from_message(message: &Message) -> Vec<Value> {
         .parts
         .iter()
         .filter_map(|part| match part {
-            ContentPart::Text(text) if !text.is_empty() => Some(json!({ "text": text })),
+            ContentPart::Text(text) if !text.text.is_empty() => Some(google_text_part(text)),
             ContentPart::Image(image) => Some(google_image_part(image)),
             _ => None,
         })
         .collect()
+}
+
+fn google_text_part(text: &TextPart) -> Value {
+    let mut block = Map::new();
+    block.insert("text".into(), Value::String(text.text.clone()));
+    merge_provider_options(&mut block, text.provider_options.as_ref(), PROVIDER_SLUG);
+    Value::Object(block)
+}
+
+fn google_message_object(role: &str, parts: Vec<Value>, message: &Message) -> Value {
+    let mut obj = Map::new();
+    obj.insert("role".into(), Value::String(role.into()));
+    obj.insert("parts".into(), Value::Array(parts));
+    merge_provider_options(&mut obj, message.provider_options.as_ref(), PROVIDER_SLUG);
+    Value::Object(obj)
 }
 
 fn google_image_part(image: &ImagePart) -> Value {
@@ -558,7 +557,7 @@ fn text_content_from_parts(parts: &[ContentPart]) -> String {
         .iter()
         .filter_map(|part| {
             if let ContentPart::Text(text) = part {
-                Some(text.clone())
+                Some(text.text.clone())
             } else {
                 None
             }

@@ -102,6 +102,7 @@ pub use types::{
     StreamEvent,
     StreamObjectEvent,
     TextDeltaStream,
+    TextPart,
     TextStream,
     // Tool types
     ToolCall,
