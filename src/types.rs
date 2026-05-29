@@ -496,6 +496,7 @@ pub(crate) struct RunTools {
     pub(crate) on_finish: Option<Hook<AgentFinish>>,
     pub(crate) stop_when: Option<StopPredicate>,
     pub(crate) tool_error_policy: ToolErrorPolicy,
+    pub(crate) provider_options: Option<Value>,
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
@@ -519,6 +520,7 @@ impl RunTools {
             on_finish: None,
             stop_when: None,
             tool_error_policy: ToolErrorPolicy::ContinueAsToolResult,
+            provider_options: None,
             cancellation_token: None,
         }
     }
@@ -627,6 +629,11 @@ impl RunTools {
 
     pub(crate) fn tool_error_policy(mut self, policy: ToolErrorPolicy) -> Self {
         self.tool_error_policy = policy;
+        self
+    }
+
+    pub(crate) fn provider_options(mut self, options: Value) -> Self {
+        self.provider_options = Some(options);
         self
     }
 

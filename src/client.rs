@@ -526,6 +526,7 @@ impl BoundClient {
             on_finish,
             stop_when,
             tool_error_policy,
+            provider_options,
             cancellation_token,
         } = req;
 
@@ -629,7 +630,7 @@ impl BoundClient {
                         )
                     },
                     output_schema: None,
-                    provider_options: None,
+                    provider_options: provider_options.clone(),
                     cancellation_token: cancellation_token.clone(),
                 })
                 .await?;

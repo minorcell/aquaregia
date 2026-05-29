@@ -568,6 +568,17 @@ The slug (`"anthropic"`) is what routes the options, so a single request can car
 
 Because the merge is opaque, the responsibility is yours: keys you set override what the adapter computed, and a malformed value surfaces as a provider-side `InvalidRequest` rather than a compile error. This is the deliberate trade — full reach into provider features, no waiting on the core type to add a field. Options merge at the **top level** of the request body; per-message and per-content-block placement (needed for things like Anthropic prompt-caching breakpoints) is a separate, finer-grained mechanism.
 
+The same setter is on `Agent::builder(...)` — once configured, the options ride every step of the tool loop:
+
+```rust
+let agent = Agent::builder(client, "claude-sonnet-4-6")
+    .tools([weather])
+    .provider_options(json!({
+        "anthropic": { "thinking": { "type": "enabled", "budget_tokens": 10000 } }
+    }))
+    .build()?;
+```
+
 ---
 
 ## Production
