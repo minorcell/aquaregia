@@ -1,10 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use aquaregia::{
-    Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, Tool, ToolDescriptor, ToolExecError,
-    ToolExecutor,
-};
+use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};
+use aquaregia::types::AgentPreparedStep;
+use aquaregia::{Agent, ErrorCode, LlmClient, Message, Tool};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};

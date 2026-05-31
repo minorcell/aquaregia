@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
+## [0.3.2] — 2026-06-01
+
+### Changed (breaking)
+
+- **Crate root re-export surface reduced from 53 to 29 symbols.** 24 types and traits are no longer re-exported at `aquaregia::*`; they remain public at their canonical module paths:
+
+  | Removed from root | Now import from |
+  |---|---|
+  | `EmbedRequest`, `EmbedRequestBuilder`, `EmbedResponse`, `EmbedUsage` | `aquaregia::embed::*` |
+  | `AnthropicAdapterSettings`, `GoogleAdapterSettings`, `OpenAiAdapterSettings`, `OpenAiCompatibleAdapterSettings` | `aquaregia::adapters::<provider>::*` |
+  | `ModelAdapter` | `aquaregia::adapters::ModelAdapter` |
+  | `AgentStart`, `AgentStepStart`, `AgentToolCallStart`, `AgentToolCallFinish`, `AgentStep`, `AgentFinish`, `AgentPrepareStep`, `AgentPreparedStep`, `AgentResponse` | `aquaregia::types::*` |
+  | `ToolDescriptor`, `ToolExecutor`, `ToolExecError`, `IntoTool` | `aquaregia::tool::*` |
+  | `ObjectStream`, `StreamObjectEvent`, `TextDeltaStream` | `aquaregia::types::*` |
+
+  The 29 symbols remaining at the crate root are the high-usage types that appear in nearly every consumer's imports (`LlmClient`, `Message`, `Agent`, `GenerateTextRequest`, `StreamEvent`, `Tool`, `Error`, `CancellationToken`, etc.).
+
+- **Closure-based hook users are unaffected.** Hooks like `on_step_finish(|step| ...)` and `on_finish(|f| ...)` infer event types automatically — no import needed. Only named-function hooks (`fn my_hook(e: &AgentStep)`) require the new import path.
+
+### Docs
+
+- Updated all examples, integration tests, and doc comments to use canonical module paths for the 24 relocated types.
+- Fixed broken intra-doc link to `ModelAdapter` in crate-level Architecture section.
+
 ## [0.3.1] — 2026-05-31
 
 ### Added
@@ -55,7 +79,7 @@ While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
 ### Changed (non-breaking)
 
-- New `pub(crate) merge_provider_options` helper in `model_adapters/mod.rs` centralises the slug-to-target merge used by all four adapters. The four hand-rolled top-level merge blocks introduced in 0.2.x are gone.
+- New `pub(crate) merge_provider_options` helper in `adapters/mod.rs` centralises the slug-to-target merge used by all four adapters. The four hand-rolled top-level merge blocks introduced in 0.2.x are gone.
 - New `pub(crate) unsupported_media_type` helper produces a uniform `InvalidRequest` error across adapters for unsupported `FilePart` media types.
 - OpenAI Responses and openai-compatible Chat Completions content shape stays a plain string by default; the typed content-array form is only emitted when a `TextPart` carries `provider_options` or a `FilePart` is present (since per-block fields can only ride a block object).
 
@@ -80,7 +104,7 @@ While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 ### Changed (breaking)
 
 - **Model reference is now `String`** (was `ModelRef` newtype). Pass any `impl Into<String>` to `GenerateTextRequest::from_user_prompt` / `::builder` / `Agent::builder`.
-- **`BuildProvider` is now sealed** via `pub trait BuildProvider: private::Sealed`. External adapters belong in the `model_adapters` module rather than as downstream `impl`s.
+- **`BuildProvider` is now sealed** via `pub trait BuildProvider: private::Sealed`. External adapters belong in the `adapters` module rather than as downstream `impl`s.
 - **`telemetry` feature flag removed**, and with it the optional `tracing` dependency. The flag previously gated no code.
 - **`ProviderKind` enum removed** (was unused).
 - **`ModelRef` newtype removed** (use `String` directly).

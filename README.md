@@ -289,7 +289,8 @@ Providers without native structured-output mode (Anthropic, Google) fall back tr
 For UIs that should render fields as they arrive, `stream_object::<T>()` emits progressively-populated values. Each chunk is repaired and re-deserialised into a partial `T`. Fields not yet emitted by the model stay at their `Default`, so derive `Default` and add `#[serde(default)]`:
 
 ```rust
-use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamObjectEvent};
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use aquaregia::types::StreamObjectEvent;
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -530,7 +531,8 @@ Unsupported `media_type` surfaces as a local `ErrorCode::InvalidRequest` before 
 Generate vector embeddings for text using provider embedding models. Embeddings convert text into dense vector representations useful for semantic search, clustering, and similarity comparisons.
 
 ```rust
-use aquaregia::{EmbedRequest, LlmClient};
+use aquaregia::embed::EmbedRequest;
+use aquaregia::LlmClient;
 
 let client = LlmClient::openai()
     .api_key(std::env::var("OPENAI_API_KEY")?)
