@@ -35,6 +35,7 @@ Aquaregia 是一个 crate，让你用同一套 API 调用 OpenAI、Anthropic、G
 | **推理内容**                      | 一等公民式的 reasoning 提取、流式 reasoning delta、reasoning-token usage                   |
 | **工具型 Agent**                  | 多步循环 + `prepare_step` 钩子 + `max_steps` + `stop_when` + 错误策略                      |
 | **多模态输入**                    | 图像 / PDF / 其他文件，URL / base64 / 原始字节——一套 `FilePart` API                          |
+| **文本向量化**                    | 用 `embed()` 生成向量 embedding——支持 OpenAI、Google、OpenAI-compatible                    |
 | **取消与重试**                    | `CancellationToken` 全程检查；transient 错误指数退避，遵循 `Retry-After`                   |
 
 ### 什么时候不该用
@@ -527,7 +528,75 @@ let out = client
 
 ---
 
-### Provider 专属选项
+### Embeddings（向量化）
+
+使用 provider 的 embedding 模型生成文本向量。Embedding 将文本转换为密集向量表示，用于语义搜索、聚类和相似度比较。
+
+```rust
+use aquaregia::{EmbedRequest, LlmClient};
+
+let client = LlmClient::openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .build()?;
+
+let response = client.embed(
+    EmbedRequest::new("text-embedding-3-small", vec!["你的文本"])
+).await?;
+
+println!("维度: {}", response.embeddings[0].len());
+println!("Token 数: {}", response.usage.tokens);
+```
+
+**Provider 支持情况：**
+
+| Provider          | Embedding API | 模型                                          |
+| ----------------- | :-----------: | --------------------------------------------- |
+| OpenAI            | ✅            | `text-embedding-3-small`, `text-embedding-3-large` |
+| Anthropic         | ❌            | —                                             |
+| Google            | ✅            | `text-embedding-004`                          |
+| OpenAI-compatible | ✅            | 取决于 provider（DeepSeek、Together 等）       |
+
+Anthropic 不提供 embedding API。如果你的应用基于 Anthropic，可以通过 `openai_compatible` adapter 使用第三方 embedding provider（如 Voyage AI、Cohere）。
+
+**批量处理：**
+
+```rust
+let texts = vec![
+    "第一个文档",
+    "第二个文档",
+    "第三个文档",
+];
+
+let response = client.embed(
+    EmbedRequest::new("text-embedding-3-small", texts)
+).await?;
+
+// response.embeddings[i] 对应 texts[i]
+for (i, embedding) in response.embeddings.iter().enumerate() {
+    println!("文本 {}: {} 维", i, embedding.len());
+}
+```
+
+**Provider 专属选项：**
+
+使用 `provider_options` 访问 provider 特有功能，如降维：
+
+```rust
+use serde_json::json;
+
+let response = client.embed(
+    EmbedRequest::builder("text-embedding-3-large")
+        .values(vec!["某些文本"])
+        .provider_options(json!({
+            "openai": { "dimensions": 256 }  // 从 3072 降到 256
+        }))
+        .build()?
+).await?;
+```
+
+完整示例（包括相似度计算）见 `examples/basic_embed.rs` 和 `examples/openai_embed.rs`。
+
+---
 
 核心请求类型只保留最小公约数——model、messages、采样、tools。但每家 provider 都带着无法泛化的旋钮：Anthropic 的 thinking budget、Google 的安全阈值、只落在一家而别处没有的参数。与其用对三家 provider 毫无意义的字段把核心类型撑大，Aquaregia 给你一个逃逸通道：`provider_options`。
 
@@ -780,6 +849,7 @@ Actix、Warp、或你自家的 gRPC 层用同样的食谱——把每个 `Stream
 | Tool-call streaming               |   ✓    |     ✓     |   ✓    |         ✓         |
 | `Usage` 中 cache-token 拆分       |   ✓    |     ✓     |   ✓    |   有就报          |
 | `provider_options` 透传           |   ✓    |     ✓     |   ✓    |         ✓         |
+| Embeddings                        |   ✓    |           |   ✓    |         ✓         |
 
 ### `Usage` 字段
 
@@ -809,6 +879,8 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | ----------------------------- | ------------------------------------------------------------- |
 | `basic_generate`              | 一次性 `generate` + 读取 usage                                |
 | `basic_stream`                | `stream` + `StreamEvent` 处理                                 |
+| `basic_embed`                 | 文本向量化 + 批量处理 + 相似度计算                            |
+| `openai_embed`                | OpenAI embeddings + 降维                                      |
 | `structured_streaming`        | `stream_object::<T>()` + 渐进式 `Partial` 事件                |
 | `agent_minimal`               | `Agent::builder` + 单个类型化工具                             |
 | `tools_max_steps`             | 多工具循环 + `max_steps` + 采样参数                           |

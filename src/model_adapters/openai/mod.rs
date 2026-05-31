@@ -383,6 +383,44 @@ impl ModelAdapter for OpenAiAdapter {
 
         Ok(Box::pin(stream))
     }
+
+    async fn embed(
+        &self,
+        req: &crate::embed::EmbedRequest,
+    ) -> Result<crate::embed::EmbedResponse, Error> {
+        let mut payload = json!({
+            "model": req.model,
+            "input": req.values,
+        });
+
+        // Merge provider-specific options
+        if let Some(opts) = &req.provider_options {
+            merge_provider_options(payload.as_object_mut().unwrap(), Some(opts), PROVIDER_SLUG);
+        }
+
+        let url = format!("{}/v1/embeddings", self.base_url.trim_end_matches('/'));
+        let response = self
+            .http
+            .post(url)
+            .header(AUTHORIZATION, format!("Bearer {}", self.api_key))
+            .header(CONTENT_TYPE, "application/json")
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| map_send_error(PROVIDER_SLUG, e))?;
+
+        let response = check_response_status(PROVIDER_SLUG, response).await?;
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|e| Error::new(ErrorCode::InvalidResponse, e.to_string()))?;
+
+        parse_embed_response(body)
+    }
+
+    fn provider_id(&self) -> &str {
+        PROVIDER_SLUG
+    }
 }
 
 struct PartialFnCall {
@@ -816,4 +854,50 @@ fn parse_usage(value: &Value) -> Option<Usage> {
         )
         .with_raw_usage(value.clone()),
     )
+}
+
+fn parse_embed_response(body: Value) -> Result<crate::embed::EmbedResponse, Error> {
+    let data = body
+        .get("data")
+        .and_then(Value::as_array)
+        .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing 'data' array"))?;
+
+    let mut embeddings = Vec::with_capacity(data.len());
+    for item in data {
+        let embedding = item
+            .get("embedding")
+            .and_then(Value::as_array)
+            .ok_or_else(|| Error::new(ErrorCode::InvalidResponse, "missing 'embedding' field"))?;
+
+        let vector: Vec<f32> = embedding
+            .iter()
+            .map(|v| {
+                v.as_f64().map(|f| f as f32).ok_or_else(|| {
+                    Error::new(ErrorCode::InvalidResponse, "invalid embedding value")
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        embeddings.push(vector);
+    }
+
+    let model = body
+        .get("model")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
+
+    let usage = body
+        .get("usage")
+        .and_then(|u| u.get("total_tokens"))
+        .and_then(Value::as_u64)
+        .map(|t| t as u32)
+        .unwrap_or(0);
+
+    Ok(crate::embed::EmbedResponse {
+        embeddings,
+        model,
+        usage: crate::embed::EmbedUsage::new(usage),
+        provider_metadata: Some(body),
+    })
 }

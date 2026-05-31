@@ -42,6 +42,7 @@ use std::time::{Duration, Instant};
 use futures_util::future::join_all;
 use tokio::time::sleep;
 
+use crate::embed::{EmbedRequest, EmbedResponse, validate_embed_request};
 use crate::error::{Error, ErrorCode};
 use crate::model_adapters::ModelAdapter;
 use crate::model_adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
@@ -360,6 +361,39 @@ impl BoundClient {
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
         self.call_with_retry(|| async { self.adapter.stream_text(&req).await })
+            .await
+    }
+
+    /// Generates embeddings for text values.
+    ///
+    /// The request is validated locally and retried on retryable failures.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ErrorCode::UnsupportedOperation`] if the provider does not
+    /// support embeddings (e.g., Anthropic).
+    ///
+    /// # Example
+    ///
+    /// ```rust,no_run
+    /// use aquaregia::{EmbedRequest, LlmClient};
+    ///
+    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let client = LlmClient::openai()
+    ///     .api_key(std::env::var("OPENAI_API_KEY")?)
+    ///     .build()?;
+    ///
+    /// let response = client.embed(
+    ///     EmbedRequest::new("text-embedding-3-small", vec!["Hello, world!"])
+    /// ).await?;
+    ///
+    /// println!("Dimension: {}", response.embeddings[0].len());
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub async fn embed(&self, req: EmbedRequest) -> Result<EmbedResponse, Error> {
+        validate_embed_request(&req)?;
+        self.call_with_retry(|| async { self.adapter.embed(&req).await })
             .await
     }
 

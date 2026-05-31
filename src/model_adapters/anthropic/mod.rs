@@ -393,6 +393,10 @@ impl ModelAdapter for AnthropicAdapter {
 
         Ok(Box::pin(stream))
     }
+
+    fn provider_id(&self) -> &str {
+        PROVIDER_SLUG
+    }
 }
 
 #[derive(Default)]

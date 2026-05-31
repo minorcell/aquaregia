@@ -50,6 +50,8 @@
 pub mod agent;
 /// Provider-bound client types and retry behavior.
 pub mod client;
+/// Embedding generation types and APIs.
+pub mod embed;
 /// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
 /// Provider adapter traits and concrete provider implementations.
@@ -63,6 +65,7 @@ pub mod types;
 
 pub use agent::{Agent, AgentBuilder};
 pub use client::{BoundClient, ClientBuilder, LlmClient};
+pub use embed::{EmbedRequest, EmbedRequestBuilder, EmbedResponse, EmbedUsage};
 pub use error::{Error, ErrorCode};
 pub use model_adapters::ModelAdapter;
 pub use model_adapters::anthropic::AnthropicAdapterSettings;
