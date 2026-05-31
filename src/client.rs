@@ -42,15 +42,15 @@ use std::time::{Duration, Instant};
 use futures_util::future::join_all;
 use tokio::time::sleep;
 
-use crate::embed::{EmbedRequest, EmbedResponse, validate_embed_request};
-use crate::error::{Error, ErrorCode};
-use crate::model_adapters::ModelAdapter;
-use crate::model_adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
-use crate::model_adapters::google::{GoogleAdapter, GoogleAdapterSettings};
-use crate::model_adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
-use crate::model_adapters::openai_compatible::{
+use crate::adapters::ModelAdapter;
+use crate::adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
+use crate::adapters::google::{GoogleAdapter, GoogleAdapterSettings};
+use crate::adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
+use crate::adapters::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
 };
+use crate::embed::{EmbedRequest, EmbedResponse, validate_embed_request};
+use crate::error::{Error, ErrorCode};
 use crate::partial_json::repair_json;
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
@@ -73,7 +73,7 @@ mod sealed {
 ///
 /// This trait is sealed: it is implemented exactly for the four built-in
 /// `*AdapterSettings` types and cannot be implemented downstream. External
-/// providers should add an adapter to the `model_adapters` module rather
+/// providers should add an adapter to the `adapters` module rather
 /// than implementing this trait.
 pub trait BuildProvider: sealed::Sealed {
     fn validate(&self) -> Result<(), Error>;

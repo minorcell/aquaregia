@@ -38,11 +38,11 @@ use futures_util::StreamExt;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{Map, Value, json};
 
-use crate::error::{Error, ErrorCode};
-use crate::model_adapters::{
+use crate::adapters::{
     ModelAdapter, base64_encode, check_response_status, map_send_error, merge_provider_options,
     unsupported_media_type,
 };
+use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
     ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,

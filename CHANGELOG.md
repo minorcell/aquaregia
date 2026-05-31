@@ -15,8 +15,8 @@ While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
   | Removed from root | Now import from |
   |---|---|
   | `EmbedRequest`, `EmbedRequestBuilder`, `EmbedResponse`, `EmbedUsage` | `aquaregia::embed::*` |
-  | `AnthropicAdapterSettings`, `GoogleAdapterSettings`, `OpenAiAdapterSettings`, `OpenAiCompatibleAdapterSettings` | `aquaregia::model_adapters::<provider>::*` |
-  | `ModelAdapter` | `aquaregia::model_adapters::ModelAdapter` |
+  | `AnthropicAdapterSettings`, `GoogleAdapterSettings`, `OpenAiAdapterSettings`, `OpenAiCompatibleAdapterSettings` | `aquaregia::adapters::<provider>::*` |
+  | `ModelAdapter` | `aquaregia::adapters::ModelAdapter` |
   | `AgentStart`, `AgentStepStart`, `AgentToolCallStart`, `AgentToolCallFinish`, `AgentStep`, `AgentFinish`, `AgentPrepareStep`, `AgentPreparedStep`, `AgentResponse` | `aquaregia::types::*` |
   | `ToolDescriptor`, `ToolExecutor`, `ToolExecError`, `IntoTool` | `aquaregia::tool::*` |
   | `ObjectStream`, `StreamObjectEvent`, `TextDeltaStream` | `aquaregia::types::*` |
@@ -79,7 +79,7 @@ While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
 ### Changed (non-breaking)
 
-- New `pub(crate) merge_provider_options` helper in `model_adapters/mod.rs` centralises the slug-to-target merge used by all four adapters. The four hand-rolled top-level merge blocks introduced in 0.2.x are gone.
+- New `pub(crate) merge_provider_options` helper in `adapters/mod.rs` centralises the slug-to-target merge used by all four adapters. The four hand-rolled top-level merge blocks introduced in 0.2.x are gone.
 - New `pub(crate) unsupported_media_type` helper produces a uniform `InvalidRequest` error across adapters for unsupported `FilePart` media types.
 - OpenAI Responses and openai-compatible Chat Completions content shape stays a plain string by default; the typed content-array form is only emitted when a `TextPart` carries `provider_options` or a `FilePart` is present (since per-block fields can only ride a block object).
 
@@ -104,7 +104,7 @@ While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 ### Changed (breaking)
 
 - **Model reference is now `String`** (was `ModelRef` newtype). Pass any `impl Into<String>` to `GenerateTextRequest::from_user_prompt` / `::builder` / `Agent::builder`.
-- **`BuildProvider` is now sealed** via `pub trait BuildProvider: private::Sealed`. External adapters belong in the `model_adapters` module rather than as downstream `impl`s.
+- **`BuildProvider` is now sealed** via `pub trait BuildProvider: private::Sealed`. External adapters belong in the `adapters` module rather than as downstream `impl`s.
 - **`telemetry` feature flag removed**, and with it the optional `tracing` dependency. The flag previously gated no code.
 - **`ProviderKind` enum removed** (was unused).
 - **`ModelRef` newtype removed** (use `String` directly).

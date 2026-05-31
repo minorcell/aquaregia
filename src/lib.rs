@@ -44,9 +44,11 @@
 //! - [`LlmClient`]: Entry point for creating provider-bound clients.
 //! - [`BoundClient`]: Reusable client for `generate`, `stream`, and agent loops.
 //! - [`Agent`]: Multi-step tool-using agent with configurable hooks.
-//! - [`ModelAdapter`](model_adapters::ModelAdapter): Trait for provider-specific request/response handling.
+//! - [`ModelAdapter`](adapters::ModelAdapter): Trait for provider-specific request/response handling.
 //! - [`Tool`]: Executable tool definitions with JSON Schema validation.
 
+/// Provider adapter traits and concrete provider implementations.
+pub mod adapters;
 /// Agent runtime and builder APIs.
 pub mod agent;
 /// Provider-bound client types and retry behavior.
@@ -55,8 +57,6 @@ pub mod client;
 pub mod embed;
 /// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
-/// Provider adapter traits and concrete provider implementations.
-pub mod model_adapters;
 pub(crate) mod partial_json;
 pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
