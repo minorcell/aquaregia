@@ -1,7 +1,6 @@
-use aquaregia::{
-    ErrorCode, GenerateTextRequest, LlmClient, Message, OutputSchema, StreamObjectEvent,
-    ToolDescriptor,
-};
+use aquaregia::tool::ToolDescriptor;
+use aquaregia::types::StreamObjectEvent;
+use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, OutputSchema};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;

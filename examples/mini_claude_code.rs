@@ -1,4 +1,5 @@
-use aquaregia::{Agent, AgentStep, LlmClient, Message, Tool, tool};
+use aquaregia::types::AgentStep;
+use aquaregia::{Agent, LlmClient, Message, Tool, tool};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -114,7 +115,7 @@ fn bash() -> Tool {
         .description("Execute a shell command in current workspace")
         .execute(|args: BashArgs| async move {
             if is_dangerous_command(&args.command) {
-                return Err(aquaregia::ToolExecError::Execution(format!(
+                return Err(aquaregia::tool::ToolExecError::Execution(format!(
                     "blocked dangerous command: {}",
                     args.command
                 )));
@@ -125,7 +126,10 @@ fn bash() -> Tool {
                 .arg(&args.command)
                 .output()
                 .map_err(|e| {
-                    aquaregia::ToolExecError::Execution(format!("bash execution failed: {}", e))
+                    aquaregia::tool::ToolExecError::Execution(format!(
+                        "bash execution failed: {}",
+                        e
+                    ))
                 })?;
 
             let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -162,16 +166,16 @@ fn read() -> Tool {
             let offset = args.offset.unwrap_or(0) as usize;
             let limit = args.limit.unwrap_or(200);
             if limit == 0 || limit > MAX_READ_LIMIT {
-                return Err(aquaregia::ToolExecError::Execution(format!(
+                return Err(aquaregia::tool::ToolExecError::Execution(format!(
                     "`limit` must be in [1, {}]",
                     MAX_READ_LIMIT
                 )));
             }
             let safe_path =
-                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
+                resolve_safe_path(&args.path).map_err(aquaregia::tool::ToolExecError::Execution)?;
 
             let text = fs::read_to_string(&safe_path).map_err(|e| {
-                aquaregia::ToolExecError::Execution(format!(
+                aquaregia::tool::ToolExecError::Execution(format!(
                     "read failed for `{}`: {}",
                     args.path, e
                 ))
@@ -208,11 +212,11 @@ fn write() -> Tool {
         .description("Write full file content (create parent dirs automatically)")
         .execute(|args: WriteArgs| async move {
             let safe_path =
-                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
+                resolve_safe_path(&args.path).map_err(aquaregia::tool::ToolExecError::Execution)?;
 
             if let Some(parent) = safe_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| {
-                    aquaregia::ToolExecError::Execution(format!(
+                    aquaregia::tool::ToolExecError::Execution(format!(
                         "create parent dirs failed for `{}`: {}",
                         args.path, e
                     ))
@@ -220,7 +224,7 @@ fn write() -> Tool {
             }
 
             fs::write(&safe_path, args.content.as_bytes()).map_err(|e| {
-                aquaregia::ToolExecError::Execution(format!(
+                aquaregia::tool::ToolExecError::Execution(format!(
                     "write failed for `{}`: {}",
                     args.path, e
                 ))
@@ -245,10 +249,10 @@ fn edit() -> Tool {
         .description("Edit file by replacing one unique old_string with new_string")
         .execute(|args: EditArgs| async move {
             let safe_path =
-                resolve_safe_path(&args.path).map_err(aquaregia::ToolExecError::Execution)?;
+                resolve_safe_path(&args.path).map_err(aquaregia::tool::ToolExecError::Execution)?;
 
             let original = fs::read_to_string(&safe_path).map_err(|e| {
-                aquaregia::ToolExecError::Execution(format!(
+                aquaregia::tool::ToolExecError::Execution(format!(
                     "read failed for `{}`: {}",
                     args.path, e
                 ))
@@ -256,13 +260,13 @@ fn edit() -> Tool {
             let occurrences = original.matches(&args.old_string).count();
 
             if occurrences == 0 {
-                return Err(aquaregia::ToolExecError::Execution(format!(
+                return Err(aquaregia::tool::ToolExecError::Execution(format!(
                     "old_string not found in `{}`",
                     args.path
                 )));
             }
             if occurrences > 1 {
-                return Err(aquaregia::ToolExecError::Execution(format!(
+                return Err(aquaregia::tool::ToolExecError::Execution(format!(
                     "old_string appears {} times in `{}`, please provide a unique snippet",
                     occurrences, args.path
                 )));
@@ -270,7 +274,7 @@ fn edit() -> Tool {
 
             let updated = original.replacen(&args.old_string, &args.new_string, 1);
             fs::write(&safe_path, updated.as_bytes()).map_err(|e| {
-                aquaregia::ToolExecError::Execution(format!(
+                aquaregia::tool::ToolExecError::Execution(format!(
                     "write failed for `{}`: {}",
                     args.path, e
                 ))

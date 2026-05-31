@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
+## [0.3.2] — 2026-06-01
+
+### Changed (breaking)
+
+- **Crate root re-export surface reduced from 53 to 29 symbols.** 24 types and traits are no longer re-exported at `aquaregia::*`; they remain public at their canonical module paths:
+
+  | Removed from root | Now import from |
+  |---|---|
+  | `EmbedRequest`, `EmbedRequestBuilder`, `EmbedResponse`, `EmbedUsage` | `aquaregia::embed::*` |
+  | `AnthropicAdapterSettings`, `GoogleAdapterSettings`, `OpenAiAdapterSettings`, `OpenAiCompatibleAdapterSettings` | `aquaregia::model_adapters::<provider>::*` |
+  | `ModelAdapter` | `aquaregia::model_adapters::ModelAdapter` |
+  | `AgentStart`, `AgentStepStart`, `AgentToolCallStart`, `AgentToolCallFinish`, `AgentStep`, `AgentFinish`, `AgentPrepareStep`, `AgentPreparedStep`, `AgentResponse` | `aquaregia::types::*` |
+  | `ToolDescriptor`, `ToolExecutor`, `ToolExecError`, `IntoTool` | `aquaregia::tool::*` |
+  | `ObjectStream`, `StreamObjectEvent`, `TextDeltaStream` | `aquaregia::types::*` |
+
+  The 29 symbols remaining at the crate root are the high-usage types that appear in nearly every consumer's imports (`LlmClient`, `Message`, `Agent`, `GenerateTextRequest`, `StreamEvent`, `Tool`, `Error`, `CancellationToken`, etc.).
+
+- **Closure-based hook users are unaffected.** Hooks like `on_step_finish(|step| ...)` and `on_finish(|f| ...)` infer event types automatically — no import needed. Only named-function hooks (`fn my_hook(e: &AgentStep)`) require the new import path.
+
+### Docs
+
+- Updated all examples, integration tests, and doc comments to use canonical module paths for the 24 relocated types.
+- Fixed broken intra-doc link to `ModelAdapter` in crate-level Architecture section.
+
 ## [0.3.1] — 2026-05-31
 
 ### Added

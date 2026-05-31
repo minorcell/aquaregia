@@ -1,4 +1,5 @@
-use aquaregia::{Agent, AgentPreparedStep, ErrorCode, LlmClient, Message, ToolErrorPolicy};
+use aquaregia::types::AgentPreparedStep;
+use aquaregia::{Agent, ErrorCode, LlmClient, Message, ToolErrorPolicy};
 use serde::Deserialize;
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};

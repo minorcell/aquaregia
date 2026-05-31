@@ -9,7 +9,8 @@
 //! DEEPSEEK_API_KEY=your-key cargo run --example basic_embed
 //! ```
 
-use aquaregia::{EmbedRequest, LlmClient};
+use aquaregia::LlmClient;
+use aquaregia::embed::EmbedRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

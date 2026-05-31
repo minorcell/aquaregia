@@ -10,7 +10,8 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{EmbedRequest, LlmClient};
+//! use aquaregia::embed::EmbedRequest;
+//! use aquaregia::LlmClient;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = LlmClient::openai()
@@ -41,7 +42,7 @@ use crate::error::{Error, ErrorCode};
 /// # Example
 ///
 /// ```rust
-/// use aquaregia::EmbedRequest;
+/// use aquaregia::embed::EmbedRequest;
 ///
 /// // Single text
 /// let req = EmbedRequest::new("text-embedding-3-small", vec!["Hello"]);
@@ -94,7 +95,7 @@ impl EmbedRequest {
     /// # Example
     ///
     /// ```rust
-    /// use aquaregia::EmbedRequest;
+    /// use aquaregia::embed::EmbedRequest;
     ///
     /// let req = EmbedRequest::new(
     ///     "text-embedding-3-small",
@@ -118,7 +119,7 @@ impl EmbedRequest {
     /// # Example
     ///
     /// ```rust
-    /// use aquaregia::EmbedRequest;
+    /// use aquaregia::embed::EmbedRequest;
     ///
     /// let req = EmbedRequest::builder("text-embedding-3-small")
     ///     .values(vec!["Hello"])

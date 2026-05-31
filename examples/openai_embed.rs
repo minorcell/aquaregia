@@ -9,7 +9,8 @@
 //! OPENAI_API_KEY=your-key cargo run --example openai_embed
 //! ```
 
-use aquaregia::{EmbedRequest, LlmClient};
+use aquaregia::LlmClient;
+use aquaregia::embed::EmbedRequest;
 use serde_json::json;
 
 #[tokio::main]

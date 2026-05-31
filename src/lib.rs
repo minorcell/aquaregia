@@ -44,7 +44,7 @@
 //! - [`LlmClient`]: Entry point for creating provider-bound clients.
 //! - [`BoundClient`]: Reusable client for `generate`, `stream`, and agent loops.
 //! - [`Agent`]: Multi-step tool-using agent with configurable hooks.
-//! - [`ModelAdapter`]: Trait for provider-specific request/response handling.
+//! - [`ModelAdapter`](model_adapters::ModelAdapter): Trait for provider-specific request/response handling.
 //! - [`Tool`]: Executable tool definitions with JSON Schema validation.
 
 /// Agent runtime and builder APIs.
@@ -66,51 +66,12 @@ pub mod types;
 
 pub use agent::{Agent, AgentBuilder};
 pub use client::{BoundClient, ClientBuilder, LlmClient};
-pub use embed::{EmbedRequest, EmbedRequestBuilder, EmbedResponse, EmbedUsage};
 pub use error::{Error, ErrorCode};
-pub use model_adapters::ModelAdapter;
-pub use model_adapters::anthropic::AnthropicAdapterSettings;
-pub use model_adapters::google::GoogleAdapterSettings;
-pub use model_adapters::openai::OpenAiAdapterSettings;
-pub use model_adapters::openai_compatible::OpenAiCompatibleAdapterSettings;
 pub use tokio_util::sync::CancellationToken;
 
-pub use tool::{IntoTool, Tool, ToolBuilder, ToolDescriptor, ToolExecError, ToolExecutor, tool};
+pub use tool::{Tool, ToolBuilder, tool};
 pub use types::{
-    AgentFinish,
-    AgentPrepareStep,
-    AgentPreparedStep,
-    AgentResponse,
-    // Agent event types (used in hook callbacks)
-    AgentStart,
-    AgentStep,
-    AgentStepStart,
-    AgentToolCallFinish,
-    AgentToolCallStart,
-    // Messages
-    ContentPart,
-    FilePart,
-    // Streaming
-    FinishReason,
-    // Structured output
-    GenerateObjectResponse,
-    // Requests & responses
-    GenerateTextRequest,
-    GenerateTextResponse,
-    MediaData,
-    Message,
-    MessageRole,
-    ObjectStream,
-    OutputSchema,
-    ReasoningPart,
-    StreamEvent,
-    StreamObjectEvent,
-    TextDeltaStream,
-    TextPart,
-    TextStream,
-    // Tool types
-    ToolCall,
-    ToolErrorPolicy,
-    ToolResult,
-    Usage,
+    ContentPart, FilePart, FinishReason, GenerateObjectResponse, GenerateTextRequest,
+    GenerateTextResponse, MediaData, Message, MessageRole, OutputSchema, ReasoningPart,
+    StreamEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };

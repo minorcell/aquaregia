@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 
-use aquaregia::{Agent, AgentPreparedStep, LlmClient, Message, tool};
+use aquaregia::types::AgentPreparedStep;
+use aquaregia::{Agent, LlmClient, Message, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

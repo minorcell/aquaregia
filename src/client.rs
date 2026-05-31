@@ -376,7 +376,8 @@ impl BoundClient {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use aquaregia::{EmbedRequest, LlmClient};
+    /// use aquaregia::embed::EmbedRequest;
+    /// use aquaregia::LlmClient;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
     /// let client = LlmClient::openai()

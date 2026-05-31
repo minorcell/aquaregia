@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use aquaregia::{
-    Agent, CancellationToken, ErrorCode, GenerateTextRequest, LlmClient, Tool, ToolDescriptor,
-    ToolExecError, ToolExecutor,
-};
+use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};
+use aquaregia::{Agent, CancellationToken, ErrorCode, GenerateTextRequest, LlmClient, Tool};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use wiremock::matchers::{method, path};

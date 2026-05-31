@@ -1,4 +1,5 @@
-use aquaregia::{GenerateTextRequest, LlmClient, Message, StreamObjectEvent};
+use aquaregia::types::StreamObjectEvent;
+use aquaregia::{GenerateTextRequest, LlmClient, Message};
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
