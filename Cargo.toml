@@ -2,7 +2,7 @@
 name = "aquaregia"
 version = "0.3.1"
 edition = "2024"
-description = "A single crate for building LLM-powered applications and agents across any provider."
+description = "A lightweight agent SDK for Rust: build tool-using LLM agents that run on any provider."
 license = "MIT"
 readme = "README.md"
 repository = "https://github.com/minorcell/aquaregia"

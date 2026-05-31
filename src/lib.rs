@@ -1,17 +1,18 @@
 //! # Aquaregia
 //!
-//! A single crate for building LLM-powered applications and agents across any provider.
+//! A lightweight agent SDK for Rust: build tool-using LLM agents that run on any provider.
 //!
 //! ## Features
 //!
-//! - **Unified Provider API**: One `LlmClient` binds to one provider configuration with support for
-//!   OpenAI, Anthropic, Google, and OpenAI-compatible endpoints.
+//! - **Tool-Using Agents**: Multi-step agent loops with `prepare_step` hooks, `stop_when`, and
+//!   configurable tool execution and error handling — you describe the tools, the agent runs the loop.
+//! - **Provider-Portable**: The same agent (and every `generate`/`stream` call) runs on OpenAI,
+//!   Anthropic, Google, and OpenAI-compatible endpoints — swap a constructor to change provider.
 //! - **Streaming & Non-Streaming**: Both `generate` and `stream` APIs with consistent event handling.
 //! - **Structured Output**: `generate_object::<T>()` deserialises responses directly into Rust types
 //!   using `schemars`-derived JSON Schema, with provider-native support (OpenAI) and tool-use fallback
 //!   (Anthropic, Google).
 //! - **Reasoning Support**: First-class reasoning content extraction and streaming events.
-//! - **Tool-Using Agents**: Multi-step agent loops with configurable tool execution and error handling.
 //! - **Multimodal Vision**: Send images to vision-capable models via URL, base64, or raw bytes.
 //! - **Cancellation**: All requests and agent runs support cancellation via `CancellationToken`.
 //!
