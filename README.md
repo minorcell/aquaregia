@@ -2,14 +2,14 @@
 
 # Aquaregia
 
-**The universal AI layer for Rust.**
+**A lightweight agent SDK for Rust.**
 
 [![Crates.io](https://img.shields.io/crates/v/aquaregia.svg)](https://crates.io/crates/aquaregia)
 [![Docs.rs](https://docs.rs/aquaregia/badge.svg)](https://docs.rs/aquaregia)
 [![License: MIT](https://img.shields.io/crates/l/aquaregia.svg)](./LICENSE)
 [![Downloads](https://img.shields.io/crates/d/aquaregia.svg)](https://crates.io/crates/aquaregia)
 
-[API Docs](https://docs.rs/aquaregia) · [Examples](./examples/README.md) · [中文文档](./README_CN.md)
+[API Docs](https://docs.rs/aquaregia) · [Examples](./examples/README.md) 
 
 </div>
 
@@ -19,28 +19,25 @@
 
 ### Why Aquaregia
 
-You want to call an LLM from Rust. You probably also want to call _another_ LLM from Rust six months from now, without rewriting your prompts, your tool definitions, or your streaming code.
+You want an agent: a model that calls your tools, loops until the job is done, and streams its progress as it goes. Writing that loop by hand — dispatching tool calls, feeding results back, tracking steps, handling the model that won't stop — is the part nobody enjoys.
 
-Aquaregia is a single crate that gives you one API across OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint. You swap a constructor and the same `generate`, `stream`, `generate_object`, and `Agent` calls keep working. Streaming, structured output, reasoning tokens, multimodal input, agent loops, retries, cancellation — all of it normalised behind one type.
+Aquaregia gives you that loop in a few lines. You describe the tools and the stopping rule; the `Agent` runs the think → call → observe → repeat cycle for you, with hooks at every boundary. And because the agent is built on one unified API across OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint, the same agent runs on whichever provider you point it at — swap a constructor, keep the code.
 
-It's not a gateway, not a proxy, not a microservice. It's a Rust library you `cargo add` and call directly.
+It's not a framework, not a gateway, not a microservice. It's a Rust library you `cargo add` and call directly.
 
 ### At a glance
 
 | Capability                        | What you get                                                                            |
 | --------------------------------- | --------------------------------------------------------------------------------------- |
-| **One API, four providers**       | OpenAI · Anthropic · Google · OpenAI-compatible (DeepSeek, Together, Groq, …)            |
+| **Tool-using agents**             | Multi-step loop with `prepare_step` hooks, `max_steps`, `stop_when`, error policies      |
+| **Typed tools**                   | A tool is a typed `async fn` — `schemars` derives the schema, args marshal back to Rust  |
+| **Runs on any provider**          | One agent, same code, over OpenAI · Anthropic · Google · OpenAI-compatible (DeepSeek, …) |
 | **Streaming & non-streaming**     | Same builder feeds `generate` or `stream`, with consistent `StreamEvent`s                |
 | **Structured output**             | `generate_object::<T>()` and `stream_object::<T>()` with `schemars`-derived schemas      |
 | **Reasoning content**             | First-class reasoning extraction, streaming reasoning deltas, reasoning-token usage      |
-| **Tool-using agents**             | Multi-step loop with `prepare_step` hooks, `max_steps`, `stop_when`, error policies      |
 | **Multimodal input**              | Send images, PDFs, and other files by URL, base64, or raw bytes — one `FilePart` API     |
 | **Text embeddings**               | Generate vector embeddings with `embed()` — OpenAI, Google, OpenAI-compatible support    |
 | **Cancellation & retries**        | `CancellationToken` checked everywhere; exponential backoff with `Retry-After` honored   |
-
-### When not to use it
-
-If you only ever target one provider and don't care about being portable, that provider's native SDK probably gives you a more idiomatic surface. Aquaregia earns its keep when you want to **A/B providers**, **let users pick a model at runtime**, or **future-proof against the LLM landscape moving under you**. If none of those apply, you're not the target audience — and that's fine.
 
 ---
 
