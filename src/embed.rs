@@ -322,4 +322,46 @@ mod tests {
         let req = EmbedRequest::new("model", vec!["hello", "world"]);
         assert!(validate_embed_request(&req).is_ok());
     }
+
+    #[test]
+    fn test_embed_usage_new() {
+        let usage = EmbedUsage::new(100);
+        assert_eq!(usage.tokens, 100);
+    }
+
+    #[test]
+    fn test_embed_response_construction() {
+        let response = EmbedResponse {
+            embeddings: vec![vec![0.1, 0.2, 0.3], vec![0.4, 0.5, 0.6]],
+            model: "test-model".to_string(),
+            usage: EmbedUsage::new(50),
+            provider_metadata: Some(serde_json::json!({"test": "data"})),
+        };
+        assert_eq!(response.embeddings.len(), 2);
+        assert_eq!(response.model, "test-model");
+        assert_eq!(response.usage.tokens, 50);
+        assert!(response.provider_metadata.is_some());
+    }
+
+    #[test]
+    fn test_embed_request_with_provider_options() {
+        let req = EmbedRequest::builder("model")
+            .values(vec!["test"])
+            .provider_options(serde_json::json!({
+                "openai": { "dimensions": 256 }
+            }))
+            .build()
+            .unwrap();
+        assert!(req.provider_options.is_some());
+    }
+
+    #[test]
+    fn test_validate_embed_request_whitespace_model() {
+        let req = EmbedRequest {
+            model: "   ".to_string(),
+            values: vec!["test".to_string()],
+            provider_options: None,
+        };
+        assert!(validate_embed_request(&req).is_err());
+    }
 }
