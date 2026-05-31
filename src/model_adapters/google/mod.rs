@@ -305,6 +305,10 @@ impl ModelAdapter for GoogleAdapter {
 
         Ok(Box::pin(stream))
     }
+
+    fn provider_id(&self) -> &str {
+        PROVIDER_SLUG
+    }
 }
 
 fn build_google_payload(req: &GenerateTextRequest) -> Value {

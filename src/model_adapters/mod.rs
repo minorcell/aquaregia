@@ -46,6 +46,7 @@ use async_trait::async_trait;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use reqwest::Response;
 
+use crate::embed::{EmbedRequest, EmbedResponse};
 use crate::error::Error;
 use crate::types::{GenerateTextRequest, GenerateTextResponse, TextStream};
 
@@ -61,9 +62,26 @@ pub mod openai_compatible;
 /// Provider adapter contract used by [`crate::BoundClient`].
 #[async_trait]
 pub trait ModelAdapter: Send + Sync {
+    /// Generates text completion for the given request.
     async fn generate_text(&self, req: &GenerateTextRequest)
     -> Result<GenerateTextResponse, Error>;
+
+    /// Streams text completion for the given request.
     async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error>;
+
+    /// Generates embeddings for the given text values.
+    ///
+    /// Default implementation returns `UnsupportedOperation` error.
+    /// Providers that support embeddings should override this method.
+    async fn embed(&self, _req: &EmbedRequest) -> Result<EmbedResponse, Error> {
+        Err(Error::new(
+            crate::error::ErrorCode::UnsupportedOperation,
+            format!("{} does not support embedding", self.provider_id()),
+        ))
+    }
+
+    /// Returns the provider identifier for error messages and logging.
+    fn provider_id(&self) -> &str;
 }
 
 pub(crate) async fn check_response_status(

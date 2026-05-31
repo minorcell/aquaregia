@@ -114,6 +114,11 @@ pub enum ErrorCode {
     /// This error indicates the operation was explicitly cancelled by
     /// the caller using a [`CancellationToken`](crate::CancellationToken).
     Cancelled,
+    /// Operation is not supported by this provider.
+    ///
+    /// This error indicates the provider does not support the requested
+    /// operation (e.g., embeddings, image generation).
+    UnsupportedOperation,
 }
 
 /// Rich error payload returned by all fallible SDK operations.
@@ -595,6 +600,7 @@ mod tests {
             ErrorCode::MaxStepsExceeded,
             ErrorCode::InvalidResponse,
             ErrorCode::Cancelled,
+            ErrorCode::UnsupportedOperation,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();

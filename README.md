@@ -35,6 +35,7 @@ It's not a gateway, not a proxy, not a microservice. It's a Rust library you `ca
 | **Reasoning content**             | First-class reasoning extraction, streaming reasoning deltas, reasoning-token usage      |
 | **Tool-using agents**             | Multi-step loop with `prepare_step` hooks, `max_steps`, `stop_when`, error policies      |
 | **Multimodal input**              | Send images, PDFs, and other files by URL, base64, or raw bytes — one `FilePart` API     |
+| **Text embeddings**               | Generate vector embeddings with `embed()` — OpenAI, Google, OpenAI-compatible support    |
 | **Cancellation & retries**        | `CancellationToken` checked everywhere; exponential backoff with `Retry-After` honored   |
 
 ### When not to use it
@@ -527,7 +528,75 @@ Unsupported `media_type` surfaces as a local `ErrorCode::InvalidRequest` before 
 
 ---
 
-### Provider-specific options
+### Embeddings
+
+Generate vector embeddings for text using provider embedding models. Embeddings convert text into dense vector representations useful for semantic search, clustering, and similarity comparisons.
+
+```rust
+use aquaregia::{EmbedRequest, LlmClient};
+
+let client = LlmClient::openai()
+    .api_key(std::env::var("OPENAI_API_KEY")?)
+    .build()?;
+
+let response = client.embed(
+    EmbedRequest::new("text-embedding-3-small", vec!["Your text here"])
+).await?;
+
+println!("Dimension: {}", response.embeddings[0].len());
+println!("Tokens: {}", response.usage.tokens);
+```
+
+**Provider support:**
+
+| Provider          | Embedding API | Models                                    |
+| ----------------- | :-----------: | ----------------------------------------- |
+| OpenAI            | ✅            | `text-embedding-3-small`, `text-embedding-3-large` |
+| Anthropic         | ❌            | —                                         |
+| Google            | ✅            | `text-embedding-004`                      |
+| OpenAI-compatible | ✅            | Depends on provider (DeepSeek, Together, etc.) |
+
+Anthropic does not provide an embedding API. For Anthropic-based applications, use a third-party embedding provider through the `openai_compatible` adapter (e.g., Voyage AI, Cohere).
+
+**Batch processing:**
+
+```rust
+let texts = vec![
+    "First document",
+    "Second document",
+    "Third document",
+];
+
+let response = client.embed(
+    EmbedRequest::new("text-embedding-3-small", texts)
+).await?;
+
+// response.embeddings[i] corresponds to texts[i]
+for (i, embedding) in response.embeddings.iter().enumerate() {
+    println!("Text {}: {} dimensions", i, embedding.len());
+}
+```
+
+**Provider-specific options:**
+
+Use `provider_options` to access provider-specific features like dimension reduction:
+
+```rust
+use serde_json::json;
+
+let response = client.embed(
+    EmbedRequest::builder("text-embedding-3-large")
+        .values(vec!["Some text"])
+        .provider_options(json!({
+            "openai": { "dimensions": 256 }  // Reduce from 3072 to 256
+        }))
+        .build()?
+).await?;
+```
+
+See `examples/basic_embed.rs` and `examples/openai_embed.rs` for complete examples including similarity calculations.
+
+---
 
 The core request type sticks to the lowest common denominator — model, messages, sampling, tools. But every provider ships knobs that don't generalise: Anthropic's thinking budget, Google's safety thresholds, parameters that land on one provider and nowhere else. Rather than bloat the core type with fields that mean nothing to three out of four providers, Aquaregia gives you an escape hatch: `provider_options`.
 
@@ -780,6 +849,7 @@ Lookup tables for when you know roughly what you want and need the exact name.
 | Tool-call streaming              |   ✓    |     ✓     |   ✓    |         ✓         |
 | Cache-token split in `Usage`     |   ✓    |     ✓     |   ✓    |   if reported     |
 | `provider_options` passthrough   |   ✓    |     ✓     |   ✓    |         ✓         |
+| Embeddings                       |   ✓    |           |   ✓    |         ✓         |
 
 ### `Usage` fields
 
@@ -809,6 +879,8 @@ DEEPSEEK_API_KEY=... cargo run --example basic_generate
 | ----------------------------- | ----------------------------------------------------------- |
 | `basic_generate`              | One-shot `generate` + usage reading                         |
 | `basic_stream`                | `stream` + `StreamEvent` handling                           |
+| `basic_embed`                 | Text embeddings with batch processing and similarity        |
+| `openai_embed`                | OpenAI embeddings with dimension reduction                  |
 | `structured_streaming`        | `stream_object::<T>()` + progressive `Partial` events       |
 | `agent_minimal`               | `Agent::builder` with one typed tool                        |
 | `tools_max_steps`             | Multi-tool loop with `max_steps` and sampling caps          |

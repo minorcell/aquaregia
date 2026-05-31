@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
+## [0.3.1] — 2026-05-31
+
+### Added
+
+- **Embedding support**: New `embed()` API for generating text embeddings
+  - `EmbedRequest` and `EmbedResponse` types for embedding generation
+  - `EmbedUsage` for token usage tracking
+  - Support for OpenAI and OpenAI-compatible providers (DeepSeek, Together, etc.)
+  - Batch input support for multiple texts in a single request
+  - Provider-specific options via `provider_options` (e.g., OpenAI dimension reduction)
+  - Examples: `examples/basic_embed.rs` and `examples/openai_embed.rs`
+- `ErrorCode::UnsupportedOperation` for operations not supported by a provider (e.g., Anthropic embeddings)
+- `ModelAdapter::provider_id()` method for provider identification
+- `ModelAdapter::embed()` method with default implementation returning `UnsupportedOperation`
+
+### Changed (non-breaking)
+
+- Updated README with comprehensive Embeddings section
+- Updated capability matrix to include embedding support status
+- Added embedding examples to the examples table
+
+### Docs
+
+- Added embedding API documentation with usage examples
+- Added provider support matrix for embeddings
+- Added batch processing and similarity calculation examples
+
 ## [0.3.0] — 2026-05-30
 
 ### Added
