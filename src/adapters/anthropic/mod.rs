@@ -14,13 +14,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{Client, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::anthropic().api_key("api-key").build()?;
+//! let client = Client::anthropic().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-6", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("claude-sonnet-4-6", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -45,8 +45,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -105,10 +105,7 @@ impl AnthropicAdapter {
 
 #[async_trait]
 impl ModelAdapter for AnthropicAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_anthropic_payload(req, false)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -146,7 +143,7 @@ impl ModelAdapter for AnthropicAdapter {
         Ok(response)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_anthropic_payload(req, true)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -434,7 +431,7 @@ impl PendingToolUse {
     }
 }
 
-fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
+fn build_anthropic_payload(req: &ChatRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     let messages = req
@@ -654,7 +651,7 @@ fn anthropic_file_block(file: &FilePart) -> Result<Value, Error> {
     Ok(json!({ "type": block_type, "source": source }))
 }
 
-fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_anthropic_response(body: Value) -> Result<ChatResponse, Error> {
     let content = body
         .get("content")
         .and_then(Value::as_array)
@@ -741,7 +738,7 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
         .and_then(parse_anthropic_usage)
         .unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

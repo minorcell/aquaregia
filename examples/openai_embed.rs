@@ -9,7 +9,7 @@
 //! OPENAI_API_KEY=your-key cargo run --example openai_embed
 //! ```
 
-use aquaregia::LlmClient;
+use aquaregia::Client;
 use aquaregia::embed::EmbedRequest;
 use serde_json::json;
 
@@ -17,7 +17,7 @@ use serde_json::json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
 
-    let client = LlmClient::openai().api_key(api_key).build()?;
+    let client = Client::openai().api_key(api_key).build()?;
 
     println!("OpenAI Embedding Examples\n");
 

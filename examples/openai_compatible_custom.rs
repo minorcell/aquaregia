@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient};
+use aquaregia::{ChatRequest, Client};
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
 const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(base_url)
         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
         // 可选：部分兼容服务需要额外 header 或 query 参数。
@@ -25,10 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build()?;
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            model,
-            "Say hello in Chinese.",
-        ))
+        .generate(ChatRequest::from_prompt(model, "Say hello in Chinese."))
         .await?;
 
     println!("{}", response.output_text);

@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient, StreamEvent};
+use aquaregia::{ChatRequest, Client, StreamEvent};
 use futures_util::StreamExt;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -16,13 +16,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(base_url)
         .api_key(api_key)
         .build()?;
 
     let mut stream = client
-        .stream(GenerateTextRequest::from_user_prompt(
+        .stream(ChatRequest::from_prompt(
             model,
             "Write a short release note for a Rust SDK refactor (Chinese).",
         ))

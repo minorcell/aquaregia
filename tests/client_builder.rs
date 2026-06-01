@@ -1,11 +1,11 @@
-use aquaregia::{ErrorCode, LlmClient};
+use aquaregia::{Client, ErrorCode};
 use std::time::Duration;
 
 // ─── OpenAI client builder ──────────────────────────────────────────────
 
 #[test]
 fn openai_client_builds_with_all_settings() {
-    let client = LlmClient::openai()
+    let client = Client::openai()
         .api_key("sk-test")
         .base_url("https://custom.openai.com")
         .timeout(Duration::from_secs(120))
@@ -19,7 +19,7 @@ fn openai_client_builds_with_all_settings() {
 
 #[test]
 fn openai_client_rejects_empty_api_key() {
-    match LlmClient::openai().api_key("  ").build() {
+    match Client::openai().api_key("  ").build() {
         Err(err) => assert_eq!(err.code, ErrorCode::AuthFailed),
         Ok(_) => panic!("empty api key should fail"),
     }
@@ -29,7 +29,7 @@ fn openai_client_rejects_empty_api_key() {
 
 #[test]
 fn anthropic_client_builds_with_all_settings() {
-    let client = LlmClient::anthropic()
+    let client = Client::anthropic()
         .api_key("sk-ant-test")
         .base_url("https://custom.anthropic.com")
         .api_version("2024-02-15")
@@ -43,7 +43,7 @@ fn anthropic_client_builds_with_all_settings() {
 
 #[test]
 fn anthropic_client_rejects_empty_api_key() {
-    match LlmClient::anthropic().api_key("").build() {
+    match Client::anthropic().api_key("").build() {
         Err(err) => assert_eq!(err.code, ErrorCode::AuthFailed),
         Ok(_) => panic!("empty api key should fail"),
     }
@@ -53,7 +53,7 @@ fn anthropic_client_rejects_empty_api_key() {
 
 #[test]
 fn google_client_builds_with_all_settings() {
-    let client = LlmClient::google()
+    let client = Client::google()
         .api_key("g-test-key")
         .base_url("https://custom.google.com")
         .timeout(Duration::from_secs(60))
@@ -66,7 +66,7 @@ fn google_client_builds_with_all_settings() {
 
 #[test]
 fn google_client_rejects_empty_api_key() {
-    match LlmClient::google().api_key("  ").build() {
+    match Client::google().api_key("  ").build() {
         Err(err) => assert_eq!(err.code, ErrorCode::AuthFailed),
         Ok(_) => panic!("empty api key should fail"),
     }
@@ -76,7 +76,7 @@ fn google_client_rejects_empty_api_key() {
 
 #[test]
 fn openai_compatible_builds_without_api_key() {
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url("https://api.example.com")
         .no_api_key()
         .build()
@@ -86,7 +86,7 @@ fn openai_compatible_builds_without_api_key() {
 
 #[test]
 fn openai_compatible_builds_with_custom_headers_and_query_params() {
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url("https://api.example.com")
         .api_key("sk-custom")
         .header("X-Custom", "value")
@@ -99,7 +99,7 @@ fn openai_compatible_builds_with_custom_headers_and_query_params() {
 
 #[test]
 fn openai_compatible_rejects_empty_base_url() {
-    match LlmClient::openai_compatible().base_url("  ").build() {
+    match Client::openai_compatible().base_url("  ").build() {
         Err(err) => assert_eq!(err.code, ErrorCode::InvalidRequest),
         Ok(_) => panic!("empty base url should fail"),
     }
@@ -109,7 +109,7 @@ fn openai_compatible_rejects_empty_base_url() {
 
 #[test]
 fn client_accepts_zero_default_max_steps_as_unlimited() {
-    LlmClient::openai()
+    Client::openai()
         .api_key("sk-test")
         .default_max_steps(0)
         .build()
@@ -118,7 +118,7 @@ fn client_accepts_zero_default_max_steps_as_unlimited() {
 
 #[test]
 fn client_accepts_large_default_max_steps() {
-    LlmClient::openai()
+    Client::openai()
         .api_key("sk-test")
         .default_max_steps(10_000)
         .build()

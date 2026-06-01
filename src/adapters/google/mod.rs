@@ -14,13 +14,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{Client, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::google().api_key("api-key").build()?;
+//! let client = Client::google().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("gemini-3.5-flash", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -44,8 +44,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -113,10 +113,7 @@ impl GoogleAdapter {
 
 #[async_trait]
 impl ModelAdapter for GoogleAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
         let send_fut = self
@@ -152,7 +149,7 @@ impl ModelAdapter for GoogleAdapter {
         Ok(response)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_google_payload(req);
         let cancel_token = req.cancellation_token.clone();
         let cancel_token_stream = cancel_token.clone();
@@ -311,7 +308,7 @@ impl ModelAdapter for GoogleAdapter {
     }
 }
 
-fn build_google_payload(req: &GenerateTextRequest) -> Value {
+fn build_google_payload(req: &ChatRequest) -> Value {
     let (contents, system_instruction) = to_google_messages(&req.messages);
 
     let mut payload = Map::new();
@@ -567,7 +564,7 @@ fn text_content_from_parts(parts: &[ContentPart]) -> String {
         .join("")
 }
 
-fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_google_response(body: Value) -> Result<ChatResponse, Error> {
     let Some(candidate) = body
         .get("candidates")
         .and_then(Value::as_array)
@@ -646,7 +643,7 @@ fn normalize_google_response(body: Value) -> Result<GenerateTextResponse, Error>
         .and_then(parse_google_usage)
         .unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

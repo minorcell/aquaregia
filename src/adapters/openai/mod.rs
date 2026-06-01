@@ -5,13 +5,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{Client, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai().api_key("api-key").build()?;
+//! let client = Client::openai().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -36,8 +36,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai";
@@ -83,10 +83,7 @@ impl OpenAiAdapter {
 
 #[async_trait]
 impl ModelAdapter for OpenAiAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_payload(req, false)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -114,7 +111,7 @@ impl ModelAdapter for OpenAiAdapter {
         normalize_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_payload(req, true)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -430,7 +427,7 @@ struct PartialFnCall {
 }
 
 /// Builds the Responses API request payload.
-fn build_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
+fn build_payload(req: &ChatRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     payload.insert("stream".to_string(), Value::Bool(stream));
@@ -682,7 +679,7 @@ fn file_content_item(file: &FilePart) -> Result<Value, Error> {
     }
 }
 
-fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_response(body: Value) -> Result<ChatResponse, Error> {
     if body.get("status").and_then(Value::as_str) == Some("failed") {
         let msg = body
             .get("error")
@@ -775,7 +772,7 @@ fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
 
     let usage = body.get("usage").and_then(parse_usage).unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

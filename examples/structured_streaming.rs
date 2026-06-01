@@ -1,5 +1,5 @@
 use aquaregia::types::StreamObjectEvent;
-use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use aquaregia::{ChatRequest, Client, Message};
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
@@ -31,12 +31,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(base_url)
         .api_key(api_key)
         .build()?;
 
-    let req = GenerateTextRequest::builder(model)
+    let req = ChatRequest::builder(model)
         .message(Message::user_text(
             "Generate a short product brief for a Rust LLM SDK. \
              Include a punchy tagline and 4 key features.",

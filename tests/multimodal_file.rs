@@ -1,8 +1,8 @@
 //! Integration tests for FilePart media_type dispatch across adapters.
 
 use aquaregia::{
-    ContentPart, ErrorCode, FilePart, GenerateTextRequest, LlmClient, MediaData, Message,
-    MessageRole, TextPart,
+    ChatRequest, Client, ContentPart, ErrorCode, FilePart, MediaData, Message, MessageRole,
+    TextPart,
 };
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
@@ -21,7 +21,6 @@ fn pdf_message() -> Message {
             ContentPart::File(pdf),
         ],
     )
-    .unwrap()
 }
 
 #[tokio::test]
@@ -43,13 +42,13 @@ async fn anthropic_pdf_uses_document_block() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = Client::anthropic()
         .api_key("test")
         .base_url(server.uri())
         .build()
         .unwrap();
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(pdf_message())
         .build()
         .unwrap();
@@ -77,7 +76,7 @@ async fn anthropic_image_still_uses_image_block() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = Client::anthropic()
         .api_key("test")
         .base_url(server.uri())
         .build()
@@ -90,9 +89,8 @@ async fn anthropic_image_still_uses_image_block() {
             ContentPart::Text(TextPart::new("What is this?")),
             ContentPart::File(img),
         ],
-    )
-    .unwrap();
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    );
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(message)
         .build()
         .unwrap();
@@ -123,13 +121,13 @@ async fn openai_pdf_uses_input_file_block_with_filename() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = Client::openai()
         .api_key("test")
         .base_url(server.uri())
         .build()
         .unwrap();
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(pdf_message())
         .build()
         .unwrap();
@@ -151,13 +149,13 @@ async fn openai_compatible_pdf_is_rejected_locally() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test")
         .build()
         .unwrap();
 
-    let req = GenerateTextRequest::builder("gpt-4o-mini")
+    let req = ChatRequest::builder("gpt-4o-mini")
         .message(pdf_message())
         .build()
         .unwrap();

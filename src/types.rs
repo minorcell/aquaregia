@@ -66,22 +66,16 @@ impl Message {
     /// [`Message::assistant_text`], [`Message::tool_result`]) for common cases. Use `new` only
     /// when you need to build a message with custom [`ContentPart`] combinations.
     ///
-    /// # Arguments
-    ///
-    /// * `role` - The message role
-    /// * `parts` - Vector of content parts
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the message parts are invalid for the given role.
-    pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Result<Self, Error> {
-        validate_message_parts(role.clone(), &parts)?;
-        Ok(Self {
+    /// Validation is deferred to request build time; callers receive a
+    /// [`crate::ErrorCode::InvalidRequest`] error from
+    /// [`crate::Client::generate`] if the parts are invalid for the role.
+    pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Self {
+        Self {
             role,
             parts,
             name: None,
             provider_options: None,
-        })
+        }
     }
 
     /// Creates a system message containing one text part.
@@ -152,7 +146,7 @@ impl Message {
 
     /// Attaches provider-specific options to this message.
     ///
-    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// Same JSON-by-slug shape as [`ChatRequest`]'s field of the same
     /// name. Adapters extract their slug and merge the entries into the
     /// outbound message object (e.g. for Anthropic message-level
     /// `cache_control`).
@@ -277,7 +271,7 @@ pub struct TextPart {
     pub text: String,
     /// Provider-specific options merged into this block's serialized form.
     ///
-    /// Same JSON-by-slug shape as [`GenerateTextRequest`]'s field of the same
+    /// Same JSON-by-slug shape as [`ChatRequest`]'s field of the same
     /// name. Adapters extract their slug and merge the entries into the
     /// outbound block object (e.g. for Anthropic `cache_control` breakpoints).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -369,7 +363,7 @@ pub struct ToolResult {
 
 /// Schema specification for structured output generation.
 ///
-/// When set on a [`GenerateTextRequest`], adapters use provider-native structured
+/// When set on a [`ChatRequest`], adapters use provider-native structured
 /// output mechanisms (or tool-use fallback) to constrain the model to valid JSON
 /// matching the given schema.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -385,7 +379,7 @@ pub struct OutputSchema {
 
 /// Request for generation/streaming calls.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateTextRequest {
+pub struct ChatRequest {
     pub(crate) model: String,
     pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f32>,
@@ -400,7 +394,7 @@ pub struct GenerateTextRequest {
     pub(crate) cancellation_token: Option<tokio_util::sync::CancellationToken>,
 }
 
-impl GenerateTextRequest {
+impl ChatRequest {
     /// Returns the optional output schema for structured generation.
     pub fn output_schema(&self) -> Option<&OutputSchema> {
         self.output_schema.as_ref()
@@ -412,7 +406,7 @@ impl GenerateTextRequest {
     }
 
     /// Builds a one-message request from a user prompt.
-    pub fn from_user_prompt(model: impl Into<String>, prompt: impl Into<String>) -> Self {
+    pub fn from_prompt(model: impl Into<String>, prompt: impl Into<String>) -> Self {
         Self {
             model: model.into(),
             messages: vec![Message::user_text(prompt)],
@@ -428,8 +422,8 @@ impl GenerateTextRequest {
     }
 
     /// Starts a request builder.
-    pub fn builder(model: impl Into<String>) -> GenerateTextRequestBuilder {
-        GenerateTextRequestBuilder {
+    pub fn builder(model: impl Into<String>) -> ChatRequestBuilder {
+        ChatRequestBuilder {
             request: Self {
                 model: model.into(),
                 messages: Vec::new(),
@@ -446,27 +440,27 @@ impl GenerateTextRequest {
     }
 }
 
-/// Builder for [`GenerateTextRequest`].
-pub struct GenerateTextRequestBuilder {
-    request: GenerateTextRequest,
+/// Builder for [`ChatRequest`].
+pub struct ChatRequestBuilder {
+    request: ChatRequest,
 }
 
-impl GenerateTextRequestBuilder {
+impl ChatRequestBuilder {
     /// Appends one message.
     pub fn message(mut self, message: Message) -> Self {
         self.request.messages.push(message);
         self
     }
 
-    /// Replaces all messages.
-    pub fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
-        self.request.messages = messages.into_iter().collect();
+    /// Replaces messages with a single user prompt.
+    pub fn user(mut self, prompt: impl Into<String>) -> Self {
+        self.request.messages = vec![Message::user_text(prompt)];
         self
     }
 
-    /// Replaces messages with a single user prompt.
-    pub fn user_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.request.messages = vec![Message::user_text(prompt)];
+    /// Replaces messages with a single system instruction.
+    pub fn system(mut self, instruction: impl Into<String>) -> Self {
+        self.request.messages = vec![Message::system_text(instruction)];
         self
     }
 
@@ -507,10 +501,10 @@ impl GenerateTextRequestBuilder {
     /// Sets the output schema for structured generation.
     ///
     /// When set, providers constrain the model to produce valid JSON matching
-    /// the given schema. Prefer [`BoundClient::generate_object`] for
+    /// the given schema. Prefer [`Client::generate_object`] for
     /// automatic schema derivation from Rust types.
     ///
-    /// [`BoundClient::generate_object`]: crate::BoundClient::generate_object
+    /// [`Client::generate_object`]: crate::Client::generate_object
     pub fn output_schema(mut self, output_schema: OutputSchema) -> Self {
         self.request.output_schema = Some(output_schema);
         self
@@ -525,11 +519,11 @@ impl GenerateTextRequestBuilder {
     /// # Example
     ///
     /// ```rust,no_run
-    /// use aquaregia::GenerateTextRequest;
+    /// use aquaregia::ChatRequest;
     /// use serde_json::json;
     ///
-    /// let req = GenerateTextRequest::builder("claude-sonnet-4-6")
-    ///     .user_prompt("Explain Rust ownership")
+    /// let req = ChatRequest::builder("claude-sonnet-4-6")
+    ///     .user("Explain Rust ownership")
     ///     .provider_options(json!({
     ///         "anthropic": {
     ///             "thinking": {
@@ -553,7 +547,7 @@ impl GenerateTextRequestBuilder {
     }
 
     /// Validates and finalizes the request.
-    pub fn build(self) -> Result<GenerateTextRequest, Error> {
+    pub fn build(self) -> Result<ChatRequest, Error> {
         validate_model_ref(&self.request.model)?;
         validate_messages(&self.request.messages)?;
         validate_sampling(self.request.temperature, self.request.top_p)?;
@@ -874,7 +868,7 @@ pub(crate) type StopPredicate = Arc<dyn Fn(&AgentStep) -> bool + Send + Sync>;
 
 /// Normalized non-streaming generation response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateTextResponse {
+pub struct ChatResponse {
     /// Assistant text output.
     pub output_text: String,
     #[serde(default)]
@@ -893,11 +887,11 @@ pub struct GenerateTextResponse {
     pub raw_provider_response: Option<Value>,
 }
 
-/// Structured output returned by [`BoundClient::generate_object`].
+/// Structured output returned by [`Client::generate_object`].
 ///
-/// [`BoundClient::generate_object`]: crate::BoundClient::generate_object
+/// [`Client::generate_object`]: crate::Client::generate_object
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GenerateObjectResponse<T> {
+pub struct ObjectResponse<T> {
     /// Deserialized structured output.
     pub object: T,
     #[serde(default)]
@@ -913,7 +907,7 @@ pub struct GenerateObjectResponse<T> {
 
 /// Final response of a completed agent run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AgentResponse {
+pub struct AgentOutput {
     /// Final assistant text output.
     pub output_text: String,
     /// Number of executed steps.
@@ -1283,26 +1277,34 @@ mod tests {
         );
     }
 
-    // ─── Message validation ──────────────────────────────────────────────
+    // ─── Message validation (deferred to request build) ─────────────────
 
     #[test]
-    fn message_new_rejects_empty_parts() {
-        let err = Message::new(MessageRole::User, vec![]).expect_err("empty parts should fail");
+    fn validate_messages_rejects_empty_parts() {
+        let err = validate_messages(&[Message {
+            role: MessageRole::User,
+            parts: vec![],
+            name: None,
+            provider_options: None,
+        }])
+        .expect_err("message with empty parts should fail");
         assert!(err.message.contains("cannot be empty"));
     }
 
     #[test]
-    fn message_new_rejects_tool_role_without_tool_result() {
-        let err = Message::new(
-            MessageRole::Tool,
-            vec![ContentPart::Text(TextPart::new("x"))],
-        )
+    fn validate_messages_rejects_tool_role_without_tool_result() {
+        let err = validate_messages(&[Message {
+            role: MessageRole::Tool,
+            parts: vec![ContentPart::Text(TextPart::new("x"))],
+            name: None,
+            provider_options: None,
+        }])
         .expect_err("tool role without ToolResult should fail");
         assert!(err.message.contains("ToolResult"));
     }
 
     #[test]
-    fn message_tool_role_with_tool_result_is_valid() {
+    fn message_new_tool_role_with_tool_result_succeeds() {
         let msg = Message::new(
             MessageRole::Tool,
             vec![ContentPart::ToolResult(ToolResult {
@@ -1310,8 +1312,7 @@ mod tests {
                 output_json: serde_json::json!({"ok": true}),
                 is_error: false,
             })],
-        )
-        .expect("tool role with ToolResult should be valid");
+        );
         assert_eq!(msg.role(), MessageRole::Tool);
     }
 
@@ -1743,7 +1744,7 @@ mod tests {
 
     #[test]
     fn agent_response_serialization() {
-        let response = AgentResponse {
+        let response = AgentOutput {
             output_text: "answer".into(),
             steps: 2,
             transcript: vec![],
@@ -1751,22 +1752,22 @@ mod tests {
             step_results: vec![],
         };
         let json = serde_json::to_string(&response).unwrap();
-        let back: AgentResponse = serde_json::from_str(&json).unwrap();
+        let back: AgentOutput = serde_json::from_str(&json).unwrap();
         assert_eq!(back.steps, 2);
     }
 
-    // ─── GenerateTextRequest / GenerateTextResponse ─────────────────────
+    // ─── ChatRequest / ChatResponse ─────────────────────
 
     #[test]
     fn builds_request_from_prompt() {
-        let request = GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hello");
+        let request = ChatRequest::from_prompt("gpt-5.4-mini", "hello");
         assert_eq!(request.messages.len(), 1);
         assert_eq!(request.model.as_str(), "gpt-5.4-mini");
     }
 
     #[test]
     fn generate_text_response_serialization() {
-        let response = GenerateTextResponse {
+        let response = ChatResponse {
             output_text: "hello".into(),
             reasoning_text: String::new(),
             reasoning_parts: vec![],
@@ -1776,7 +1777,7 @@ mod tests {
             raw_provider_response: Some(serde_json::json!({"raw": true})),
         };
         let json = serde_json::to_string(&response).unwrap();
-        let back: GenerateTextResponse = serde_json::from_str(&json).unwrap();
+        let back: ChatResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(back.output_text, "hello");
     }
 
@@ -1784,7 +1785,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_top_p() {
-        let err = GenerateTextRequest::builder("gpt-5.4-mini")
+        let err = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hello"))
             .top_p(1.1)
             .build()
@@ -1794,7 +1795,7 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_invalid_temperature() {
-        let err = GenerateTextRequest::builder("gpt-5.4-mini")
+        let err = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hello"))
             .temperature(2.1)
             .build()
@@ -1804,26 +1805,27 @@ mod tests {
 
     #[test]
     fn request_builder_rejects_empty_messages() {
-        let err = GenerateTextRequest::builder("gpt-5.4-mini")
+        let err = ChatRequest::builder("gpt-5.4-mini")
             .build()
             .expect_err("empty messages should fail");
         assert!(err.message.contains("cannot be empty"));
     }
 
     #[test]
-    fn request_builder_accepts_messages_method() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
-            .messages(vec![Message::user_text("h1"), Message::user_text("h2")])
+    fn request_builder_accepts_multiple_messages() {
+        let req = ChatRequest::builder("gpt-5.4-mini")
+            .message(Message::user_text("h1"))
+            .message(Message::user_text("h2"))
             .build()
             .expect("request should build");
         assert_eq!(req.messages.len(), 2);
     }
 
     #[test]
-    fn request_builder_user_prompt_replaces_messages() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+    fn request_builder_user_replaces_messages() {
+        let req = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("old"))
-            .user_prompt("replaced")
+            .user("replaced")
             .build()
             .expect("request should build");
         assert_eq!(req.messages.len(), 1);
@@ -1831,7 +1833,7 @@ mod tests {
 
     #[test]
     fn request_builder_sets_all_fields() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        let req = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .temperature(0.7)
             .top_p(0.9)
@@ -1849,7 +1851,7 @@ mod tests {
 
     #[test]
     fn request_builder_empty_tools_is_none() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        let req = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .tools(Vec::<crate::tool::ToolDescriptor>::new())
             .build()
@@ -1859,7 +1861,7 @@ mod tests {
 
     #[test]
     fn request_builder_valid_temperature_boundary() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        let req = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .temperature(2.0)
             .top_p(0.0)
@@ -1879,7 +1881,7 @@ mod tests {
                 }
             }
         });
-        let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+        let req = ChatRequest::builder("claude-sonnet-4-6")
             .message(Message::user_text("hi"))
             .provider_options(options.clone())
             .build()
@@ -1889,7 +1891,7 @@ mod tests {
 
     #[test]
     fn request_builder_provider_options_defaults_to_none() {
-        let req = GenerateTextRequest::builder("gpt-5.4-mini")
+        let req = ChatRequest::builder("gpt-5.4-mini")
             .message(Message::user_text("hi"))
             .build()
             .expect("request should build");

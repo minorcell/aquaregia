@@ -1,5 +1,5 @@
 use aquaregia::types::AgentStep;
-use aquaregia::{Agent, LlmClient, Message, Tool, tool};
+use aquaregia::{Agent, Client, Message, Tool, tool};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -43,7 +43,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
     let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(base_url.clone())
         .api_key(api_key)
         .build()?;

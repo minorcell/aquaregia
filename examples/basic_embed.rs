@@ -9,7 +9,7 @@
 //! DEEPSEEK_API_KEY=your-key cargo run --example basic_embed
 //! ```
 
-use aquaregia::LlmClient;
+use aquaregia::Client;
 use aquaregia::embed::EmbedRequest;
 
 #[tokio::main]
@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .or_else(|_| std::env::var("OPENAI_API_KEY"))
         .expect("DEEPSEEK_API_KEY or OPENAI_API_KEY must be set");
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url("https://api.deepseek.com")
         .api_key(api_key)
         .build()?;

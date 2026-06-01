@@ -2,25 +2,24 @@
 //!
 //! This module provides the core client abstractions for making LLM requests:
 //!
-//! - [`LlmClient`]: Entry point for creating provider-specific clients
+//! - [`Client`]: Provider-bound client for generate/stream/agent operations
 //! - [`ClientBuilder`]: Builder for configuring HTTP/runtime behavior
-//! - [`BoundClient`]: Reusable client for generate/stream/agent operations
 //!
 //! ## Architecture
 //!
-//! 1. [`LlmClient`] constructors return a [`ClientBuilder`] parameterised on the settings type
+//! 1. [`Client`] provider constructors (e.g. [`Client::openai`]) return a [`ClientBuilder`]
 //! 2. [`ClientBuilder`] configures settings and HTTP behavior
-//! 3. [`ClientBuilder::build()`] produces a [`BoundClient`]
-//! 4. [`BoundClient`] is used for all subsequent operations
+//! 3. [`ClientBuilder::build()`] produces a [`Client`]
+//! 4. [`Client`] is used for all subsequent operations
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{GenerateTextRequest, LlmClient};
+//! use aquaregia::Client;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create and build client
-//! let client = LlmClient::openai()
+//! let client = Client::openai()
 //!     .api_key("api-key")
 //!     .timeout(std::time::Duration::from_secs(60))
 //!     .max_retries(3)
@@ -28,7 +27,7 @@
 //!
 //! // Use client for generation
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!"))
+//!     .generate(aquaregia::ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -54,11 +53,11 @@ use crate::error::{Error, ErrorCode};
 use crate::partial_json::repair_json;
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
-    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateObjectResponse,
-    GenerateTextRequest, GenerateTextResponse, Message, ObjectStream, OutputSchema, RunTools,
-    StreamEvent, StreamObjectEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
-    Usage, validate_messages, validate_model_ref, validate_sampling,
+    AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
+    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ChatRequest, ChatResponse,
+    ContentPart, Message, ObjectResponse, ObjectStream, OutputSchema, RunTools, StreamEvent,
+    StreamObjectEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
+    validate_messages, validate_model_ref, validate_sampling,
 };
 
 mod sealed {
@@ -140,49 +139,7 @@ impl BuildProvider for OpenAiCompatibleAdapterSettings {
     }
 }
 
-/// Entry point for creating provider-bound clients.
-///
-/// `LlmClient` only provides constructors; call `.build()` on the returned
-/// [`ClientBuilder`] to obtain a reusable [`BoundClient`].
-pub struct LlmClient;
-
-impl LlmClient {
-    /// Creates an OpenAI client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`].
-    pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
-        ClientBuilder::new(OpenAiAdapterSettings::new())
-    }
-
-    /// Creates an Anthropic client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`] or the version
-    /// header with [`ClientBuilder::api_version`].
-    pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
-        ClientBuilder::new(AnthropicAdapterSettings::new())
-    }
-
-    /// Creates a Google client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`].
-    pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
-        ClientBuilder::new(GoogleAdapterSettings::new())
-    }
-
-    /// Creates an OpenAI-compatible client builder.
-    ///
-    /// Set the base URL with [`ClientBuilder::base_url`] (required). The bearer
-    /// token is optional and configured with [`ClientBuilder::api_key`] (or
-    /// disabled with [`ClientBuilder::no_api_key`], which is the default).
-    pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
-        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
-    }
-}
-
-/// Configures HTTP/runtime behavior before building a [`BoundClient`].
+/// Configures HTTP/runtime behavior before building a [`Client`].
 pub struct ClientBuilder<S> {
     timeout: Duration,
     max_retries: u8,
@@ -230,7 +187,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
     }
 
     /// Builds a provider-bound client with validated settings.
-    pub fn build(self) -> Result<BoundClient, Error> {
+    pub fn build(self) -> Result<Client, Error> {
         self.settings.validate()?;
         let http = Arc::new(
             reqwest::Client::builder()
@@ -240,7 +197,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
                 .map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?,
         );
 
-        Ok(BoundClient {
+        Ok(Client {
             max_retries: self.max_retries,
             default_max_steps: self.default_max_steps,
             adapter: self.settings.into_adapter(http),
@@ -335,17 +292,66 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 }
 
 /// Reusable provider-bound client used for `generate`, `stream`, and agent loops.
-pub struct BoundClient {
+///
+/// ## Constructing a Client
+///
+/// Use the provider-specific constructors followed by `.build()`:
+///
+/// ```rust,no_run
+/// use aquaregia::Client;
+///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = Client::openai()
+///     .api_key("api-key")
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct Client {
     max_retries: u8,
     default_max_steps: u32,
     adapter: Arc<dyn ModelAdapter>,
 }
 
-impl BoundClient {
+impl Client {
+    /// Creates an OpenAI client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url`.
+    pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
+        ClientBuilder::new(OpenAiAdapterSettings::new())
+    }
+
+    /// Creates an Anthropic client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url` or the version
+    /// header with `ClientBuilder::api_version`.
+    pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
+        ClientBuilder::new(AnthropicAdapterSettings::new())
+    }
+
+    /// Creates a Google client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url`.
+    pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
+        ClientBuilder::new(GoogleAdapterSettings::new())
+    }
+
+    /// Creates an OpenAI-compatible client builder.
+    ///
+    /// Set the base URL with `ClientBuilder::base_url` (required). The bearer
+    /// token is optional and configured with `ClientBuilder::api_key` (or
+    /// disabled with `ClientBuilder::no_api_key`, which is the default).
+    pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
+        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
+    }
+
     /// Runs a non-streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn generate(&self, req: GenerateTextRequest) -> Result<GenerateTextResponse, Error> {
+    pub async fn generate(&self, req: ChatRequest) -> Result<ChatResponse, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -356,7 +362,7 @@ impl BoundClient {
     /// Runs a streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn stream(&self, req: GenerateTextRequest) -> Result<TextStream, Error> {
+    pub async fn stream(&self, req: ChatRequest) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -377,10 +383,10 @@ impl BoundClient {
     ///
     /// ```rust,no_run
     /// use aquaregia::embed::EmbedRequest;
-    /// use aquaregia::LlmClient;
+    /// use aquaregia::Client;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = LlmClient::openai()
+    /// let client = Client::openai()
     ///     .api_key(std::env::var("OPENAI_API_KEY")?)
     ///     .build()?;
     ///
@@ -414,9 +420,7 @@ impl BoundClient {
         })
     }
 
-    fn inject_output_schema<T: schemars::JsonSchema>(
-        req: &mut GenerateTextRequest,
-    ) -> Result<(), Error> {
+    fn inject_output_schema<T: schemars::JsonSchema>(req: &mut ChatRequest) -> Result<(), Error> {
         let schema = schemars::schema_for!(T);
         let json_schema = serde_json::to_value(&schema)
             .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
@@ -447,8 +451,8 @@ impl BoundClient {
     /// Returns [`ErrorCode::InvalidResponse`] if the deserialization from JSON fails.
     pub async fn generate_object<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
         &self,
-        mut req: GenerateTextRequest,
-    ) -> Result<GenerateObjectResponse<T>, Error> {
+        mut req: ChatRequest,
+    ) -> Result<ObjectResponse<T>, Error> {
         Self::inject_output_schema::<T>(&mut req)?;
         let response = self.generate(req).await?;
         let object: T = match serde_json::from_str(&response.output_text) {
@@ -468,7 +472,7 @@ impl BoundClient {
                 });
             }
         };
-        Ok(GenerateObjectResponse {
+        Ok(ObjectResponse {
             object,
             reasoning_text: response.reasoning_text,
             finish_reason: response.finish_reason,
@@ -490,7 +494,7 @@ impl BoundClient {
         T: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static,
     >(
         &self,
-        mut req: GenerateTextRequest,
+        mut req: ChatRequest,
     ) -> Result<ObjectStream<T>, Error> {
         Self::inject_output_schema::<T>(&mut req)?;
 
@@ -542,7 +546,7 @@ impl BoundClient {
         Ok(Box::pin(object_stream))
     }
 
-    pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentResponse, Error> {
+    pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentOutput, Error> {
         let RunTools {
             model,
             messages,
@@ -646,7 +650,7 @@ impl BoundClient {
             }
 
             let response = self
-                .generate(GenerateTextRequest {
+                .generate(ChatRequest {
                     model: prepared_step.model.clone(),
                     messages: prepared_step.messages.clone(),
                     temperature: prepared_step.temperature,
@@ -688,7 +692,7 @@ impl BoundClient {
                 if let Some(callback) = &on_step_finish {
                     callback(&step_state);
                 }
-                let final_response = AgentResponse {
+                let final_response = AgentOutput {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -736,7 +740,7 @@ impl BoundClient {
                 .as_ref()
                 .is_some_and(|predicate| predicate(&step_state))
             {
-                let final_response = AgentResponse {
+                let final_response = AgentOutput {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -789,7 +793,7 @@ fn backoff_delay(attempt: u8) -> Duration {
     Duration::from_millis(ms)
 }
 
-fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
+fn assistant_message_from_response(response: &ChatResponse) -> Message {
     let mut parts = Vec::new();
     for reasoning in &response.reasoning_parts {
         parts.push(ContentPart::Reasoning(reasoning.clone()));
@@ -810,7 +814,7 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
 
 fn emit_on_finish(
     callback: Option<&crate::types::Hook<AgentFinish>>,
-    response: &AgentResponse,
+    response: &AgentOutput,
     finish_reason: &crate::types::FinishReason,
     step_results: &[AgentStep],
 ) {
@@ -917,11 +921,11 @@ async fn execute_tool_calls(
 
 #[cfg(test)]
 mod tests {
-    use super::LlmClient;
+    use super::Client;
 
     #[test]
     fn openai_builder_builds() {
-        let client = LlmClient::openai()
+        let client = Client::openai()
             .api_key("key")
             .build()
             .expect("client should build");
@@ -930,7 +934,7 @@ mod tests {
 
     #[test]
     fn anthropic_builder_builds() {
-        let client = LlmClient::anthropic()
+        let client = Client::anthropic()
             .api_key("key")
             .build()
             .expect("client should build");

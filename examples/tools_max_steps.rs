@@ -1,4 +1,4 @@
-use aquaregia::{Agent, LlmClient, tool};
+use aquaregia::{Agent, Client, tool};
 use serde_json::json;
 
 const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
@@ -16,7 +16,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let model =
         std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(base_url)
         .api_key(api_key)
         .build()?;

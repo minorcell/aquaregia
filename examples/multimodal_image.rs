@@ -4,13 +4,12 @@
 //!   ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image
 
 use aquaregia::{
-    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole,
-    TextPart,
+    ChatRequest, Client, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::anthropic()
+    let client = Client::anthropic()
         .api_key(std::env::var("ANTHROPIC_API_KEY")?)
         .build()?;
 
@@ -26,11 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "image/jpeg",
             )),
         ],
-    )?;
+    );
 
     let response = client
         .generate(
-            GenerateTextRequest::builder("claude-sonnet-4-6")
+            ChatRequest::builder("claude-sonnet-4-6")
                 .message(message)
                 .build()?,
         )

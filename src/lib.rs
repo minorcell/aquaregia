@@ -19,16 +19,16 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use aquaregia::{GenerateTextRequest, LlmClient};
+//! use aquaregia::Client;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
+//!     let client = Client::openai_compatible().base_url("https://api.deepseek.com")
 //!         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
 //!         .build()?;
 //!
 //!     let out = client
-//!         .generate(GenerateTextRequest::from_user_prompt(
+//!         .generate(aquaregia::ChatRequest::from_prompt(
 //!             "deepseek-v4-pro",
 //!             "Explain Rust ownership in 3 bullet points.",
 //!         ))
@@ -41,8 +41,7 @@
 //!
 //! ## Architecture
 //!
-//! - [`LlmClient`]: Entry point for creating provider-bound clients.
-//! - [`BoundClient`]: Reusable client for `generate`, `stream`, and agent loops.
+//! - [`Client`]: Provider-bound client for `generate`, `stream`, and agent loops.
 //! - [`Agent`]: Multi-step tool-using agent with configurable hooks.
 //! - [`ModelAdapter`](adapters::ModelAdapter): Trait for provider-specific request/response handling.
 //! - [`Tool`]: Executable tool definitions with JSON Schema validation.
@@ -64,14 +63,13 @@ pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
 
-pub use agent::{Agent, AgentBuilder};
-pub use client::{BoundClient, ClientBuilder, LlmClient};
+pub use agent::Agent;
+pub use client::Client;
 pub use error::{Error, ErrorCode};
-pub use tokio_util::sync::CancellationToken;
 
-pub use tool::{Tool, ToolBuilder, tool};
+pub use tool::{Tool, tool};
 pub use types::{
-    ContentPart, FilePart, FinishReason, GenerateObjectResponse, GenerateTextRequest,
-    GenerateTextResponse, MediaData, Message, MessageRole, OutputSchema, ReasoningPart,
-    StreamEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
+    AgentOutput, ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData,
+    Message, MessageRole, ObjectResponse, OutputSchema, ReasoningPart, StreamEvent, TextPart,
+    TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };

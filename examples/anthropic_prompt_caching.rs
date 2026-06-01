@@ -1,4 +1,4 @@
-use aquaregia::{ContentPart, GenerateTextRequest, LlmClient, Message, MessageRole, TextPart};
+use aquaregia::{ChatRequest, Client, ContentPart, Message, MessageRole, TextPart};
 use serde_json::json;
 
 /// 场景：用 Anthropic prompt caching 把一段长 system 上下文设为缓存断点。
@@ -15,7 +15,7 @@ use serde_json::json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("ANTHROPIC_API_KEY")?;
 
-    let client = LlmClient::anthropic().api_key(api_key).build()?;
+    let client = Client::anthropic().api_key(api_key).build()?;
 
     // 假装这是一份长 system 上下文（实测要 ≥ 1024 tokens 才会真正进 cache）。
     let long_context = "You are reviewing the following codebase.\n\n".to_string()
@@ -25,10 +25,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "anthropic": { "cache_control": { "type": "ephemeral" } }
     }));
 
-    let system = Message::new(MessageRole::System, vec![ContentPart::Text(cached_system)])?;
+    let system = Message::new(MessageRole::System, vec![ContentPart::Text(cached_system)]);
     let question = Message::user_text("List the top 3 readability issues.");
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(system)
         .message(question)
         .max_output_tokens(512)

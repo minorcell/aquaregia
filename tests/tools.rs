@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};
 use aquaregia::types::AgentPreparedStep;
-use aquaregia::{Agent, ErrorCode, LlmClient, Message, Tool};
+use aquaregia::{Agent, Client, ErrorCode, Message, Tool};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
@@ -94,7 +94,7 @@ async fn run_tools_two_step_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -151,7 +151,7 @@ async fn run_tools_unknown_tool_fails() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -226,7 +226,7 @@ async fn run_tools_lifecycle_hooks_fire() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -336,7 +336,7 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -437,7 +437,7 @@ async fn tool_calls_execute_in_parallel() {
         executor: Arc::new(SlowTool),
     };
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()

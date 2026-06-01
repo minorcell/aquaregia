@@ -16,17 +16,17 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Agent, LlmClient, ToolBuilder};
-//! use serde_json::{Value, json};
+//! use aquaregia::{Agent, Client, tool};
+//! use serde_json::json;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let get_weather = ToolBuilder::new("get_weather")
+//! let get_weather = tool("get_weather")
 //!     .description("Get weather by city")
 //!     .execute(|city: String| async move {
 //!         Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
 //!     });
 //!
-//! let client = LlmClient::openai().api_key("api-key").build()?;
+//! let client = Client::openai().api_key("api-key").build()?;
 //!
 //! let agent = Agent::builder(client, "gpt-5.5")
 //!     .instructions("You can call tools before answering.")
@@ -46,10 +46,10 @@ use tokio_util::sync::CancellationToken;
 
 use serde_json::Value;
 
-use crate::client::BoundClient;
+use crate::client::Client;
 use crate::tool::IntoTool;
 use crate::types::{
-    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
+    AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
     AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Message, RunTools, ToolErrorPolicy,
     validate_model_ref, validate_sampling,
 };
@@ -70,14 +70,14 @@ use crate::types::{
 /// - **Cancellation**: Bind a `CancellationToken` at builder time to cancel running agents
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
 pub struct Agent {
-    client: Arc<BoundClient>,
+    client: Arc<Client>,
     instructions: Option<String>,
     template: RunTools,
 }
 
 impl Agent {
     /// Starts building an [`Agent`] from a provider-bound client and model.
-    pub fn builder(client: impl Into<Arc<BoundClient>>, model: impl Into<String>) -> AgentBuilder {
+    pub fn builder(client: impl Into<Arc<Client>>, model: impl Into<String>) -> AgentBuilder {
         AgentBuilder::new(client.into(), model.into())
     }
 
@@ -102,10 +102,7 @@ impl Agent {
     /// Runs the agent with a single user prompt.
     ///
     /// If `instructions` were configured, they are inserted as an initial system message.
-    pub async fn run(
-        &self,
-        prompt: impl Into<String>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    pub async fn run(&self, prompt: impl Into<String>) -> Result<AgentOutput, crate::error::Error> {
         let messages = vec![Message::user_text(prompt)];
         self.run_messages_inner(self.inject_instructions(messages))
             .await
@@ -119,7 +116,7 @@ impl Agent {
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    ) -> Result<AgentOutput, crate::error::Error> {
         self.run_messages_inner(self.inject_instructions(messages))
             .await
     }
@@ -127,7 +124,7 @@ impl Agent {
     async fn run_messages_inner(
         &self,
         messages: Vec<Message>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    ) -> Result<AgentOutput, crate::error::Error> {
         let mut request = self.template.clone();
         request.messages = messages;
         self.client.run_tools(request.build()?).await
@@ -136,13 +133,13 @@ impl Agent {
 
 /// Builder for configuring an [`Agent`].
 pub struct AgentBuilder {
-    client: Arc<BoundClient>,
+    client: Arc<Client>,
     instructions: Option<String>,
     template: RunTools,
 }
 
 impl AgentBuilder {
-    fn new(client: Arc<BoundClient>, model: String) -> Self {
+    fn new(client: Arc<Client>, model: String) -> Self {
         Self {
             client,
             instructions: None,
@@ -294,12 +291,12 @@ impl AgentBuilder {
 
     /// Sets provider-specific options passed through on every step.
     ///
-    /// Same shape as [`GenerateTextRequestBuilder::provider_options`]: a JSON
+    /// Same shape as [`ChatRequestBuilder::provider_options`]: a JSON
     /// object keyed by provider slug (e.g. `"anthropic"`, `"openai"`). Each
     /// adapter extracts its own block and merges it into the request payload
     /// for every step in the loop.
     ///
-    /// [`GenerateTextRequestBuilder::provider_options`]: crate::GenerateTextRequest::builder
+    /// [`ChatRequestBuilder::provider_options`]: crate::ChatRequest::builder
     pub fn provider_options(mut self, options: Value) -> Self {
         self.template = self.template.provider_options(options);
         self
@@ -321,12 +318,12 @@ impl AgentBuilder {
 #[cfg(test)]
 mod tests {
     use super::Agent;
-    use crate::LlmClient;
+    use crate::Client;
     use serde_json::json;
 
     #[test]
     fn builder_accepts_provider_options() {
-        let client = LlmClient::openai()
+        let client = Client::openai()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
@@ -342,7 +339,7 @@ mod tests {
 
     #[test]
     fn builder_accepts_typed_model() {
-        let client = LlmClient::openai()
+        let client = Client::openai()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
@@ -357,7 +354,7 @@ mod tests {
 
     #[test]
     fn builder_rejects_invalid_top_p() {
-        let client = LlmClient::openai()
+        let client = Client::openai()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()

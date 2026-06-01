@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use aquaregia::types::AgentPreparedStep;
-use aquaregia::{Agent, LlmClient, Message, tool};
+use aquaregia::{Agent, Client, Message, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -32,7 +32,7 @@ async fn agent_run_includes_instructions() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -107,7 +107,7 @@ async fn agent_tool_loop_works() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -170,7 +170,7 @@ async fn agent_prepare_step_can_override_messages() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -224,7 +224,7 @@ async fn agent_prepare_step_can_override_sampling_and_on_start_sees_builder_mode
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = Client::openai_compatible()
         .base_url(server.uri())
         .api_key("test-key")
         .build()

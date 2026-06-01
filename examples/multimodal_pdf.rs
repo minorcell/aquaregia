@@ -11,8 +11,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use aquaregia::{
-    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole,
-    TextPart,
+    ChatRequest, Client, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart,
 };
 
 #[tokio::main]
@@ -35,15 +34,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ContentPart::Text(TextPart::new("Summarise this document in 5 bullets.")),
             ContentPart::File(pdf_part),
         ],
-    )?;
+    );
 
-    let client = LlmClient::anthropic()
+    let client = Client::anthropic()
         .api_key(std::env::var("ANTHROPIC_API_KEY")?)
         .build()?;
 
     let response = client
         .generate(
-            GenerateTextRequest::builder("claude-sonnet-4-6")
+            ChatRequest::builder("claude-sonnet-4-6")
                 .message(message)
                 .max_output_tokens(1024)
                 .build()?,
