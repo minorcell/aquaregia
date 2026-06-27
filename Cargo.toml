@@ -1,6 +1,6 @@
 [package]
 name = "aquaregia"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2024"
 description = "A lightweight agent SDK for Rust: build tool-using LLM agents that run on any provider."
 license = "MIT"
