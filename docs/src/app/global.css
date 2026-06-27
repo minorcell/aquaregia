@@ -10,3 +10,30 @@ html > body[data-scroll-locked] {
   margin-right: 0px !important;
   --removed-body-scroll-bar-size: 0px !important;
 }
+
+/* Subtle dot-grid pattern for hero background */
+.bg-grid {
+  background-image: radial-gradient(
+    circle,
+    hsl(var(--fd-muted) / 0.3) 1px,
+    transparent 1px
+  );
+  background-size: 24px 24px;
+}
+
+/* Gradient glow orb */
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.15;
+  pointer-events: none;
+}
+
+/* Gradient icon backgrounds for feature cards */
+.icon-bg-agent       { background: linear-gradient(135deg, #3b82f6, #06b6d4); }
+.icon-bg-provider    { background: linear-gradient(135deg, #8b5cf6, #d946ef); }
+.icon-bg-tools       { background: linear-gradient(135deg, #f59e0b, #ef4444); }
+.icon-bg-structured  { background: linear-gradient(135deg, #10b981, #14b8a6); }
+.icon-bg-streaming   { background: linear-gradient(135deg, #6366f1, #3b82f6); }
+.icon-bg-production  { background: linear-gradient(135deg, #f97316, #ec4899); }
