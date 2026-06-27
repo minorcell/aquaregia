@@ -8,3 +8,5 @@ export const gitConfig = {
   repo: 'aquaregia',
   branch: 'dev',
 };
+
+export const brandLogoUrl = `https://raw.githubusercontent.com/${gitConfig.user}/${gitConfig.repo}/${gitConfig.branch}/docs/public/brand/aquaregia-logo.svg`;

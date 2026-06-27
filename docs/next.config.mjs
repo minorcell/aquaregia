@@ -8,6 +8,15 @@ const basePath = (process.env.NEXT_PUBLIC_BASE_PATH ?? '').replace(/\/$/, '');
 const config = {
   output: 'export',
   reactStrictMode: true,
+  images: {
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'raw.githubusercontent.com',
+        pathname: '/minorcell/aquaregia/**',
+      },
+    ],
+  },
   ...(basePath ? { basePath } : {}),
 };
 

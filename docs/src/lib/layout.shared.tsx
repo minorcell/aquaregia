@@ -1,13 +1,13 @@
 import Image from 'next/image';
 import type { BaseLayoutProps } from 'fumadocs-ui/layouts/shared';
-import { appName, docsRoute, gitConfig } from './shared';
+import { appName, brandLogoUrl, docsRoute, gitConfig } from './shared';
 
 export function baseOptions(): BaseLayoutProps {
   return {
     nav: {
       title: (
         <span className="inline-flex items-center gap-2 font-semibold">
-          <Image src="/brand/aquaregia-logo.svg" alt="" width={20} height={20} className="shrink-0" />
+          <Image src={brandLogoUrl} alt="" width={20} height={20} className="shrink-0" />
           {appName}
         </span>
       ),

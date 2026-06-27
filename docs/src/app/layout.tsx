@@ -1,6 +1,7 @@
 import { Inter } from 'next/font/google';
 import type { Metadata } from 'next';
 import { Provider } from '@/components/provider';
+import { brandLogoUrl } from '@/lib/shared';
 import './global.css';
 
 const inter = Inter({
@@ -9,6 +10,9 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+  icons: {
+    icon: brandLogoUrl,
+  },
 };
 
 export default function Layout({ children }: LayoutProps<'/'>) {
