@@ -1,0 +1,177 @@
+---
+title: Structured Output
+description: Ask the model for typed Rust data instead of prose.
+---
+
+Use structured output when your application needs data it can validate and store.
+
+Examples:
+
+- classify a support ticket
+- extract fields from a document
+- produce a product brief object
+- return a list of search filters
+
+## Define the output type
+
+Derive `Deserialize` and `JsonSchema` for the type you want back.
+
+```rust
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct TicketClassification {
+    category: String,
+    priority: String,
+    needs_human: bool,
+}
+```
+
+## Generate the object
+
+```rust
+use aquaregia::{ChatRequest, Message, providers::openai};
+
+let client = openai::Client::from_env()?;
+
+let req = ChatRequest::builder("gpt-5.5")
+    .message(Message::system_text(
+        "Classify support tickets. Return only the requested structure.",
+    ))
+    .message(Message::user_text(
+        "My invoice says I was charged twice this month.",
+    ))
+    .temperature(0.2)
+    .build()?;
+
+let result = client
+    .generate_object::<TicketClassification>(req)
+    .await?;
+
+println!("{:?}", result.object);
+```
+
+Aquaregia derives JSON Schema from the Rust type and asks the provider for JSON matching that schema. The response is deserialized before it reaches your application code.
+
+The result also carries metadata you can log:
+
+```rust
+println!("finish={:?}", result.finish_reason);
+println!("tokens={}", result.usage.total_tokens);
+```
+
+## Stream a structured object
+
+Use `stream_object::<T>()` when a UI should update as fields arrive.
+
+```rust
+use aquaregia::types::StreamObjectEvent;
+use futures_util::StreamExt;
+use schemars::JsonSchema;
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize, JsonSchema)]
+#[serde(default)]
+struct ProductBrief {
+    name: String,
+    tagline: String,
+    audience: Vec<String>,
+}
+
+let mut stream = client.stream_object::<ProductBrief>(req).await?;
+
+while let Some(event) = stream.next().await {
+    match event? {
+        StreamObjectEvent::Partial { partial } => {
+            println!("draft name: {}", partial.name);
+        }
+        StreamObjectEvent::Object { object } => {
+            println!("final: {:?}", object);
+        }
+    }
+}
+```
+
+Partial objects are best effort. Fields that have not arrived yet use their default values, so streaming output types should derive `Default` and use `#[serde(default)]`.
+
+## Provide your own schema
+
+Most applications should prefer `generate_object::<T>()`. Use `OutputSchema` directly when the schema comes from a file, a database, or another language runtime.
+
+```rust
+use aquaregia::{ChatRequest, OutputSchema, providers::openai};
+use serde_json::json;
+
+let client = openai::Client::from_env()?;
+
+let schema = OutputSchema {
+    name: "invoice_fields".to_string(),
+    description: Some("Fields extracted from an invoice".to_string()),
+    json_schema: json!({
+        "type": "object",
+        "properties": {
+            "vendor": { "type": "string" },
+            "total": { "type": "number" },
+            "currency": { "type": "string" }
+        },
+        "required": ["vendor", "total", "currency"]
+    }),
+};
+
+let response = client
+    .generate(
+        ChatRequest::builder("gpt-5.5")
+            .user("Invoice from Example Inc. Total USD 42.50.")
+            .output_schema(schema)
+            .build()?,
+    )
+    .await?;
+
+println!("{}", response.output_text);
+```
+
+Manual schemas return a normal `ChatResponse`. Use `generate_object::<T>()` when you want Aquaregia to deserialize into a Rust type before returning.
+
+## Use normal request controls
+
+Structured output still starts from a `ChatRequest`, so the same controls apply:
+
+```rust
+use aquaregia::Message;
+
+let req = ChatRequest::builder("gpt-5.5")
+    .message(Message::system_text("Extract only facts present in the input."))
+    .message(Message::user_text(
+        "Customer wants a refund because the package arrived damaged.",
+    ))
+    .temperature(0.0)
+    .max_output_tokens(600)
+    .provider_options(serde_json::json!({
+        "openai": {
+            "reasoning": { "effort": "low" }
+        }
+    }))
+    .build()?;
+```
+
+Use lower temperature for extraction and classification. Use more room in `max_output_tokens(...)` when the schema can produce long arrays.
+
+## Choose structured output or agents
+
+Structured output is a client-level API. Use it when the model should return one typed value.
+
+Use an agent when the model needs to work through tools and intermediate observations before answering.
+
+| Need | Use |
+| --- | --- |
+| one typed object | `client.generate_object::<T>(request)` |
+| progressive typed object | `client.stream_object::<T>(request)` |
+| tool loop with final text | `agent.run(...)` |
+| streamed tool loop | `agent.stream(...)` |
+
+## Provider behavior
+
+OpenAI uses native structured output. Providers without native structured-output support use an internal tool-call fallback. The caller still receives the same typed Rust value.
+
+If a provider does not support the needed underlying operation, the call fails with `ErrorCode::UnsupportedOperation`. Provider-specific structured-output options can be passed through `provider_options`, but Aquaregia does not validate those fields.

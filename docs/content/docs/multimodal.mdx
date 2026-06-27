@@ -1,0 +1,128 @@
+---
+title: Multimodal Input
+description: Send images, PDFs, and other file parts with chat requests.
+---
+
+Multimodal input is represented as normal message content. A user message can contain text plus one or more `FilePart` values.
+
+Aquaregia does not guess media types. Always pass the IANA media type, such as `image/png`, `image/jpeg`, or `application/pdf`.
+
+## Ask about an image URL
+
+```rust
+use aquaregia::{
+    ChatRequest, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart,
+    providers::openai,
+};
+
+let client = openai::Client::from_env()?;
+
+let message = Message::new(
+    MessageRole::User,
+    vec![
+        ContentPart::Text(TextPart::new("What's in this image?")),
+        ContentPart::File(FilePart::new(
+            MediaData::Url("https://example.com/diagram.png".to_string()),
+            "image/png",
+        )),
+    ],
+);
+
+let response = client
+    .generate(
+        ChatRequest::builder("gpt-5.5")
+            .message(message)
+            .build()?,
+    )
+    .await?;
+
+println!("{}", response.output_text);
+```
+
+Use `Message::user_file_url(...)` for the one-file shorthand:
+
+```rust
+let message = Message::user_file_url(
+    "https://example.com/diagram.png",
+    "image/png",
+);
+```
+
+## Send local bytes
+
+For local files, read bytes and let the adapter encode them for the provider.
+
+```rust
+use std::fs;
+use aquaregia::{FilePart, MediaData};
+
+let bytes = fs::read("invoice.pdf")?;
+
+let file = FilePart::new(
+    MediaData::Bytes(bytes),
+    "application/pdf",
+).with_filename("invoice.pdf");
+```
+
+Then include the file part in a message:
+
+```rust
+use aquaregia::{ContentPart, Message, MessageRole, TextPart};
+
+let message = Message::new(
+    MessageRole::User,
+    vec![
+        ContentPart::Text(TextPart::new("Summarize this document in 5 bullets.")),
+        ContentPart::File(file),
+    ],
+);
+```
+
+Use `MediaData::Base64(...)` when another system already gave you base64 without a data URL prefix.
+
+## Attach provider-specific block fields
+
+Some provider features attach to a single file or text block. Use block-level `provider_options(...)`.
+
+```rust
+use aquaregia::{FilePart, MediaData};
+use serde_json::json;
+
+let file = FilePart::new(
+    MediaData::Url("https://example.com/report.pdf".to_string()),
+    "application/pdf",
+)
+.with_filename("report.pdf")
+.with_provider_options(json!({
+    "anthropic": {
+        "cache_control": { "type": "ephemeral" }
+    }
+}));
+```
+
+The adapter reads only its provider slug and merges that object into the provider block it sends.
+
+## Provider support
+
+Aquaregia exposes one file shape, but each adapter can only send media types that the provider wire format supports.
+
+| Provider | File parts currently mapped by the adapter |
+| --- | --- |
+| OpenAI | images and PDFs |
+| Anthropic | images and PDFs |
+| Google | URLs and inline bytes/base64 using the given MIME type |
+| OpenAI-compatible | images only, because the Chat Completions-compatible shape has no portable PDF block |
+
+The upstream model may still reject a file type, file size, URL, or modality. In that case the provider error is returned as an Aquaregia `Error`.
+
+## Constructors reference
+
+| API | Use |
+| --- | --- |
+| `Message::user_file_url(url, media_type)` | one user message containing one URL file |
+| `Message::user_file_bytes(bytes, media_type)` | one user message containing one bytes file |
+| `FilePart::new(MediaData::Url(...), media_type)` | explicit URL file part |
+| `FilePart::new(MediaData::Base64(...), media_type)` | explicit base64 file part |
+| `FilePart::new(MediaData::Bytes(...), media_type)` | explicit bytes file part |
+| `with_filename(...)` | provider filename hint |
+| `with_provider_options(...)` | provider-specific block fields |

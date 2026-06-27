@@ -1,0 +1,178 @@
+---
+title: Providers
+description: Choose and configure the model provider your application talks to.
+---
+
+A provider client owns authentication, endpoint configuration, retries, timeout, and HTTP transport.
+
+Create one provider client near the edge of your application, then pass it to the code that builds agents or sends direct requests.
+
+## Use OpenAI
+
+For the default OpenAI setup:
+
+```rust
+use aquaregia::providers::openai;
+
+let client = openai::Client::from_env()?;
+
+let agent = client
+    .agent("gpt-5.5")
+    .build()?;
+```
+
+`from_env()` expects:
+
+```bash
+export OPENAI_API_KEY=...
+```
+
+## Configure the endpoint
+
+Use the builder when credentials, endpoint, or HTTP behavior should be explicit.
+
+```rust
+use aquaregia::providers::openai;
+use std::time::Duration;
+
+let client = openai::Client::builder()
+    .api_key_from_env("OPENAI_API_KEY")
+    .base_url("https://api.openai.com/v1")
+    .timeout(Duration::from_secs(60))
+    .max_retries(3)
+    .default_max_steps(8)
+    .user_agent("my-app/1.0")
+    .build()?;
+```
+
+`default_max_steps(...)` is the fallback cap used by agents built from this client. Individual agents can still override it with `.max_steps(...)`.
+
+Hosted providers also allow `base_url(...)`. Use it for enterprise gateways, test doubles, private proxies, or provider-compatible deployments that still use the hosted provider's wire format.
+
+```rust
+use aquaregia::providers::{anthropic, google};
+
+let anthropic_client = anthropic::Client::builder()
+    .api_key_from_env("ANTHROPIC_API_KEY")
+    .base_url("https://anthropic-gateway.example.com")
+    .api_version("2023-06-01")
+    .build()?;
+
+let google_client = google::Client::builder()
+    .api_key_from_env("GOOGLE_API_KEY")
+    .base_url("https://generativelanguage.googleapis.com")
+    .build()?;
+```
+
+## Switch hosted providers
+
+Hosted providers follow the same pattern.
+
+```rust
+use aquaregia::providers::{anthropic, google, openai};
+
+let openai_client = openai::Client::from_env()?;
+let anthropic_client = anthropic::Client::from_env()?;
+let google_client = google::Client::from_env()?;
+```
+
+| Provider | Environment variable |
+| --- | --- |
+| OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+| Google | `GOOGLE_API_KEY` |
+
+The agent API stays the same:
+
+```rust
+let agent = anthropic_client
+    .agent("claude-sonnet-4-6")
+    .instructions("Answer in short paragraphs.")
+    .build()?;
+```
+
+Provider-specific builder options:
+
+| Provider | Builder options |
+| --- | --- |
+| OpenAI | `api_key(...)`, `api_key_from_env(...)`, `base_url(...)` |
+| Anthropic | `api_key(...)`, `api_key_from_env(...)`, `base_url(...)`, `api_version(...)` |
+| Google | `api_key(...)`, `api_key_from_env(...)`, `base_url(...)` |
+
+All hosted provider builders also support:
+
+| Option | Use it when |
+| --- | --- |
+| `timeout(Duration)` | a request should fail after a bounded time |
+| `max_retries(u8)` | retryable provider, transport, and timeout failures should be retried by the client |
+| `default_max_steps(u32)` | agents built from the client should inherit a tool-loop cap |
+| `user_agent(...)` | your application needs a custom SDK `User-Agent` suffix/value |
+
+## Use an OpenAI-compatible gateway
+
+Use `openai_compatible` when your upstream speaks the OpenAI Chat Completions wire format.
+
+```rust
+use aquaregia::providers::openai_compatible;
+
+let client = openai_compatible::Client::builder()
+    .base_url("https://api.example.com")
+    .api_key_from_env("OPENAI_COMPATIBLE_API_KEY")
+    .chat_completions_path("/v1/chat/completions")
+    .build()?;
+
+let agent = client
+    .agent("gpt-5.5")
+    .build()?;
+```
+
+Gateways sometimes need custom headers or query parameters:
+
+```rust
+let client = openai_compatible::Client::builder()
+    .base_url("https://api.example.com")
+    .api_key_from_env("OPENAI_COMPATIBLE_API_KEY")
+    .header("x-trace-source", "aquaregia")
+    .query_param("source", "sdk")
+    .build()?;
+```
+
+If the upstream does not require an `Authorization` header, call `.no_api_key()`.
+
+OpenAI-compatible builders support:
+
+| Option | Use it when |
+| --- | --- |
+| `base_url(...)` | required endpoint root for the gateway |
+| `api_key(...)` / `api_key_from_env(...)` | send an `Authorization: Bearer ...` token |
+| `no_api_key()` | the gateway uses local auth, mTLS, or no auth |
+| `header(name, value)` | the gateway requires extra static headers |
+| `query_param(name, value)` | the gateway requires static query parameters |
+| `chat_completions_path(path)` | the chat endpoint is not `/v1/chat/completions` |
+| `timeout(...)`, `max_retries(...)`, `default_max_steps(...)`, `user_agent(...)` | same runtime controls as hosted providers |
+
+## Pick the right layer
+
+Provider clients expose the same high-level methods. If a provider cannot perform an operation, the call returns `ErrorCode::UnsupportedOperation`.
+
+| Need | Use |
+| --- | --- |
+| Final text from an assistant | `client.agent(model).build()?.prompt(...)` |
+| Full tool-loop metadata | `agent.run(...)` |
+| Full tool-loop stream | `agent.stream(...)` |
+| One model request | `client.generate(request)` |
+| One model stream | `client.stream(request)` |
+| Typed data | `client.generate_object::<T>(request)` |
+| Progressive typed data | `client.stream_object::<T>(request)` |
+| Text embeddings | `client.embed(request)` |
+
+Provider-specific capabilities belong in `provider_options`, not in separate client types.
+
+Current operation coverage:
+
+| Operation | OpenAI | Anthropic | Google | OpenAI-compatible |
+| --- | --- | --- | --- | --- |
+| `generate` / `stream` | yes | yes | yes | yes |
+| `agent` | yes | yes | yes | yes |
+| `generate_object` / `stream_object` | native structured output | tool-call fallback | tool-call fallback | tool-call fallback |
+| `embed` | yes | unsupported | unsupported | yes, if the gateway implements embeddings |

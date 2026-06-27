@@ -1,13 +1,76 @@
 ---
-title: Hello World
-description: Your first document
+title: Introduction
+description: Build provider-backed LLM agents in Rust.
 ---
 
-Welcome to the docs! You can start writing documents in `/content/docs`.
+Aquaregia is a Rust SDK for applications that need an LLM to do work, not just return one completion.
 
-## What is Next?
+The common shape is:
 
-<Cards>
-  <Card title="Learn more about Next.js" href="https://nextjs.org/docs" />
-  <Card title="Learn more about Fumadocs" href="https://fumadocs.dev" />
-</Cards>
+1. choose a provider client
+2. bind it to a model with `client.agent(model)`
+3. add instructions and tools
+4. run the agent, stream it, or inspect the full transcript
+
+```rust
+use aquaregia::providers::openai;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let agent = openai::Client::from_env()?
+        .agent("gpt-5.5")
+        .instructions("You are concise.")
+        .build()?;
+
+    let response = agent
+        .prompt("Explain Rust ownership in 3 bullet points.")
+        .await?;
+
+    println!("{response}");
+    Ok(())
+}
+```
+
+## When to use Aquaregia
+
+Use Aquaregia when your application needs one of these workflows:
+
+- a model-bound assistant with stable instructions
+- a tool-using loop where the model can call your Rust code
+- streaming output for a CLI, chat UI, or debug panel
+- structured data returned as Rust types
+- direct model requests for application-managed conversations
+- multimodal prompts and embeddings for retrieval
+- the same high-level code running across multiple providers
+
+For one-off lower-level calls, provider clients also expose `generate(...)`, `stream(...)`, `generate_object::<T>(...)`, `stream_object::<T>(...)`, and `embed(...)`.
+
+## The mental model
+
+An agent is a loop:
+
+1. send the current messages and tool schemas to the model
+2. receive text and optional tool calls
+3. execute requested tools
+4. send tool results back to the model
+5. stop when the model returns a final answer or your stopping rule fires
+
+Aquaregia owns that loop. Your code owns the tools, model choice, stopping policy, and how to display the result.
+
+## Choose a path
+
+Start with the guide that matches what you are building:
+
+| Goal | Read |
+| --- | --- |
+| Run the smallest working example | [Quickstart](./quickstart) |
+| Configure OpenAI, Anthropic, Google, or a gateway | [Providers](./providers) |
+| Send one explicit model request | [Direct requests](./direct-requests) |
+| Build an assistant that can call tools | [Agents](./agents) |
+| Turn Rust functions into model-callable tools | [Tools](./tools) |
+| Stream model or agent output to a UI | [Streaming](./streaming) |
+| Ask the model for typed data | [Structured output](./structured-output) |
+| Send images, PDFs, or bytes | [Multimodal input](./multimodal) |
+| Generate vectors for search or RAG | [Embeddings](./embeddings) |
+| Pass provider-native fields | [Provider options](./provider-options) |
+| Handle retries, cancellation, and errors | [Errors and production](./errors-production) |

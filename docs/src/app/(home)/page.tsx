@@ -11,7 +11,7 @@ const FEATURES = [
     ),
     title: 'Agent Loop',
     description:
-      'The model thinks, calls your tools, sees results, and repeats — until the job is done. You describe the tools and the stopping rule; Aquaregia runs the loop.',
+      'The model thinks, calls tools, sees results, and repeats until the job is done. You describe the tools and stopping rule; Aquaregia runs the loop.',
   },
   {
     icon: (
@@ -23,7 +23,7 @@ const FEATURES = [
     ),
     title: 'Multi-Provider',
     description:
-      'Same agent, same code, across OpenAI, Anthropic, Google, and any OpenAI-compatible endpoint. Swap the constructor to change provider — zero lock-in.',
+      'Use OpenAI, Anthropic, Google, or an OpenAI-compatible endpoint through provider-specific clients with the same high-level agent API.',
   },
   {
     icon: (
@@ -33,7 +33,7 @@ const FEATURES = [
     ),
     title: 'Typed Tools',
     description:
-      'A tool is a typed async fn. Derive JsonSchema on your args struct, and Aquaregia builds the schema, validates the call, and marshals args back into Rust.',
+      'A tool is a typed async function. Derive JsonSchema on the args, return any serializable value, and let Aquaregia handle schema and JSON plumbing.',
   },
   {
     icon: (
@@ -46,7 +46,7 @@ const FEATURES = [
     ),
     title: 'Structured Output',
     description:
-      'Call generate_object::&lt;T&gt;() and get a typed Rust value back. The JSON Schema is derived automatically. Your type, not a blob of text.',
+      'Call generate_object::<T>() or stream_object::<T>() and receive typed Rust values with schemas derived from your own structs.',
   },
   {
     icon: (
@@ -56,7 +56,7 @@ const FEATURES = [
     ),
     title: 'Streaming',
     description:
-      'Tokens arrive as they are generated. Consume a uniform StreamEvent enum — text deltas, reasoning blocks, tool calls, and usage — or pipe them straight to SSE.',
+      'Stream a single model call with StreamEvent, or stream a full agent run with AgentStreamEvent including model deltas, tools, steps, and final output.',
   },
   {
     icon: (
@@ -75,10 +75,9 @@ const PROVIDERS = [
   'OpenAI',
   'Anthropic',
   'Google',
-  'DeepSeek',
-  'Together',
-  'Groq',
-  'Your gateway',
+  'OpenAI-compatible',
+  'Local gateways',
+  'Custom gateways',
 ];
 
 export default function HomePage() {
@@ -126,7 +125,7 @@ export default function HomePage() {
                   <span className="text-[#ffa657]">agent</span>{' '}
                   <span className="text-[#ff7b72]">=</span>{' '}
                   <span className="text-[#d2a8ff]">openai::Client::from_env</span>()?<br />
-                  {'        '}.<span className="text-[#d2a8ff]">agent</span>(<span className="text-[#a5d6ff]">"gpt-4o-mini"</span>)<br />
+                  {'        '}.<span className="text-[#d2a8ff]">agent</span>(<span className="text-[#a5d6ff]">"gpt-5.5"</span>)<br />
                   {'        '}.<span className="text-[#d2a8ff]">build</span>()?;<br />
                   <br />
                   {'    '}<span className="text-[#ff7b72]">let</span>{' '}
@@ -147,7 +146,7 @@ export default function HomePage() {
           {/* CTAs */}
           <div className="mt-8 flex items-center justify-center gap-4 sm:mt-10">
             <Link
-              href="/docs"
+              href="/docs/quickstart"
               className="inline-flex items-center rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-semibold text-fd-primary-foreground shadow-sm transition hover:bg-fd-primary/90"
             >
               Get Started
@@ -232,7 +231,7 @@ export default function HomePage() {
           </div>
           <div className="mt-6">
             <Link
-              href="/docs"
+              href="/docs/quickstart"
               className="inline-flex items-center rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-semibold text-fd-primary-foreground shadow-sm transition hover:bg-fd-primary/90"
             >
               Read the Docs

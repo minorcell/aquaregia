@@ -1,0 +1,154 @@
+---
+title: Provider Options
+description: Pass provider-specific request fields without changing the common API.
+---
+
+The common Aquaregia types cover the portable surface: messages, tools, streaming, structured output, usage, and embeddings.
+
+Use `provider_options(...)` for provider-native fields that should pass through without Aquaregia trying to model them.
+
+## Shape
+
+Provider options are a JSON object keyed by provider slug:
+
+```rust
+use serde_json::json;
+
+json!({
+    "openai": {
+        "reasoning": { "effort": "medium" }
+    },
+    "anthropic": {
+        "thinking": { "type": "enabled", "budget_tokens": 4096 }
+    },
+    "google": {
+        "generationConfig": { "thinkingConfig": { "thinkingBudget": 1024 } }
+    },
+    "openai-compatible": {
+        "extra_body_field": true
+    }
+})
+```
+
+The active adapter reads only its own slug and merges those fields into the outgoing provider payload. Unknown slugs and non-object values are ignored.
+
+## Request-level options
+
+Use request-level options for one direct generation request.
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+use serde_json::json;
+
+let client = openai::Client::from_env()?;
+
+let req = ChatRequest::builder("gpt-5.5")
+    .user("Explain why this migration failed.")
+    .provider_options(json!({
+        "openai": {
+            "reasoning": { "effort": "medium" }
+        }
+    }))
+    .build()?;
+
+let response = client.generate(req).await?;
+```
+
+Use agent-level options when the same provider field should apply to every step in a tool loop.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .provider_options(json!({
+        "openai": {
+            "reasoning": { "effort": "low" }
+        }
+    }))
+    .build()?;
+```
+
+## Message and content-block options
+
+Some provider features attach to a specific message or content block. Anthropic prompt caching is the common case.
+
+```rust
+use aquaregia::{ContentPart, Message, MessageRole, TextPart};
+use serde_json::json;
+
+let cached_context = TextPart::new(LONG_CONTEXT).with_provider_options(json!({
+    "anthropic": {
+        "cache_control": { "type": "ephemeral" }
+    }
+}));
+
+let system = Message::new(
+    MessageRole::System,
+    vec![ContentPart::Text(cached_context)],
+);
+```
+
+`Message::with_provider_options(...)` merges into the provider message object. `TextPart::with_provider_options(...)` and `FilePart::with_provider_options(...)` merge into the individual content block.
+
+## Provider-native tools
+
+Some providers run native tools server-side. Aquaregia does not execute those tools; the provider handles them within the model call.
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+use serde_json::json;
+
+let req = ChatRequest::builder("gpt-5.5")
+    .user("Find recent information about Rust releases.")
+    .provider_options(json!({
+        "openai": {
+            "tools": [{
+                "type": "web_search"
+            }]
+        }
+    }))
+    .build()?;
+
+let response = openai::Client::from_env()?.generate(req).await?;
+```
+
+Top-level provider option keys overwrite the payload keys Aquaregia already computed. This matters for `tools`: if you pass `provider_options.<slug>.tools`, it replaces Aquaregia's generated `tools` array for that provider request. Prefer normal Aquaregia tools for Rust executors, and use provider-native `tools` only when the provider runs them itself.
+
+## Embedding options
+
+Embedding requests also accept provider options.
+
+```rust
+use aquaregia::embed::EmbedRequest;
+use serde_json::json;
+
+let req = EmbedRequest::builder("text-embedding-3-small")
+    .values(vec!["Aquaregia simplifies Rust agents."])
+    .provider_options(json!({
+        "openai": {
+            "dimensions": 256
+        }
+    }))
+    .build()?;
+```
+
+## Merge locations
+
+| Setter | Merged into |
+| --- | --- |
+| `ChatRequest::builder(...).provider_options(...)` | top-level provider request body |
+| `client.agent(...).provider_options(...)` | every top-level provider request body in the agent run |
+| `Message::with_provider_options(...)` | the serialized message object |
+| `TextPart::with_provider_options(...)` | the serialized text content block |
+| `FilePart::with_provider_options(...)` | the serialized file content block |
+| `EmbedRequest::builder(...).provider_options(...)` | top-level embedding request body |
+
+## Boundary
+
+Aquaregia treats provider options as an escape hatch:
+
+- it does not validate provider option names or values
+- it does not guarantee that a provider or model supports the field
+- it does not reconcile conflicts when an option overwrites a field Aquaregia generated
+- it preserves the common API by keeping provider-specific concepts out of core types
+
+When a feature becomes portable across providers, it can move into the common request shape. Until then, prefer `provider_options` over adding provider-specific SDK types.

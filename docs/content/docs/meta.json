@@ -1,0 +1,17 @@
+{
+  "title": "Aquaregia",
+  "pages": [
+    "index",
+    "quickstart",
+    "providers",
+    "direct-requests",
+    "agents",
+    "tools",
+    "streaming",
+    "structured-output",
+    "multimodal",
+    "embeddings",
+    "provider-options",
+    "errors-production"
+  ]
+}
