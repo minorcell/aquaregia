@@ -19,59 +19,50 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use aquaregia::{GenerateTextRequest, LlmClient};
+//! use aquaregia::providers::openai;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = LlmClient::openai_compatible().base_url("https://api.deepseek.com")
-//!         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+//!     let agent = openai::Client::from_env()?
+//!         .agent("gpt-5.5")
 //!         .build()?;
 //!
-//!     let out = client
-//!         .generate(GenerateTextRequest::from_user_prompt(
-//!             "deepseek-v4-pro",
-//!             "Explain Rust ownership in 3 bullet points.",
-//!         ))
-//!         .await?;
+//!     let out = agent.prompt("Explain Rust ownership in 3 bullet points.").await?;
 //!
-//!     println!("{}", out.output_text);
+//!     println!("{out}");
 //!     Ok(())
 //! }
 //! ```
 //!
 //! ## Architecture
 //!
-//! - [`LlmClient`]: Entry point for creating provider-bound clients.
-//! - [`BoundClient`]: Reusable client for `generate`, `stream`, and agent loops.
+//! - [`providers`]: Provider-specific client entry points.
 //! - [`Agent`]: Multi-step tool-using agent with configurable hooks.
-//! - [`ModelAdapter`](adapters::ModelAdapter): Trait for provider-specific request/response handling.
 //! - [`Tool`]: Executable tool definitions with JSON Schema validation.
 
-/// Provider adapter traits and concrete provider implementations.
-pub mod adapters;
+pub(crate) mod adapters;
 /// Agent runtime and builder APIs.
 pub mod agent;
-/// Provider-bound client types and retry behavior.
-pub mod client;
+pub(crate) mod client;
 /// Embedding generation types and APIs.
 pub mod embed;
 /// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
 pub(crate) mod partial_json;
+/// Provider-specific client entry points.
+pub mod providers;
 pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
 pub mod tool;
 /// Shared request/response and event types.
 pub mod types;
 
-pub use agent::{Agent, AgentBuilder};
-pub use client::{BoundClient, ClientBuilder, LlmClient};
+pub use agent::Agent;
 pub use error::{Error, ErrorCode};
-pub use tokio_util::sync::CancellationToken;
 
-pub use tool::{Tool, ToolBuilder, tool};
+pub use tool::{Tool, tool};
 pub use types::{
-    ContentPart, FilePart, FinishReason, GenerateObjectResponse, GenerateTextRequest,
-    GenerateTextResponse, MediaData, Message, MessageRole, OutputSchema, ReasoningPart,
+    AgentOutput, AgentStream, AgentStreamEvent, ChatRequest, ChatResponse, ContentPart, FilePart,
+    FinishReason, MediaData, Message, MessageRole, ObjectResponse, OutputSchema, ReasoningPart,
     StreamEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };

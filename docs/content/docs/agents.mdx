@@ -1,0 +1,290 @@
+---
+title: Agents
+description: Build assistants that can call tools and keep working until the task is done.
+---
+
+An agent is the right abstraction when the model may need multiple steps: answer, call a tool, observe the result, call another tool, and then produce a final response.
+
+This guide builds a small weather assistant.
+
+## 1. Start with instructions
+
+Instructions define the agent's default behavior. They are added as a system message unless the run already provides one.
+
+```rust
+use aquaregia::providers::openai;
+
+let client = openai::Client::from_env()?;
+
+let agent = client
+    .agent("gpt-5.5")
+    .instructions("You are concise. Call tools when they help.")
+    .max_steps(4)
+    .build()?;
+
+let response = agent.prompt("Should I bring an umbrella in Shanghai?").await?;
+println!("{response}");
+```
+
+Use `prompt(...)` when the caller only needs text.
+
+## 2. Add a tool
+
+Agents become useful when they can call your Rust code.
+
+```rust
+use aquaregia::{Tool, tool};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherArgs {
+    city: String,
+}
+
+fn get_weather() -> Tool {
+    tool("get_weather")
+        .description("Get current weather by city")
+        .execute(|args: WeatherArgs| async move {
+            json!({
+                "city": args.city,
+                "temp_c": 23,
+                "condition": "light rain"
+            })
+        })
+}
+```
+
+Attach the tool to the agent:
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .instructions("Call the weather tool before making weather recommendations.")
+    .tool(get_weather())
+    .max_steps(4)
+    .build()?;
+
+let response = agent.prompt("Should I bring an umbrella in Shanghai?").await?;
+println!("{response}");
+```
+
+The model sees the tool schema, decides whether to call it, and receives the tool result before answering.
+
+## 3. Inspect what happened
+
+For application logs, billing, or debugging, use `run(...)`.
+
+```rust
+let output = agent
+    .run("Should I bring an umbrella in Shanghai?")
+    .await?;
+
+println!("{}", output.output_text);
+println!("steps={}", output.steps);
+println!("tokens={}", output.usage_total.total_tokens);
+
+for step in &output.step_results {
+    println!(
+        "step={} tool_calls={}",
+        step.step,
+        step.tool_calls.len()
+    );
+}
+```
+
+`output.transcript` contains the complete conversation, including assistant tool calls and tool result messages.
+
+## 4. Continue a conversation
+
+Store the transcript and feed it into the next run.
+
+```rust
+use aquaregia::Message;
+
+let mut history = vec![Message::system_text("You are a careful assistant.")];
+
+history.push(Message::user_text("Should I bring an umbrella in Shanghai?"));
+let first = agent.run_messages(history.clone()).await?;
+history = first.transcript;
+
+history.push(Message::user_text("What about tomorrow morning?"));
+let second = agent.run_messages(history).await?;
+
+println!("{}", second.output_text);
+```
+
+This keeps tool results and assistant messages intact without manually rebuilding the conversation.
+
+## 5. Stream the run
+
+Use `stream(...)` for CLIs, chat UIs, and debug panels.
+
+```rust
+use aquaregia::{AgentStreamEvent, StreamEvent};
+use futures_util::StreamExt;
+
+let mut stream = agent
+    .stream("Should I bring an umbrella in Shanghai?")
+    .await?;
+
+while let Some(event) = stream.next().await {
+    match event? {
+        AgentStreamEvent::Model {
+            event: StreamEvent::TextDelta { text },
+            ..
+        } => print!("{text}"),
+        AgentStreamEvent::ToolCallStart { event } => {
+            eprintln!("[tool] {}", event.tool_call.tool_name);
+        }
+        AgentStreamEvent::Done { output } => {
+            eprintln!("[done] steps={}", output.steps);
+            break;
+        }
+        _ => {}
+    }
+}
+```
+
+Model deltas, tool execution, step snapshots, and final output all travel through the same stream.
+
+## 6. Tune the model request
+
+Sampling and output limits belong on the agent when they should apply to every step.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .instructions("Answer with short, factual recommendations.")
+    .temperature(0.2)
+    .top_p(0.9)
+    .max_output_tokens(800)
+    .stop_sequences(["\nObservation:"])
+    .build()?;
+```
+
+Use provider options when a feature exists in one provider but not in the common request shape.
+
+```rust
+use serde_json::json;
+
+let agent = client
+    .agent("gpt-5.5")
+    .provider_options(json!({
+        "openai": {
+            "reasoning": { "effort": "medium" }
+        }
+    }))
+    .build()?;
+```
+
+Agent-level `provider_options(...)` is copied into every model request in the run. Use request or message-level provider options for one-off direct calls.
+
+## 7. Change a step before it runs
+
+Use `prepare_step(...)` when later steps need a different budget, tool set, or model. Keep this callback small; it runs inside the agent loop.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tool(get_weather())
+    .prepare_step(|step| {
+        let mut next = step.to_prepared();
+
+        if step.step > 1 {
+            next.max_output_tokens = Some(500);
+        }
+
+        next
+    })
+    .build()?;
+```
+
+`prepare_step` receives the messages, selected model, tools, sampling settings, and previous step snapshots for the step that is about to run.
+
+## 8. Add hooks for side effects
+
+Use hooks for logging and metrics. Use `stream(...)` for user-facing output.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tool(get_weather())
+    .on_step_start(|e| eprintln!("[step:{}]", e.step))
+    .on_tool_call_start(|e| eprintln!("[tool] {}", e.tool_call.tool_name))
+    .on_finish(|e| eprintln!("[done] steps={}", e.step_count))
+    .build()?;
+```
+
+Hooks observe the run; they should not be used to build the UI stream. For user-facing progress, use `agent.stream(...)`.
+
+## Choosing stopping behavior
+
+`max_steps` is the primary safety control. If the model keeps asking for tools, the run fails with `ErrorCode::MaxStepsExceeded` instead of looping forever.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tool(get_weather())
+    .max_steps(4)
+    .build()?;
+```
+
+Use `stop_when(...)` only when your application has a clearer definition of completion than "the model stopped calling tools".
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tool(get_weather())
+    .stop_when(|step| step.output_text.contains("FINAL:"))
+    .build()?;
+```
+
+## Cancel an agent run
+
+Bind a `CancellationToken` when the caller may leave, close a request, or start a newer run.
+
+```rust
+use tokio_util::sync::CancellationToken;
+
+let token = CancellationToken::new();
+
+let agent = client
+    .agent("gpt-5.5")
+    .cancellation_token(token.clone())
+    .build()?;
+
+token.cancel();
+```
+
+Cancellation is checked before model calls, during streaming, and between agent steps.
+
+## Agent builder reference
+
+The builder is organized around the parts of an agent run.
+
+| Need | Method |
+| --- | --- |
+| Set system behavior | `instructions(...)` |
+| Register one tool | `tool(tool)` |
+| Register many tools | `tools(tools)` |
+| Cap the loop | `max_steps(u32)` |
+| Sampling | `temperature(f32)`, `top_p(f32)` |
+| Output limits | `max_output_tokens(u32)`, `stop_sequences(...)` |
+| Cancellation | `cancellation_token(token)` |
+| Per-step mutation | `prepare_step(...)` |
+| Lifecycle hooks | `on_start(...)`, `on_step_start(...)`, `on_step_finish(...)`, `on_tool_call_start(...)`, `on_tool_call_finish(...)`, `on_finish(...)` |
+| Custom completion rule | `stop_when(...)` |
+| Tool failure behavior | `tool_error_policy(ToolErrorPolicy::...)` |
+| Provider-specific fields | `provider_options(json!(...))` |
+
+Run methods:
+
+| Method | Returns |
+| --- | --- |
+| `prompt(text)` | final assistant text |
+| `run(text)` | `AgentOutput` with transcript, usage, and steps |
+| `stream(text)` | `AgentStreamEvent` stream for the full run |
+| `run_messages(messages)` | `AgentOutput` from an existing conversation |
+| `stream_messages(messages)` | full agent stream from an existing conversation |

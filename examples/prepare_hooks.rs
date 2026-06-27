@@ -1,25 +1,16 @@
-use aquaregia::{Agent, ContentPart, LlmClient, Message, MessageRole, tool};
+use aquaregia::{ContentPart, Message, MessageRole, tool};
 use serde_json::json;
 
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 
 /// 场景：动态控制一次调用与每一步执行（AI SDK 风格）。
 ///
 /// 运行：
-/// DEEPSEEK_API_KEY=... cargo run --example prepare_hooks
+/// OPENAI_API_KEY=... cargo run --example prepare_hooks
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model =
-        std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
-
-    let client = LlmClient::openai_compatible()
-        .base_url(base_url)
-        .api_key(api_key)
-        .build()?;
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     let time_tool = tool("get_time")
         .description("Return current time in mock format")
@@ -30,7 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }))
         .execute_raw(|_| async move { Ok(json!({ "time": "2026-03-05T12:00:00+08:00" })) });
 
-    let agent = Agent::builder(client, model)
+    let agent = client
+        .agent(model)
         .instructions("You may call tools, then answer concisely.")
         .tools([time_tool])
         .max_steps(4)

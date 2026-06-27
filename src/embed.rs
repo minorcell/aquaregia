@@ -11,10 +11,9 @@
 //!
 //! ```rust,no_run
 //! use aquaregia::embed::EmbedRequest;
-//! use aquaregia::LlmClient;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai()
+//! let client = aquaregia::providers::openai::Client::builder()
 //!     .api_key(std::env::var("OPENAI_API_KEY")?)
 //!     .build()?;
 //!
@@ -70,7 +69,7 @@ pub struct EmbedRequest {
     pub values: Vec<String>,
     /// Provider-specific options passed through to the adapter.
     ///
-    /// Same JSON-by-slug shape as `GenerateTextRequest::provider_options`.
+    /// Same JSON-by-slug shape as `ChatRequest::provider_options`.
     /// Each adapter extracts its own slug and merges those fields into the
     /// request body it sends.
     ///

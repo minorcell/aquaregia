@@ -1,9 +1,9 @@
-use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message};
+use aquaregia::{ChatRequest, ErrorCode, Message};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn anthropic_request() -> GenerateTextRequest {
-    GenerateTextRequest::builder("claude-haiku-4-5")
+fn anthropic_request() -> ChatRequest {
+    ChatRequest::builder("claude-haiku-4-5")
         .message(Message::user_text("hi"))
         .temperature(0.2)
         .max_output_tokens(32)
@@ -21,7 +21,7 @@ async fn anthropic_429_maps_to_rate_limited() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")

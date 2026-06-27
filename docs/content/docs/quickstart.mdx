@@ -1,0 +1,104 @@
+---
+title: Quickstart
+description: Build and run your first OpenAI agent.
+---
+
+This page gets a minimal OpenAI-backed agent running in a Rust binary.
+
+## 1. Create a project
+
+```bash
+cargo new aquaregia-hello
+cd aquaregia-hello
+```
+
+Add Aquaregia and Tokio:
+
+```bash
+cargo add aquaregia
+cargo add tokio --features full
+```
+
+## 2. Set the API key
+
+```bash
+export OPENAI_API_KEY=...
+```
+
+`openai::Client::from_env()` reads `OPENAI_API_KEY` and builds a provider client with default HTTP settings.
+
+## 3. Write the agent
+
+Replace `src/main.rs` with:
+
+```rust
+use aquaregia::providers::openai;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let agent = openai::Client::from_env()?
+        .agent("gpt-5.5")
+        .instructions("You explain technical topics clearly and briefly.")
+        .build()?;
+
+    let response = agent
+        .prompt("Explain Rust ownership in 3 bullet points.")
+        .await?;
+
+    println!("{response}");
+    Ok(())
+}
+```
+
+Run it:
+
+```bash
+cargo run
+```
+
+## 4. Inspect the run
+
+`prompt(...)` is the shortest path when you only need the final text. Use `run(...)` when you need metadata for logs, billing, or debugging.
+
+```rust
+let output = agent
+    .run("Explain Rust ownership in 3 bullet points.")
+    .await?;
+
+println!("{}", output.output_text);
+println!("steps={}", output.steps);
+println!("tokens={}", output.usage_total.total_tokens);
+```
+
+`AgentOutput` includes:
+
+- final visible text
+- number of executed steps
+- full transcript, including tool results
+- accumulated token usage
+- per-step snapshots
+
+## 5. Add a lower-level call when needed
+
+Agents are the default path for assistant-style applications. If you need one explicit model request, call the provider client directly.
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+
+let client = openai::Client::from_env()?;
+
+let response = client
+    .generate(ChatRequest::from_prompt(
+        "gpt-5.5",
+        "Write a short release note for a Rust SDK.",
+    ))
+    .await?;
+
+println!("{}", response.output_text);
+```
+
+Use direct requests for simple calls, structured output, multimodal input, embeddings, or integration points where you already manage conversation state yourself.
+
+## Next step
+
+Add a tool to the agent in [Agents](./agents), learn provider configuration in [Providers](./providers), or send one explicit request in [Direct requests](./direct-requests).

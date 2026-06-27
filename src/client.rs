@@ -2,25 +2,24 @@
 //!
 //! This module provides the core client abstractions for making LLM requests:
 //!
-//! - [`LlmClient`]: Entry point for creating provider-specific clients
+//! - [`Client`]: Provider-bound client for generate/stream/agent operations
 //! - [`ClientBuilder`]: Builder for configuring HTTP/runtime behavior
-//! - [`BoundClient`]: Reusable client for generate/stream/agent operations
 //!
 //! ## Architecture
 //!
-//! 1. [`LlmClient`] constructors return a [`ClientBuilder`] parameterised on the settings type
-//! 2. [`ClientBuilder`] configures settings and HTTP behavior
-//! 3. [`ClientBuilder::build()`] produces a [`BoundClient`]
-//! 4. [`BoundClient`] is used for all subsequent operations
+//! 1. Public provider modules create provider-specific clients.
+//! 2. Provider builders configure settings and HTTP behavior.
+//! 3. Internally, provider builders produce a [`Client`].
+//! 4. [`Client`] is used for all subsequent operations.
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{GenerateTextRequest, LlmClient};
+//! use aquaregia::providers::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create and build client
-//! let client = LlmClient::openai()
+//! let client = openai::Client::builder()
 //!     .api_key("api-key")
 //!     .timeout(std::time::Duration::from_secs(60))
 //!     .max_retries(3)
@@ -28,7 +27,7 @@
 //!
 //! // Use client for generation
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!"))
+//!     .generate(aquaregia::ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -40,6 +39,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::future::join_all;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::time::sleep;
 
 use crate::adapters::ModelAdapter;
@@ -54,11 +54,12 @@ use crate::error::{Error, ErrorCode};
 use crate::partial_json::repair_json;
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
-    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ContentPart, GenerateObjectResponse,
-    GenerateTextRequest, GenerateTextResponse, Message, ObjectStream, OutputSchema, RunTools,
-    StreamEvent, StreamObjectEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult,
-    Usage, validate_messages, validate_model_ref, validate_sampling,
+    AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
+    AgentStepStart, AgentStream, AgentStreamEvent, AgentToolCallFinish, AgentToolCallStart,
+    ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ObjectResponse, ObjectStream,
+    OutputSchema, ReasoningPart, RunTools, StreamEvent, StreamObjectEvent, TextPart, TextStream,
+    ToolCall, ToolErrorPolicy, ToolResult, Usage, validate_messages, validate_model_ref,
+    validate_sampling,
 };
 
 mod sealed {
@@ -140,49 +141,7 @@ impl BuildProvider for OpenAiCompatibleAdapterSettings {
     }
 }
 
-/// Entry point for creating provider-bound clients.
-///
-/// `LlmClient` only provides constructors; call `.build()` on the returned
-/// [`ClientBuilder`] to obtain a reusable [`BoundClient`].
-pub struct LlmClient;
-
-impl LlmClient {
-    /// Creates an OpenAI client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`].
-    pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
-        ClientBuilder::new(OpenAiAdapterSettings::new())
-    }
-
-    /// Creates an Anthropic client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`] or the version
-    /// header with [`ClientBuilder::api_version`].
-    pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
-        ClientBuilder::new(AnthropicAdapterSettings::new())
-    }
-
-    /// Creates a Google client builder.
-    ///
-    /// Set the API key with [`ClientBuilder::api_key`] (required) and optionally
-    /// override the endpoint with [`ClientBuilder::base_url`].
-    pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
-        ClientBuilder::new(GoogleAdapterSettings::new())
-    }
-
-    /// Creates an OpenAI-compatible client builder.
-    ///
-    /// Set the base URL with [`ClientBuilder::base_url`] (required). The bearer
-    /// token is optional and configured with [`ClientBuilder::api_key`] (or
-    /// disabled with [`ClientBuilder::no_api_key`], which is the default).
-    pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
-        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
-    }
-}
-
-/// Configures HTTP/runtime behavior before building a [`BoundClient`].
+/// Configures HTTP/runtime behavior before building a [`Client`].
 pub struct ClientBuilder<S> {
     timeout: Duration,
     max_retries: u8,
@@ -230,7 +189,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
     }
 
     /// Builds a provider-bound client with validated settings.
-    pub fn build(self) -> Result<BoundClient, Error> {
+    pub fn build(self) -> Result<Client, Error> {
         self.settings.validate()?;
         let http = Arc::new(
             reqwest::Client::builder()
@@ -240,7 +199,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
                 .map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?,
         );
 
-        Ok(BoundClient {
+        Ok(Client {
             max_retries: self.max_retries,
             default_max_steps: self.default_max_steps,
             adapter: self.settings.into_adapter(http),
@@ -335,17 +294,66 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 }
 
 /// Reusable provider-bound client used for `generate`, `stream`, and agent loops.
-pub struct BoundClient {
+///
+/// ## Constructing a Client
+///
+/// Provider-specific public builders produce this internal client:
+///
+/// ```rust,no_run
+/// use aquaregia::providers::openai;
+///
+/// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let client = openai::Client::builder()
+///     .api_key("api-key")
+///     .build()?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct Client {
     max_retries: u8,
     default_max_steps: u32,
     adapter: Arc<dyn ModelAdapter>,
 }
 
-impl BoundClient {
+impl Client {
+    /// Creates an OpenAI client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url`.
+    pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
+        ClientBuilder::new(OpenAiAdapterSettings::new())
+    }
+
+    /// Creates an Anthropic client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url` or the version
+    /// header with `ClientBuilder::api_version`.
+    pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
+        ClientBuilder::new(AnthropicAdapterSettings::new())
+    }
+
+    /// Creates a Google client builder.
+    ///
+    /// Set the API key with `ClientBuilder::api_key` (required) and optionally
+    /// override the endpoint with `ClientBuilder::base_url`.
+    pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
+        ClientBuilder::new(GoogleAdapterSettings::new())
+    }
+
+    /// Creates an OpenAI-compatible client builder.
+    ///
+    /// Set the base URL with `ClientBuilder::base_url` (required). The bearer
+    /// token is optional and configured with `ClientBuilder::api_key` (or
+    /// disabled with `ClientBuilder::no_api_key`, which is the default).
+    pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
+        ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
+    }
+
     /// Runs a non-streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn generate(&self, req: GenerateTextRequest) -> Result<GenerateTextResponse, Error> {
+    pub async fn generate(&self, req: ChatRequest) -> Result<ChatResponse, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -356,7 +364,7 @@ impl BoundClient {
     /// Runs a streaming generation request.
     ///
     /// The request is validated locally and retried on retryable failures.
-    pub async fn stream(&self, req: GenerateTextRequest) -> Result<TextStream, Error> {
+    pub async fn stream(&self, req: ChatRequest) -> Result<TextStream, Error> {
         validate_model_ref(&req.model)?;
         validate_messages(&req.messages)?;
         validate_sampling(req.temperature, req.top_p)?;
@@ -377,10 +385,10 @@ impl BoundClient {
     ///
     /// ```rust,no_run
     /// use aquaregia::embed::EmbedRequest;
-    /// use aquaregia::LlmClient;
+    /// use aquaregia::providers::openai;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = LlmClient::openai()
+    /// let client = openai::Client::builder()
     ///     .api_key(std::env::var("OPENAI_API_KEY")?)
     ///     .build()?;
     ///
@@ -414,9 +422,7 @@ impl BoundClient {
         })
     }
 
-    fn inject_output_schema<T: schemars::JsonSchema>(
-        req: &mut GenerateTextRequest,
-    ) -> Result<(), Error> {
+    fn inject_output_schema<T: schemars::JsonSchema>(req: &mut ChatRequest) -> Result<(), Error> {
         let schema = schemars::schema_for!(T);
         let json_schema = serde_json::to_value(&schema)
             .map_err(|e| Error::new(ErrorCode::InvalidRequest, e.to_string()))?;
@@ -447,8 +453,8 @@ impl BoundClient {
     /// Returns [`ErrorCode::InvalidResponse`] if the deserialization from JSON fails.
     pub async fn generate_object<T: serde::de::DeserializeOwned + schemars::JsonSchema>(
         &self,
-        mut req: GenerateTextRequest,
-    ) -> Result<GenerateObjectResponse<T>, Error> {
+        mut req: ChatRequest,
+    ) -> Result<ObjectResponse<T>, Error> {
         Self::inject_output_schema::<T>(&mut req)?;
         let response = self.generate(req).await?;
         let object: T = match serde_json::from_str(&response.output_text) {
@@ -468,7 +474,7 @@ impl BoundClient {
                 });
             }
         };
-        Ok(GenerateObjectResponse {
+        Ok(ObjectResponse {
             object,
             reasoning_text: response.reasoning_text,
             finish_reason: response.finish_reason,
@@ -490,7 +496,7 @@ impl BoundClient {
         T: serde::de::DeserializeOwned + schemars::JsonSchema + Send + 'static,
     >(
         &self,
-        mut req: GenerateTextRequest,
+        mut req: ChatRequest,
     ) -> Result<ObjectStream<T>, Error> {
         Self::inject_output_schema::<T>(&mut req)?;
 
@@ -516,7 +522,7 @@ impl BoundClient {
                             last_emitted_len = buffer.len();
                         }
                     }
-                    StreamEvent::Done => {
+                    StreamEvent::Done { .. } => {
                         yield StreamObjectEvent::Object {
                             object: Self::parse_final_buffer::<T>(&buffer)?,
                         };
@@ -542,7 +548,7 @@ impl BoundClient {
         Ok(Box::pin(object_stream))
     }
 
-    pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentResponse, Error> {
+    pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentOutput, Error> {
         let RunTools {
             model,
             messages,
@@ -573,7 +579,6 @@ impl BoundClient {
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
         let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
-        let mut cached_tools: Vec<crate::tool::Tool> = tools.clone();
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
@@ -623,17 +628,7 @@ impl BoundClient {
                     stop_sequences: stop_sequences.clone(),
                     previous_steps: step_results.clone(),
                 });
-                // Rebuild registry only when prepare_step changed the tool list.
-                if prepared_step.tools.len() != cached_tools.len()
-                    || prepared_step
-                        .tools
-                        .iter()
-                        .zip(cached_tools.iter())
-                        .any(|(a, b)| a.descriptor.name != b.descriptor.name)
-                {
-                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
-                    cached_tools = prepared_step.tools.clone();
-                }
+                tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
             }
 
             validate_messages(&prepared_step.messages)?;
@@ -646,7 +641,7 @@ impl BoundClient {
             }
 
             let response = self
-                .generate(GenerateTextRequest {
+                .generate(ChatRequest {
                     model: prepared_step.model.clone(),
                     messages: prepared_step.messages.clone(),
                     temperature: prepared_step.temperature,
@@ -688,7 +683,7 @@ impl BoundClient {
                 if let Some(callback) = &on_step_finish {
                     callback(&step_state);
                 }
-                let final_response = AgentResponse {
+                let final_response = AgentOutput {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -736,7 +731,7 @@ impl BoundClient {
                 .as_ref()
                 .is_some_and(|predicate| predicate(&step_state))
             {
-                let final_response = AgentResponse {
+                let final_response = AgentOutput {
                     output_text: response.output_text,
                     steps: step,
                     transcript: next_messages,
@@ -754,6 +749,272 @@ impl BoundClient {
 
             messages = next_messages;
         }
+    }
+
+    pub(crate) fn stream_tools(self: Arc<Self>, req: RunTools) -> Result<AgentStream, Error> {
+        let RunTools {
+            model,
+            messages,
+            tools,
+            max_steps,
+            temperature,
+            top_p,
+            max_output_tokens,
+            stop_sequences,
+            prepare_step,
+            on_start,
+            on_step_start,
+            on_tool_call_start,
+            on_tool_call_finish,
+            on_step_finish,
+            on_finish,
+            stop_when,
+            tool_error_policy,
+            provider_options,
+            cancellation_token,
+        } = req;
+
+        let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
+        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
+        let client = self;
+
+        let stream = async_stream::try_stream! {
+            let mut messages = messages;
+            let mut usage_total = Usage::default();
+            let mut step_results = Vec::new();
+
+            let start_event = AgentStart {
+                model_id: model.clone(),
+                messages: messages.clone(),
+                tool_count: tools.len(),
+                max_steps: resolved_max_steps,
+            };
+            if let Some(callback) = &on_start {
+                callback(&start_event);
+            }
+            yield AgentStreamEvent::Start { event: start_event };
+
+            let mut step: u32 = 0;
+            loop {
+                step += 1;
+                if resolved_max_steps != 0 && step > resolved_max_steps {
+                    Err(Error::new(
+                        ErrorCode::MaxStepsExceeded,
+                        format!(
+                            "agent reached max_steps ({}) without final answer",
+                            resolved_max_steps
+                        ),
+                    ))?;
+                }
+                if cancellation_token
+                    .as_ref()
+                    .map(|t| t.is_cancelled())
+                    .unwrap_or(false)
+                {
+                    Err(Error::new(ErrorCode::Cancelled, "agent cancelled"))?;
+                }
+
+                let mut prepared_step = AgentPreparedStep {
+                    model: model.clone(),
+                    messages: messages.clone(),
+                    tools: tools.clone(),
+                    temperature,
+                    max_output_tokens,
+                    stop_sequences: stop_sequences.clone(),
+                };
+                if let Some(callback) = &prepare_step {
+                    prepared_step = callback(&AgentPrepareStep {
+                        step,
+                        model: model.clone(),
+                        messages: messages.clone(),
+                        tools: tools.clone(),
+                        temperature,
+                        max_output_tokens,
+                        stop_sequences: stop_sequences.clone(),
+                        previous_steps: step_results.clone(),
+                    });
+                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
+                }
+
+                validate_messages(&prepared_step.messages)?;
+
+                let step_start = AgentStepStart {
+                    step,
+                    messages: prepared_step.messages.clone(),
+                };
+                if let Some(callback) = &on_step_start {
+                    callback(&step_start);
+                }
+                yield AgentStreamEvent::StepStart { event: step_start };
+
+                let mut model_stream = client
+                    .stream(ChatRequest {
+                        model: prepared_step.model.clone(),
+                        messages: prepared_step.messages.clone(),
+                        temperature: prepared_step.temperature,
+                        top_p,
+                        max_output_tokens: prepared_step.max_output_tokens,
+                        stop_sequences: prepared_step.stop_sequences.clone(),
+                        tools: if prepared_step.tools.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                prepared_step
+                                    .tools
+                                    .iter()
+                                    .map(|tool| tool.descriptor.clone())
+                                    .collect(),
+                            )
+                        },
+                        output_schema: None,
+                        provider_options: provider_options.clone(),
+                        cancellation_token: cancellation_token.clone(),
+                    })
+                    .await?;
+
+                let mut output_text = String::new();
+                let mut reasoning_text = String::new();
+                let mut reasoning_parts = Vec::new();
+                let mut usage = Usage::default();
+                let mut tool_calls = Vec::new();
+                let mut finish_reason = FinishReason::Stop;
+
+                while let Some(event) = model_stream.next().await {
+                    let event = event?;
+                    if let StreamEvent::Done { finish_reason: reason } = &event {
+                        finish_reason = reason.clone();
+                    }
+                    collect_stream_event(
+                        &event,
+                        &mut output_text,
+                        &mut reasoning_text,
+                        &mut reasoning_parts,
+                        &mut usage,
+                        &mut tool_calls,
+                    );
+                    yield AgentStreamEvent::Model { step, event };
+                }
+
+                let response = ChatResponse {
+                    output_text,
+                    reasoning_text,
+                    reasoning_parts: reasoning_parts
+                        .into_iter()
+                        .map(|(_, part)| part)
+                        .collect(),
+                    finish_reason,
+                    usage,
+                    tool_calls,
+                    raw_provider_response: None,
+                };
+
+                usage_total += response.usage.clone();
+                let mut next_messages = prepared_step.messages.clone();
+                next_messages.push(assistant_message_from_response(&response));
+
+                if response.tool_calls.is_empty() {
+                    let step_state = AgentStep {
+                        step,
+                        output_text: response.output_text.clone(),
+                        reasoning_text: response.reasoning_text.clone(),
+                        reasoning_parts: response.reasoning_parts.clone(),
+                        finish_reason: response.finish_reason.clone(),
+                        usage: response.usage.clone(),
+                        tool_calls: Vec::new(),
+                        tool_results: Vec::new(),
+                    };
+                    step_results.push(step_state.clone());
+                    if let Some(callback) = &on_step_finish {
+                        callback(&step_state);
+                    }
+                    yield AgentStreamEvent::StepFinish {
+                        event: step_state.clone(),
+                    };
+
+                    let final_response = AgentOutput {
+                        output_text: response.output_text,
+                        steps: step,
+                        transcript: next_messages,
+                        usage_total,
+                        step_results: step_results.clone(),
+                    };
+                    emit_on_finish(
+                        on_finish.as_ref(),
+                        &final_response,
+                        &step_state.finish_reason,
+                        &step_results,
+                    );
+                    yield AgentStreamEvent::Done {
+                        output: final_response,
+                    };
+                    break;
+                }
+
+                let executed_tool_calls = execute_tool_calls_for_stream(
+                    &tool_registry,
+                    &response.tool_calls,
+                    step,
+                    tool_error_policy,
+                    on_tool_call_start.as_ref(),
+                    on_tool_call_finish.as_ref(),
+                )
+                .await?;
+                for event in executed_tool_calls.events {
+                    yield event;
+                }
+
+                let mut tool_messages = executed_tool_calls
+                    .results
+                    .iter()
+                    .map(|r| Message::tool_result(r.clone()))
+                    .collect::<Vec<_>>();
+                let step_state = AgentStep {
+                    step,
+                    output_text: response.output_text.clone(),
+                    reasoning_text: response.reasoning_text.clone(),
+                    reasoning_parts: response.reasoning_parts.clone(),
+                    finish_reason: response.finish_reason.clone(),
+                    usage: response.usage.clone(),
+                    tool_calls: response.tool_calls.clone(),
+                    tool_results: executed_tool_calls.results.clone(),
+                };
+                step_results.push(step_state.clone());
+                next_messages.append(&mut tool_messages);
+                if let Some(callback) = &on_step_finish {
+                    callback(&step_state);
+                }
+                yield AgentStreamEvent::StepFinish {
+                    event: step_state.clone(),
+                };
+
+                if stop_when
+                    .as_ref()
+                    .is_some_and(|predicate| predicate(&step_state))
+                {
+                    let final_response = AgentOutput {
+                        output_text: response.output_text,
+                        steps: step,
+                        transcript: next_messages,
+                        usage_total,
+                        step_results: step_results.clone(),
+                    };
+                    emit_on_finish(
+                        on_finish.as_ref(),
+                        &final_response,
+                        &step_state.finish_reason,
+                        &step_results,
+                    );
+                    yield AgentStreamEvent::Done {
+                        output: final_response,
+                    };
+                    break;
+                }
+
+                messages = next_messages;
+            }
+        };
+
+        Ok(Box::pin(stream))
     }
 
     async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, Error>
@@ -789,7 +1050,7 @@ fn backoff_delay(attempt: u8) -> Duration {
     Duration::from_millis(ms)
 }
 
-fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
+fn assistant_message_from_response(response: &ChatResponse) -> Message {
     let mut parts = Vec::new();
     for reasoning in &response.reasoning_parts {
         parts.push(ContentPart::Reasoning(reasoning.clone()));
@@ -810,7 +1071,7 @@ fn assistant_message_from_response(response: &GenerateTextResponse) -> Message {
 
 fn emit_on_finish(
     callback: Option<&crate::types::Hook<AgentFinish>>,
-    response: &AgentResponse,
+    response: &AgentOutput,
     finish_reason: &crate::types::FinishReason,
     step_results: &[AgentStep],
 ) {
@@ -826,6 +1087,195 @@ fn emit_on_finish(
         transcript: response.transcript.clone(),
         step_results: step_results.to_vec(),
     });
+}
+
+fn collect_stream_event(
+    event: &StreamEvent,
+    output_text: &mut String,
+    reasoning_text: &mut String,
+    reasoning_parts: &mut Vec<(String, ReasoningPart)>,
+    usage: &mut Usage,
+    tool_calls: &mut Vec<ToolCall>,
+) {
+    match event {
+        StreamEvent::ReasoningStarted {
+            block_id,
+            provider_metadata,
+        } => {
+            upsert_reasoning_part(reasoning_parts, block_id, "", provider_metadata.clone());
+        }
+        StreamEvent::ReasoningDelta {
+            block_id,
+            text,
+            provider_metadata,
+        } => {
+            reasoning_text.push_str(text);
+            upsert_reasoning_part(reasoning_parts, block_id, text, provider_metadata.clone());
+        }
+        StreamEvent::ReasoningDone {
+            block_id,
+            provider_metadata,
+        } => {
+            upsert_reasoning_part(reasoning_parts, block_id, "", provider_metadata.clone());
+        }
+        StreamEvent::TextDelta { text } => {
+            output_text.push_str(text);
+        }
+        StreamEvent::ToolCallReady { call } => {
+            tool_calls.push(call.clone());
+        }
+        StreamEvent::Usage {
+            usage: stream_usage,
+        } => {
+            *usage = stream_usage.clone();
+        }
+        StreamEvent::Done { .. } => {}
+    }
+}
+
+fn upsert_reasoning_part(
+    parts: &mut Vec<(String, ReasoningPart)>,
+    block_id: &str,
+    text_delta: &str,
+    provider_metadata: Option<serde_json::Value>,
+) {
+    if let Some((_, part)) = parts.iter_mut().find(|(id, _)| id == block_id) {
+        part.text.push_str(text_delta);
+        if provider_metadata.is_some() {
+            part.provider_metadata = provider_metadata;
+        }
+        return;
+    }
+
+    parts.push((
+        block_id.to_string(),
+        ReasoningPart {
+            text: text_delta.to_string(),
+            provider_metadata,
+        },
+    ));
+}
+
+struct StreamToolCalls {
+    results: Vec<ToolResult>,
+    events: Vec<AgentStreamEvent>,
+}
+
+async fn execute_tool_calls_for_stream(
+    registry: &ToolRegistry,
+    calls: &[ToolCall],
+    step: u32,
+    policy: ToolErrorPolicy,
+    on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
+    on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
+) -> Result<StreamToolCalls, Error> {
+    for call in calls {
+        if registry.resolve(&call.tool_name).is_none() {
+            return Err(Error::new(
+                ErrorCode::UnknownTool,
+                format!("unknown tool `{}`", call.tool_name),
+            ));
+        }
+    }
+
+    let mut events = Vec::with_capacity(calls.len() * 2);
+    let mut tasks = FuturesUnordered::new();
+    for (index, call) in calls.iter().cloned().enumerate() {
+        let registered = registry
+            .resolve(&call.tool_name)
+            .expect("tool existence was checked above");
+
+        let start_event = AgentToolCallStart {
+            step,
+            tool_call: call.clone(),
+        };
+        if let Some(callback) = on_tool_call_start {
+            callback(&start_event);
+        }
+        events.push(AgentStreamEvent::ToolCallStart { event: start_event });
+
+        let executor = Arc::clone(&registered.executor);
+        let args_json = call.args_json.clone();
+        tasks.push(async move {
+            let started_at = Instant::now();
+            let result = executor.execute(args_json).await;
+            let duration_ms = started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            (index, call, result, duration_ms)
+        });
+    }
+
+    let mut indexed_results = vec![None; calls.len()];
+    while let Some((index, call, result, duration_ms)) = tasks.next().await {
+        let tool_result = tool_result_from_execution(&call, result, policy)?;
+
+        let finish_event = AgentToolCallFinish {
+            step,
+            tool_call: call,
+            tool_result: tool_result.clone(),
+            duration_ms,
+        };
+        if let Some(callback) = on_tool_call_finish {
+            callback(&finish_event);
+        }
+        events.push(AgentStreamEvent::ToolCallFinish {
+            event: finish_event,
+        });
+        indexed_results[index] = Some(tool_result);
+    }
+
+    let results = indexed_results
+        .into_iter()
+        .map(|result| {
+            result.ok_or_else(|| {
+                Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    "tool task did not produce a result",
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(StreamToolCalls { results, events })
+}
+
+fn tool_result_from_execution(
+    call: &ToolCall,
+    result: Result<serde_json::Value, ToolExecError>,
+    policy: ToolErrorPolicy,
+) -> Result<ToolResult, Error> {
+    let (output_json, is_error) = match result {
+        Ok(output_json) => (output_json, false),
+        Err(ToolExecError::Execution(message)) => {
+            if policy == ToolErrorPolicy::FailFast {
+                return Err(Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    format!(
+                        "tool `{}` execution failed for call `{}`: {}",
+                        call.tool_name, call.call_id, message
+                    ),
+                ));
+            }
+            (serde_json::json!({ "error": message }), true)
+        }
+        Err(ToolExecError::Timeout) => {
+            if policy == ToolErrorPolicy::FailFast {
+                return Err(Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    format!(
+                        "tool `{}` timed out for call `{}`",
+                        call.tool_name, call.call_id
+                    ),
+                ));
+            }
+            (serde_json::json!({ "error": "timeout" }), true)
+        }
+    };
+
+    Ok(ToolResult {
+        call_id: call.call_id.clone(),
+        output_json,
+        is_error,
+    })
 }
 
 async fn execute_tool_calls(
@@ -866,39 +1316,7 @@ async fn execute_tool_calls(
 
     let results = join_all(tasks).await;
     for (call, result, duration_ms) in results {
-        let (output_json, is_error) = match result {
-            Ok(output_json) => (output_json, false),
-            Err(ToolExecError::Execution(message)) => {
-                if policy == ToolErrorPolicy::FailFast {
-                    return Err(Error::new(
-                        ErrorCode::ToolExecutionFailed,
-                        format!(
-                            "tool `{}` execution failed for call `{}`: {}",
-                            call.tool_name, call.call_id, message
-                        ),
-                    ));
-                }
-                (serde_json::json!({ "error": message }), true)
-            }
-            Err(ToolExecError::Timeout) => {
-                if policy == ToolErrorPolicy::FailFast {
-                    return Err(Error::new(
-                        ErrorCode::ToolExecutionFailed,
-                        format!(
-                            "tool `{}` timed out for call `{}`",
-                            call.tool_name, call.call_id
-                        ),
-                    ));
-                }
-                (serde_json::json!({ "error": "timeout" }), true)
-            }
-        };
-
-        let tool_result = ToolResult {
-            call_id: call.call_id.clone(),
-            output_json,
-            is_error,
-        };
+        let tool_result = tool_result_from_execution(&call, result, policy)?;
 
         if let Some(callback) = on_tool_call_finish {
             callback(&AgentToolCallFinish {
@@ -917,11 +1335,11 @@ async fn execute_tool_calls(
 
 #[cfg(test)]
 mod tests {
-    use super::LlmClient;
+    use super::Client;
 
     #[test]
     fn openai_builder_builds() {
-        let client = LlmClient::openai()
+        let client = Client::openai()
             .api_key("key")
             .build()
             .expect("client should build");
@@ -930,7 +1348,7 @@ mod tests {
 
     #[test]
     fn anthropic_builder_builds() {
-        let client = LlmClient::anthropic()
+        let client = Client::anthropic()
             .api_key("key")
             .build()
             .expect("client should build");

@@ -1,11 +1,10 @@
 use aquaregia::types::StreamObjectEvent;
-use aquaregia::{GenerateTextRequest, LlmClient, Message};
+use aquaregia::{ChatRequest, Message};
 use futures_util::StreamExt;
 use schemars::JsonSchema;
 use serde::Deserialize;
 
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 
 /// 场景：流式获取结构化输出，每个字段到位即可读，无需等整段 JSON 拼完。
 ///
@@ -14,7 +13,7 @@ const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
 /// 所以 `T` 推荐整体加 `#[serde(default)]`。
 ///
 /// 运行：
-/// DEEPSEEK_API_KEY=... cargo run --example structured_streaming
+/// OPENAI_API_KEY=... cargo run --example structured_streaming
 #[derive(Debug, Default, Deserialize, JsonSchema)]
 #[serde(default)]
 struct ProductBrief {
@@ -25,18 +24,10 @@ struct ProductBrief {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model =
-        std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
-    let client = LlmClient::openai_compatible()
-        .base_url(base_url)
-        .api_key(api_key)
-        .build()?;
-
-    let req = GenerateTextRequest::builder(model)
+    let req = ChatRequest::builder(model)
         .message(Message::user_text(
             "Generate a short product brief for a Rust LLM SDK. \
              Include a punchy tagline and 4 key features.",

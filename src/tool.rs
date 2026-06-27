@@ -21,7 +21,7 @@
 //! let weather_tool = tool("get_weather")
 //!     .description("Get weather by city")
 //!     .execute(|args: WeatherArgs| async move {
-//!         Ok(json!({ "city": args.city, "temp_c": 23 }))
+//!         json!({ "city": args.city, "temp_c": 23 })
 //!     });
 //! ```
 //!
@@ -151,15 +151,16 @@ impl ToolBuilder {
         self
     }
 
-    /// Builds a typed tool.
+    /// Builds a typed tool that returns a serializable value.
     ///
     /// `Args` is converted to JSON Schema via `schemars` and incoming JSON is
     /// deserialized before calling the provided async function.
-    pub fn execute<Args, F, Fut>(mut self, executor: F) -> Tool
+    pub fn execute<Args, F, Fut, Out>(mut self, executor: F) -> Tool
     where
         Args: DeserializeOwned + JsonSchema + Send + Sync + 'static,
         F: Fn(Args) -> Fut + Send + Sync + 'static,
-        Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+        Fut: Future<Output = Out> + Send + 'static,
+        Out: Serialize + Send + 'static,
     {
         let schema = schema_for!(Args);
         self.descriptor.input_schema =
@@ -167,6 +168,29 @@ impl ToolBuilder {
         Tool::from_parts(
             self.descriptor,
             Arc::new(TypedFnToolExecutor {
+                executor,
+                _args: PhantomData,
+            }),
+        )
+    }
+
+    /// Builds a typed tool whose execution can fail.
+    ///
+    /// Use this when the tool needs to surface an application error through
+    /// [`ToolExecError`]. For infallible tools, prefer [`ToolBuilder::execute`].
+    pub fn try_execute<Args, F, Fut, Out>(mut self, executor: F) -> Tool
+    where
+        Args: DeserializeOwned + JsonSchema + Send + Sync + 'static,
+        F: Fn(Args) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<Out, ToolExecError>> + Send + 'static,
+        Out: Serialize + Send + 'static,
+    {
+        let schema = schema_for!(Args);
+        self.descriptor.input_schema =
+            serde_json::to_value(schema).expect("typed tool schema should serialize to JSON");
+        Tool::from_parts(
+            self.descriptor,
+            Arc::new(TryTypedFnToolExecutor {
                 executor,
                 _args: PhantomData,
             }),
@@ -198,23 +222,51 @@ where
     }
 }
 
-struct TypedFnToolExecutor<F, Args> {
+struct TypedFnToolExecutor<F, Args, Out> {
     executor: F,
-    _args: PhantomData<fn() -> Args>,
+    _args: PhantomData<fn(Args) -> Out>,
 }
 
 #[async_trait]
-impl<F, Fut, Args> ToolExecutor for TypedFnToolExecutor<F, Args>
+impl<F, Fut, Args, Out> ToolExecutor for TypedFnToolExecutor<F, Args, Out>
 where
     Args: DeserializeOwned + Send + Sync + 'static,
+    Out: Serialize + Send + 'static,
     F: Fn(Args) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Result<Value, ToolExecError>> + Send + 'static,
+    Fut: Future<Output = Out> + Send + 'static,
 {
     async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
         let typed = serde_json::from_value::<Args>(args).map_err(|e| {
             ToolExecError::Execution(format!("tool args deserialization failed: {}", e))
         })?;
-        (self.executor)(typed).await
+        let output = (self.executor)(typed).await;
+        serde_json::to_value(output).map_err(|e| {
+            ToolExecError::Execution(format!("tool output serialization failed: {}", e))
+        })
+    }
+}
+
+struct TryTypedFnToolExecutor<F, Args, Out> {
+    executor: F,
+    _args: PhantomData<fn(Args) -> Out>,
+}
+
+#[async_trait]
+impl<F, Fut, Args, Out> ToolExecutor for TryTypedFnToolExecutor<F, Args, Out>
+where
+    Args: DeserializeOwned + Send + Sync + 'static,
+    Out: Serialize + Send + 'static,
+    F: Fn(Args) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Out, ToolExecError>> + Send + 'static,
+{
+    async fn execute(&self, args: Value) -> Result<Value, ToolExecError> {
+        let typed = serde_json::from_value::<Args>(args).map_err(|e| {
+            ToolExecError::Execution(format!("tool args deserialization failed: {}", e))
+        })?;
+        let output = (self.executor)(typed).await?;
+        serde_json::to_value(output).map_err(|e| {
+            ToolExecError::Execution(format!("tool output serialization failed: {}", e))
+        })
     }
 }
 
@@ -312,7 +364,26 @@ mod tests {
 
         let echo_tool = tool("echo")
             .description("Echo input")
-            .execute(|args: EchoArgs| async move { Ok(json!({ "x": args.x })) });
+            .execute(|args: EchoArgs| async move { json!({ "x": args.x }) });
+
+        let output = echo_tool
+            .executor
+            .execute(json!({ "x": "ok" }))
+            .await
+            .expect("tool should execute");
+        assert_eq!(output, json!({ "x": "ok" }));
+    }
+
+    #[tokio::test]
+    async fn tool_builder_executes_fallible_closure() {
+        #[derive(Debug, Deserialize, JsonSchema)]
+        struct EchoArgs {
+            x: String,
+        }
+
+        let echo_tool = tool("echo")
+            .description("Echo input")
+            .try_execute(|args: EchoArgs| async move { Ok(json!({ "x": args.x })) });
 
         let output = echo_tool
             .executor

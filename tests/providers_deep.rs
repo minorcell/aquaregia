@@ -1,6 +1,7 @@
+use aquaregia::tool::ToolDescriptor;
 use aquaregia::{
-    ContentPart, ErrorCode, FinishReason, GenerateTextRequest, LlmClient, Message, MessageRole,
-    StreamEvent, ToolResult,
+    ChatRequest, ContentPart, ErrorCode, FinishReason, Message, MessageRole, StreamEvent,
+    ToolResult,
 };
 use futures_util::StreamExt;
 use schemars::JsonSchema;
@@ -28,13 +29,13 @@ async fn google_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "hello");
+    let req = ChatRequest::from_prompt("gemini-3.5-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -52,7 +53,7 @@ async fn google_stream_emits_text_usage_done() {
             StreamEvent::Usage { usage } if usage.input_tokens == 3 && usage.total_tokens == 6 => {
                 saw_usage = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -82,13 +83,13 @@ async fn google_stream_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::from_user_prompt("gemini-3.5-flash", "hello");
+    let req = ChatRequest::from_prompt("gemini-3.5-flash", "hello");
 
     let mut stream = client
         .stream(req)
@@ -104,7 +105,7 @@ async fn google_stream_with_reasoning() {
         match event {
             StreamEvent::TextDelta { text } => output_text.push_str(&text),
             StreamEvent::ReasoningDelta { text, .. } => reasoning_text.push_str(&text),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -150,17 +151,14 @@ async fn google_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "hello"))
         .await
         .expect("request should succeed");
 
@@ -205,17 +203,14 @@ async fn google_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "weather?",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "weather?"))
         .await
         .expect("request should succeed");
 
@@ -257,17 +252,14 @@ async fn google_generate_with_thought_signature() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "think",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "think"))
         .await
         .expect("request should succeed");
 
@@ -293,7 +285,7 @@ async fn google_503_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -301,10 +293,7 @@ async fn google_503_maps_to_provider_server_error() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "hello"))
         .await
         .expect_err("request should fail");
 
@@ -324,7 +313,7 @@ async fn google_invalid_response_missing_candidates() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -332,10 +321,7 @@ async fn google_invalid_response_missing_candidates() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "hello"))
         .await
         .expect_err("should fail");
 
@@ -369,14 +355,14 @@ async fn anthropic_stream_with_thinking() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("claude-haiku-4-5")
+    let req = ChatRequest::builder("claude-haiku-4-5")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -397,7 +383,7 @@ async fn anthropic_stream_with_thinking() {
         match event {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
             StreamEvent::ReasoningDelta { text: r, .. } => reasoning.push_str(&r),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -433,13 +419,13 @@ async fn openai_stream_with_reasoning_delta() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+    let req = ChatRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -460,7 +446,7 @@ async fn openai_stream_with_reasoning_delta() {
         match event {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
             StreamEvent::ReasoningDelta { text: r, .. } => reasoning.push_str(&r),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -494,13 +480,13 @@ async fn openai_stream_with_tool_calls_and_finish() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+    let req = ChatRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("weather?"))
         .temperature(0.2)
         .max_output_tokens(128)
@@ -521,7 +507,7 @@ async fn openai_stream_with_tool_calls_and_finish() {
             StreamEvent::ToolCallReady { call } if call.tool_name == "weather" => {
                 saw_tool_call = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -561,17 +547,14 @@ async fn openai_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-5.4-mini",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gpt-5.4-mini", "hello"))
         .await
         .expect("request should succeed");
 
@@ -609,17 +592,14 @@ async fn openai_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-5.4-mini",
-            "weather?",
-        ))
+        .generate(ChatRequest::from_prompt("gpt-5.4-mini", "weather?"))
         .await
         .expect("request should succeed");
 
@@ -665,7 +645,7 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -673,10 +653,7 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "claude-haiku-4-5",
-            "weather?",
-        ))
+        .generate(ChatRequest::from_prompt("claude-haiku-4-5", "weather?"))
         .await
         .expect("request should succeed");
 
@@ -717,7 +694,7 @@ async fn anthropic_generate_with_redacted_thinking() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -725,10 +702,7 @@ async fn anthropic_generate_with_redacted_thinking() {
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "claude-haiku-4-5",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("claude-haiku-4-5", "hello"))
         .await
         .expect("request should succeed");
 
@@ -750,7 +724,7 @@ async fn anthropic_invalid_response_missing_content() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -759,10 +733,7 @@ async fn anthropic_invalid_response_missing_content() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "claude-haiku-4-5",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("claude-haiku-4-5", "hello"))
         .await
         .expect_err("should fail");
 
@@ -779,7 +750,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -788,10 +759,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "claude-haiku-4-5",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("claude-haiku-4-5", "hello"))
         .await
         .expect_err("request should fail");
 
@@ -810,7 +778,7 @@ async fn openai_403_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -818,10 +786,7 @@ async fn openai_403_maps_to_auth_failed() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-5.4-mini",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gpt-5.4-mini", "hello"))
         .await
         .expect_err("request should fail");
 
@@ -842,7 +807,7 @@ async fn openai_invalid_response_missing_output() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -850,10 +815,7 @@ async fn openai_invalid_response_missing_output() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-5.4-mini",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gpt-5.4-mini", "hello"))
         .await
         .expect_err("should fail");
 
@@ -884,14 +846,14 @@ async fn openai_stream_refusal_surfaces_as_text_delta() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let mut stream = client
-        .stream(GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hi"))
+        .stream(ChatRequest::from_prompt("gpt-5.4-mini", "hi"))
         .await
         .expect("stream_text should succeed");
 
@@ -899,7 +861,7 @@ async fn openai_stream_refusal_surfaces_as_text_delta() {
     while let Some(event) = stream.next().await {
         match event.expect("stream event should parse") {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
-            StreamEvent::Done => break,
+            StreamEvent::Done { .. } => break,
             _ => {}
         }
     }
@@ -939,17 +901,14 @@ async fn openai_generate_extracts_reasoning_summary_from_output_array() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gpt-5.4-mini",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gpt-5.4-mini", "hello"))
         .await
         .expect("request should succeed");
 
@@ -980,14 +939,14 @@ async fn openai_stream_error_event_propagates_as_invalid_response() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let mut stream = client
-        .stream(GenerateTextRequest::from_user_prompt("gpt-5.4-mini", "hi"))
+        .stream(ChatRequest::from_prompt("gpt-5.4-mini", "hi"))
         .await
         .expect("stream_text should succeed");
 
@@ -1032,14 +991,14 @@ async fn openai_compatible_response_refusal_surfaces_as_output_text() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("k")
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt("any-model", "hi"))
+        .generate(ChatRequest::from_prompt("any-model", "hi"))
         .await
         .expect("request should succeed");
 
@@ -1081,25 +1040,22 @@ async fn openai_compatible_tool_result_string_value_is_not_double_encoded() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("k")
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("any-model")
+    let req = ChatRequest::builder("any-model")
         .message(Message::user_text("ask"))
-        .message(
-            Message::new(
-                MessageRole::Assistant,
-                vec![ContentPart::ToolCall(aquaregia::ToolCall {
-                    call_id: "c1".into(),
-                    tool_name: "echo".into(),
-                    args_json: json!({}),
-                })],
-            )
-            .expect("assistant tool call message"),
-        )
+        .message(Message::new(
+            MessageRole::Assistant,
+            vec![ContentPart::ToolCall(aquaregia::ToolCall {
+                call_id: "c1".into(),
+                tool_name: "echo".into(),
+                args_json: json!({}),
+            })],
+        ))
         .message(Message::tool_result(ToolResult {
             call_id: "c1".into(),
             output_json: serde_json::Value::String("plain text result".into()),
@@ -1159,7 +1115,7 @@ async fn google_response_block_reason_surfaces_in_error() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -1167,10 +1123,7 @@ async fn google_response_block_reason_surfaces_in_error() {
         .expect("client should build");
 
     let err = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "hello"))
         .await
         .expect_err("blocked prompts must error");
 
@@ -1207,17 +1160,14 @@ async fn google_uses_upstream_function_call_id_when_present() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "weather?",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "weather?"))
         .await
         .expect("request should succeed");
 
@@ -1259,12 +1209,12 @@ async fn anthropic_generate_object_extracts_tool_call_args() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1304,12 +1254,12 @@ async fn anthropic_generate_object_injects_respond_tool() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(Message::user_text("weather in LA"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1332,13 +1282,72 @@ async fn anthropic_generate_object_injects_respond_tool() {
     let tools = body["tools"].as_array().expect("tools should be present");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], "respond");
-    assert_eq!(tools[0]["type"], "custom");
+    assert!(tools[0].get("type").is_none());
     assert!(tools[0]["input_schema"].is_object());
 
     // Verify tool_choice forces "respond".
     let tc = &body["tool_choice"];
     assert_eq!(tc["type"], "tool");
     assert_eq!(tc["name"], "respond");
+}
+
+#[tokio::test]
+async fn anthropic_tool_definition_has_no_type_field() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "id": "msg_001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "content": [{ "type": "text", "text": "ok" }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 4, "output_tokens": 1 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let tool = ToolDescriptor {
+        name: "lookup".to_string(),
+        description: "Look up a value".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            },
+            "required": ["id"]
+        }),
+    };
+
+    let req = ChatRequest::builder("claude-sonnet-4-6")
+        .message(Message::user_text("lookup abc"))
+        .tools([tool])
+        .build()
+        .expect("request should build");
+
+    let client = aquaregia::providers::anthropic::Client::builder()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    client.generate(req).await.expect("generate should succeed");
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock should record requests");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
+    let tools = body["tools"].as_array().expect("tools should be present");
+
+    assert_eq!(tools[0]["name"], "lookup");
+    assert!(tools[0].get("type").is_none());
 }
 
 // ─── Structured output — Google function-calling trick ─────────────────────
@@ -1373,12 +1382,12 @@ async fn google_generate_object_extracts_function_call_args() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gemini-3.5-flash")
+    let req = ChatRequest::builder("gemini-3.5-flash")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1422,12 +1431,12 @@ async fn google_generate_object_injects_respond_function() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gemini-3.5-flash")
+    let req = ChatRequest::builder("gemini-3.5-flash")
         .message(Message::user_text("weather in LA"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()

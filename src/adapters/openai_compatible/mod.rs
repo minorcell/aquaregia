@@ -1,7 +1,7 @@
 //! OpenAI-compatible API adapter for Aquaregia.
 //!
 //! This module provides the `OpenAiCompatibleAdapter` implementation for communicating
-//! with OpenAI-compatible endpoints such as DeepSeek, local LLM servers (vLLM, Ollama),
+//! with OpenAI-compatible endpoints such as custom gateways, local LLM servers (vLLM, Ollama),
 //! and other compatible APIs.
 //!
 //! ## Features
@@ -15,7 +15,7 @@
 //!
 //! ## Supported Providers
 //!
-//! - DeepSeek API
+//! - Custom OpenAI-compatible gateways
 //! - vLLM server
 //! - Ollama
 //! - LocalAI
@@ -24,16 +24,16 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{providers::openai_compatible, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai_compatible()
-//!     .base_url("https://api.deepseek.com")
+//! let client = openai_compatible::Client::builder()
+//!     .base_url("https://api.example.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("deepseek-v4-pro", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -59,8 +59,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -87,36 +87,6 @@ impl OpenAiCompatibleAdapterSettings {
             query_params: HashMap::new(),
             chat_completions_path: DEFAULT_PATH.to_string(),
         }
-    }
-
-    /// Sets a bearer token.
-    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    /// Clears the bearer token so requests are sent unauthenticated.
-    pub fn no_api_key(mut self) -> Self {
-        self.api_key = None;
-        self
-    }
-
-    /// Adds or replaces a custom HTTP header.
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    /// Adds or replaces a query parameter.
-    pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.query_params.insert(name.into(), value.into());
-        self
-    }
-
-    /// Overrides chat completions path.
-    pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
-        self.chat_completions_path = path.into();
-        self
     }
 }
 
@@ -226,10 +196,7 @@ fn merge_endpoint_path(base_path: &str, endpoint_path: &str) -> String {
 
 #[async_trait]
 impl ModelAdapter for OpenAiCompatibleAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_openai_payload(req, false)?;
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();
@@ -254,7 +221,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
         normalize_openai_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_openai_payload(req, true)?;
         let url = self.endpoint_url()?;
         let cancel_token = req.cancellation_token.clone();
@@ -283,11 +250,25 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
             let mut reasoning_active = false;
             let mut reasoning_block_counter: u32 = 0;
             let mut reasoning_block_id = String::new();
+            let mut finish_reason = FinishReason::Stop;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -306,7 +287,9 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                             reasoning_active = false;
                         }
                         done = true;
-                        yield StreamEvent::Done;
+                        yield StreamEvent::Done {
+                            finish_reason: finish_reason.clone(),
+                        };
                         break;
                     }
 
@@ -417,17 +400,18 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         yield StreamEvent::Usage { usage };
                     }
 
-                    if let Some(finish_reason) = value
+                    if let Some(raw_finish_reason) = value
                         .get("choices")
                         .and_then(Value::as_array)
                         .and_then(|arr| arr.first())
                         .and_then(|choice| choice.get("finish_reason"))
                         .and_then(Value::as_str)
                     {
+                        let mapped_finish_reason = map_openai_finish_reason(raw_finish_reason);
                         // `function_call` is the deprecated finish reason for the legacy
                         // function-calling API; treat it the same as `tool_calls` so the assembled
                         // calls are not lost when a compatibility endpoint still emits the old name.
-                        if matches!(finish_reason, "tool_calls" | "function_call")
+                        if matches!(raw_finish_reason, "tool_calls" | "function_call")
                             && !tool_partial.is_empty()
                         {
                             for partial in tool_partial.values() {
@@ -437,6 +421,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                             }
                             tool_partial.clear();
                         }
+                        finish_reason = mapped_finish_reason;
                     }
                 }
 
@@ -456,7 +441,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                 if saw_payload_frame {
                     // Some OpenAI-compatible servers close the stream after final chunk
                     // without emitting a terminal `[DONE]` marker.
-                    yield StreamEvent::Done;
+                    yield StreamEvent::Done { finish_reason };
                 } else {
                     Err(Error::new(
                         ErrorCode::StreamProtocol,
@@ -549,7 +534,7 @@ impl PartialToolCall {
     }
 }
 
-fn build_openai_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
+fn build_openai_payload(req: &ChatRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     let messages = req
@@ -793,7 +778,7 @@ fn openai_file_content_part(file: &FilePart) -> Result<Value, Error> {
     Ok(json!({ "type": "image_url", "image_url": { "url": url } }))
 }
 
-fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_openai_response(body: Value) -> Result<ChatResponse, Error> {
     let Some(choice) = body
         .get("choices")
         .and_then(Value::as_array)
@@ -857,7 +842,7 @@ fn normalize_openai_response(body: Value) -> Result<GenerateTextResponse, Error>
         .and_then(parse_openai_usage)
         .unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

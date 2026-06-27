@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};
 use aquaregia::types::AgentPreparedStep;
-use aquaregia::{Agent, ErrorCode, LlmClient, Message, Tool};
+use aquaregia::{ErrorCode, Message, Tool};
 use async_trait::async_trait;
 use serde_json::{Value, json};
 use wiremock::matchers::{body_string_contains, method, path};
@@ -94,13 +94,14 @@ async fn run_tools_two_step_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([make_weather_tool()])
         .max_steps(3)
         .temperature(0.2)
@@ -151,13 +152,14 @@ async fn run_tools_unknown_tool_fails() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([make_weather_tool()])
         .max_steps(3)
         .build()
@@ -226,7 +228,7 @@ async fn run_tools_lifecycle_hooks_fire() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -242,7 +244,8 @@ async fn run_tools_lifecycle_hooks_fire() {
 
     let agent = {
         let e = Arc::clone(&events);
-        let agent = Agent::builder(client, "gpt-5.4-mini")
+        let agent = client
+            .agent("gpt-5.4-mini")
             .tools([make_weather_tool()])
             .max_steps(3)
             .temperature(0.2)
@@ -336,13 +339,14 @@ async fn run_tools_prepare_step_can_override_step_input() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .max_steps(1)
         .prepare_step(|event| AgentPreparedStep {
             model: event.model.clone(),
@@ -437,13 +441,14 @@ async fn tool_calls_execute_in_parallel() {
         executor: Arc::new(SlowTool),
     };
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([slow_tool])
         .max_steps(3)
         .build()

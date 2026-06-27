@@ -1,0 +1,141 @@
+---
+title: Direct Requests
+description: Send one model request when you do not need an agent loop.
+---
+
+Use a direct request when your application already knows the exact message list and only needs one provider call.
+
+Good fits:
+
+- single-turn generation
+- application-managed chat history
+- structured extraction
+- multimodal prompts
+- one-shot tool-call inspection
+
+Use an agent instead when Aquaregia should execute tools and keep looping until the task is done.
+
+## Generate from one prompt
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+
+let client = openai::Client::from_env()?;
+
+let response = client
+    .generate(ChatRequest::from_prompt(
+        "gpt-5.5",
+        "Write a concise release note for this SDK change.",
+    ))
+    .await?;
+
+println!("{}", response.output_text);
+```
+
+`from_prompt(...)` creates one user message. It is the shortest path for simple calls.
+
+## Build a request from messages
+
+Use the builder when you need system instructions, multiple turns, sampling, cancellation, tools, or provider-specific options.
+
+```rust
+use aquaregia::{ChatRequest, Message, providers::openai};
+
+let client = openai::Client::from_env()?;
+
+let req = ChatRequest::builder("gpt-5.5")
+    .message(Message::system_text("You are concise and factual."))
+    .message(Message::user_text("What changed in Rust 1.85?"))
+    .temperature(0.2)
+    .max_output_tokens(800)
+    .build()?;
+
+let response = client.generate(req).await?;
+println!("{}", response.output_text);
+```
+
+`user(...)` and `system(...)` append messages. Use `messages(...)` when you want to replace the message list explicitly.
+
+## Read the response
+
+`ChatResponse` normalizes the provider response:
+
+| Field | Use |
+| --- | --- |
+| `output_text` | visible assistant text |
+| `reasoning_text` | flattened reasoning text when the provider exposes it |
+| `reasoning_parts` | structured reasoning blocks with provider metadata |
+| `finish_reason` | normalized finish reason such as `Stop`, `Length`, or `ToolCalls` |
+| `usage` | token counters, including cache and reasoning counters when available |
+| `tool_calls` | model-requested tool calls for callers that execute tools themselves |
+| `raw_provider_response` | best-effort raw provider payload for debugging |
+
+## Control generation
+
+The request builder supports the common generation controls:
+
+| Method | Use |
+| --- | --- |
+| `temperature(f32)` | randomness, validated as `0.0..=2.0` |
+| `top_p(f32)` | nucleus sampling, validated as `0.0..=1.0` |
+| `max_output_tokens(u32)` | output budget |
+| `stop_sequences(...)` | provider stop strings |
+| `cancellation_token(token)` | cancel HTTP work or streams |
+| `provider_options(json!(...))` | pass provider-specific request fields |
+
+Use lower temperature for extraction and classification. Use higher temperature for creative drafting.
+
+## Inspect one-shot tool calls
+
+Agents execute tools for you. Direct requests only expose the model's requested calls.
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+use aquaregia::tool::ToolDescriptor;
+use serde_json::json;
+
+let tool = ToolDescriptor {
+    name: "lookup_order".to_string(),
+    description: "Look up an order by id".to_string(),
+    input_schema: json!({
+        "type": "object",
+        "properties": {
+            "order_id": { "type": "string" }
+        },
+        "required": ["order_id"]
+    }),
+};
+
+let response = openai::Client::from_env()?
+    .generate(
+        ChatRequest::builder("gpt-5.5")
+            .user("Where is order A123?")
+            .tools([tool])
+            .build()?,
+    )
+    .await?;
+
+for call in response.tool_calls {
+    println!("{} {}", call.tool_name, call.args_json);
+}
+```
+
+If you want Aquaregia to validate arguments, run your Rust function, send the result back, and ask the model for a final answer, use [Agents](./agents).
+
+## Builder reference
+
+| Method | Effect |
+| --- | --- |
+| `ChatRequest::from_prompt(model, prompt)` | create one user-message request |
+| `ChatRequest::builder(model)` | start a full request builder |
+| `message(message)` | append one `Message` |
+| `user(prompt)` | append one user message |
+| `system(instruction)` | append one system message |
+| `messages(messages)` | replace messages explicitly |
+| `temperature(...)`, `top_p(...)` | set sampling |
+| `max_output_tokens(...)`, `stop_sequences(...)` | set output limits |
+| `tools(...)` | expose tool descriptors for this single model call |
+| `output_schema(...)` | request JSON matching a manual schema |
+| `provider_options(...)` | pass provider-specific fields |
+| `cancellation_token(...)` | attach cancellation |
+| `build()` | validate model, messages, and sampling |

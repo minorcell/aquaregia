@@ -1,0 +1,102 @@
+---
+title: Embeddings
+description: Generate vectors for search, clustering, and retrieval.
+---
+
+Use embeddings when text should become vectors for similarity search, clustering, recommendations, or retrieval.
+
+Embedding is a provider-client API, not an agent API. The model does not produce prose; it returns one vector per input string.
+
+## Generate one embedding
+
+```rust
+use aquaregia::embed::EmbedRequest;
+use aquaregia::providers::openai;
+
+let client = openai::Client::from_env()?;
+
+let response = client
+    .embed(EmbedRequest::new(
+        "text-embedding-3-small",
+        vec!["Aquaregia builds tool-using Rust agents."],
+    ))
+    .await?;
+
+println!("dimension={}", response.embeddings[0].len());
+println!("tokens={}", response.usage.tokens);
+```
+
+The `embeddings` vector has the same order as the input `values`.
+
+## Batch inputs
+
+Batch related texts in one request when your provider quota and payload size allow it.
+
+```rust
+let req = EmbedRequest::new(
+    "text-embedding-3-large",
+    vec![
+        "Rust agent SDK",
+        "tool calling",
+        "structured output",
+    ],
+);
+
+let response = client.embed(req).await?;
+
+for vector in response.embeddings {
+    println!("dimension={}", vector.len());
+}
+```
+
+Store the returned vectors next to the source text or document chunk ids in your vector database.
+
+## Use provider-specific embedding options
+
+Provider-specific fields go through `provider_options(...)`.
+
+```rust
+use aquaregia::embed::EmbedRequest;
+use serde_json::json;
+
+let req = EmbedRequest::builder("text-embedding-3-small")
+    .values(vec!["Aquaregia simplifies Rust agents."])
+    .provider_options(json!({
+        "openai": {
+            "dimensions": 256
+        }
+    }))
+    .build()?;
+
+let response = client.embed(req).await?;
+```
+
+Use this for fields such as OpenAI embedding dimensions or gateway-specific request options.
+
+## Compare vectors
+
+Aquaregia returns raw vectors. Your application decides how to index and compare them.
+
+```rust
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(x, y)| x * y).sum();
+    let mag_a = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let mag_b = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    dot / (mag_a * mag_b)
+}
+```
+
+For production retrieval, use a vector database or an approximate nearest-neighbor index instead of scanning every vector.
+
+## Response fields
+
+| Field | Use |
+| --- | --- |
+| `embeddings` | vectors, in input order |
+| `model` | provider-reported model id |
+| `usage.tokens` | input token count |
+| `provider_metadata` | provider-specific response metadata when available |
+
+## Provider support
+
+`embed(...)` is implemented for OpenAI and OpenAI-compatible clients. Anthropic and Google clients currently return `ErrorCode::UnsupportedOperation` for embeddings.

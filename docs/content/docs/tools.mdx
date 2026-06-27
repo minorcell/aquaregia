@@ -1,0 +1,190 @@
+---
+title: Tools
+description: Turn Rust functions into model-callable capabilities.
+---
+
+A tool is a contract between the model and your application:
+
+- the model sees a name, description, and JSON Schema
+- Aquaregia validates and deserializes the model's JSON arguments
+- your Rust function runs
+- the result is serialized and sent back to the model
+
+This page shows how to design that contract.
+
+## Start with the task boundary
+
+Give each tool one clear job. The model should know when to use it from the name and description.
+
+```rust
+use aquaregia::{Tool, tool};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::json;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct WeatherArgs {
+    city: String,
+}
+
+fn get_weather() -> Tool {
+    tool("get_weather")
+        .description("Get current weather by city")
+        .execute(|args: WeatherArgs| async move {
+            json!({
+                "city": args.city,
+                "temp_c": 23,
+                "condition": "light rain"
+            })
+        })
+}
+```
+
+Attach it to the agent:
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .instructions("Use tools when they provide fresher information.")
+    .tool(get_weather())
+    .max_steps(4)
+    .build()?;
+```
+
+## Return data, not prose
+
+Tools should return structured facts the model can use in the next step.
+
+Prefer:
+
+```rust
+json!({
+    "city": "Shanghai",
+    "temp_c": 23,
+    "condition": "light rain"
+})
+```
+
+Avoid returning a sentence like `"Shanghai is rainy and 23C"` unless the upstream system only gives you text. Structured results make the next model step easier to reason about.
+
+## Fallible tools
+
+Use `.try_execute(...)` when the tool can fail.
+
+```rust
+use aquaregia::tool::ToolExecError;
+
+#[derive(Debug, Deserialize, JsonSchema)]
+struct ReadFileArgs {
+    path: String,
+}
+
+fn read_file() -> Tool {
+    tool("read_file")
+        .description("Read a UTF-8 file from the workspace")
+        .try_execute(|args: ReadFileArgs| async move {
+            let text = std::fs::read_to_string(&args.path)
+                .map_err(|e| ToolExecError::Execution(e.to_string()))?;
+
+            Ok(json!({
+                "path": args.path,
+                "content": text
+            }))
+        })
+}
+```
+
+By default, tool failures become error-shaped tool results so the model can recover:
+
+```json
+{ "error": "file not found" }
+```
+
+Use `FailFast` when the application should stop immediately.
+
+```rust
+use aquaregia::ToolErrorPolicy;
+
+let agent = client
+    .agent("gpt-5.5")
+    .tool(read_file())
+    .tool_error_policy(ToolErrorPolicy::FailFast)
+    .build()?;
+```
+
+## Multiple tools
+
+Register one tool with `.tool(...)`, or a batch with `.tools(...)`.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tools([get_weather(), get_fx_rate()])
+    .max_steps(6)
+    .build()?;
+```
+
+If tool order matters to your application, express that in the instructions or split the workflow outside the agent. The model chooses which registered tool to call at each step.
+
+## Raw JSON tools
+
+Typed tools should be the default. Use `.raw_schema(...)` only when the JSON contract is easier to write directly than to derive from Rust types.
+
+```rust
+let fx_tool = tool("get_fx_rate")
+    .description("Get FX rate by currency pair, e.g. USD/CNY")
+    .raw_schema(json!({
+        "type": "object",
+        "properties": {
+            "pair": { "type": "string" }
+        },
+        "required": ["pair"]
+    }))
+    .execute_raw(|args| async move {
+        let pair = args
+            .get("pair")
+            .and_then(|v| v.as_str())
+            .unwrap_or("USD/CNY");
+
+        Ok(json!({
+            "pair": pair,
+            "rate": 7.18
+        }))
+    });
+```
+
+## Naming rules
+
+Tool names must match `^[a-zA-Z0-9_-]{1,64}$` and must be unique within an agent.
+
+Good names:
+
+- `get_weather`
+- `read_file`
+- `search_docs`
+
+Avoid names that describe implementation details rather than capability.
+
+## Tool builder reference
+
+| API | Use |
+| --- | --- |
+| `tool(name)` | start a tool definition |
+| `description(text)` | tell the model when and why to call the tool |
+| `execute(typed closure)` | typed, infallible tool; return any serializable value |
+| `try_execute(typed closure)` | typed, fallible tool; return `Result<Out, ToolExecError>` |
+| `raw_schema(json!(...))` | replace the derived argument schema |
+| `execute_raw(raw JSON closure)` | raw JSON tool with manual argument handling |
+
+`execute(...)` and `try_execute(...)` derive the input JSON Schema from the `Args` type. Use raw tools only when deriving the schema from Rust would make the contract less clear.
+
+## Tool errors
+
+Fallible tools return `ToolExecError`.
+
+| Error | Meaning |
+| --- | --- |
+| `ToolExecError::Execution(message)` | the application operation failed |
+| `ToolExecError::Timeout` | the tool timed out |
+
+The agent converts tool failures according to `ToolErrorPolicy`. `ContinueAsToolResult` lets the model recover from the failed observation; `FailFast` returns the error to your application immediately.

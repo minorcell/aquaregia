@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <circle cx="256" cy="256" r="190" fill="#F8FAFC"/>
+  <path
+    fill="none"
+    stroke="#111827"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="34"
+    d="M261 96c75 0 136 61 136 136 0 92-74 166-166 166-64 0-116-52-116-116 0-76 62-138 138-138 54 0 98 44 98 98 0 62-50 112-112 112-42 0-76-34-76-76"
+  />
+  <path
+    fill="none"
+    stroke="#14B8A6"
+    stroke-linecap="round"
+    stroke-width="34"
+    d="M351 242c0 62-50 112-112 112"
+  />
+  <circle cx="256" cy="256" r="35" fill="#111827"/>
+  <circle cx="256" cy="256" r="13" fill="#D8A441"/>
+</svg>

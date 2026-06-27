@@ -5,13 +5,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{providers::openai, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::openai().api_key("api-key").build()?;
+//! let client = openai::Client::builder().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("gpt-5.5", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -36,8 +36,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextPart, TextStream, ToolCall, Usage,
 };
 
 pub const PROVIDER_SLUG: &str = "openai";
@@ -83,10 +83,7 @@ impl OpenAiAdapter {
 
 #[async_trait]
 impl ModelAdapter for OpenAiAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_payload(req, false)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -114,7 +111,7 @@ impl ModelAdapter for OpenAiAdapter {
         normalize_response(body)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_payload(req, true)?;
         let url = format!("{}/v1/responses", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -146,11 +143,25 @@ impl ModelAdapter for OpenAiAdapter {
             // Reasoning blocks keyed by output_index. Multiple `reasoning` items can
             // appear in one response; the canonical id is `rs_*` from the SDK.
             let mut reasoning_blocks: BTreeMap<u64, String> = BTreeMap::new();
+            let mut saw_tool_call = false;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -169,7 +180,13 @@ impl ModelAdapter for OpenAiAdapter {
                                 };
                             }
                             done = true;
-                            yield StreamEvent::Done;
+                            yield StreamEvent::Done {
+                                finish_reason: if saw_tool_call {
+                                    FinishReason::ToolCalls
+                                } else {
+                                    FinishReason::Stop
+                                },
+                            };
                         }
                         break;
                     }
@@ -315,10 +332,18 @@ impl ModelAdapter for OpenAiAdapter {
                                         args_json,
                                     },
                                 };
+                                saw_tool_call = true;
                             }
                         }
 
                         "response.completed" | "response.incomplete" => {
+                            let finish_reason = if event_type == "response.incomplete" {
+                                FinishReason::Length
+                            } else if saw_tool_call {
+                                FinishReason::ToolCalls
+                            } else {
+                                FinishReason::Stop
+                            };
                             if let Some(resp) = value.get("response") {
                                 if let Some(usage) = resp.get("usage").and_then(parse_usage) {
                                     yield StreamEvent::Usage { usage };
@@ -333,7 +358,7 @@ impl ModelAdapter for OpenAiAdapter {
                                 };
                             }
                             done = true;
-                            yield StreamEvent::Done;
+                            yield StreamEvent::Done { finish_reason };
                             break;
                         }
 
@@ -430,7 +455,7 @@ struct PartialFnCall {
 }
 
 /// Builds the Responses API request payload.
-fn build_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
+fn build_payload(req: &ChatRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     payload.insert("stream".to_string(), Value::Bool(stream));
@@ -682,7 +707,7 @@ fn file_content_item(file: &FilePart) -> Result<Value, Error> {
     }
 }
 
-fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_response(body: Value) -> Result<ChatResponse, Error> {
     if body.get("status").and_then(Value::as_str) == Some("failed") {
         let msg = body
             .get("error")
@@ -775,7 +800,7 @@ fn normalize_response(body: Value) -> Result<GenerateTextResponse, Error> {
 
     let usage = body.get("usage").and_then(parse_usage).unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

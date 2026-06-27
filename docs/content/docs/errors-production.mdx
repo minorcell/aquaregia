@@ -1,0 +1,149 @@
+---
+title: Errors and Production
+description: Handle failures, retries, cancellation, and operational metadata.
+---
+
+Production LLM calls need clear boundaries around time, retries, cancellation, and error reporting.
+
+Aquaregia returns one error type from provider calls, agent runs, streams, structured output, and embeddings: `aquaregia::Error`.
+
+## Handle errors by code
+
+```rust
+use aquaregia::{ChatRequest, ErrorCode, providers::openai};
+
+let client = openai::Client::from_env()?;
+
+match client
+    .generate(ChatRequest::from_prompt("gpt-5.5", "hello"))
+    .await
+{
+    Ok(response) => println!("{}", response.output_text),
+    Err(err) => match err.code {
+        ErrorCode::AuthFailed => eprintln!("check API credentials"),
+        ErrorCode::RateLimited => eprintln!("retry later"),
+        ErrorCode::Cancelled => eprintln!("request was cancelled"),
+        ErrorCode::UnsupportedOperation => eprintln!("provider does not support this operation"),
+        _ => eprintln!("request failed: {err}"),
+    },
+}
+```
+
+`Error` also carries provider metadata when available:
+
+| Field | Meaning |
+| --- | --- |
+| `code` | stable Aquaregia error category |
+| `message` | human-readable diagnostic |
+| `provider` | provider slug such as `openai` or `anthropic` |
+| `status` | HTTP status when the error came from a provider response |
+| `retryable` | whether retrying may succeed |
+| `request_id` | provider request id when exposed in headers |
+| `raw_body` | best-effort provider error body |
+| `retry_after_secs` | `Retry-After` value when present |
+
+## Retry and timeout policy
+
+Configure retries and request timeout on the provider client.
+
+```rust
+use aquaregia::providers::openai;
+use std::time::Duration;
+
+let client = openai::Client::builder()
+    .api_key_from_env("OPENAI_API_KEY")
+    .timeout(Duration::from_secs(45))
+    .max_retries(2)
+    .build()?;
+```
+
+Retryable error codes are:
+
+| Error code | Typical cause |
+| --- | --- |
+| `RateLimited` | provider returned HTTP 429 |
+| `ProviderServerError` | provider returned HTTP 5xx |
+| `Transport` | network or DNS failure |
+| `Timeout` | configured timeout elapsed |
+
+Authentication, validation, unsupported operation, invalid tool arguments, and cancellation errors are not retryable by default.
+
+## Cancel work the caller no longer needs
+
+Attach a `CancellationToken` to a direct request:
+
+```rust
+use aquaregia::{ChatRequest, providers::openai};
+use tokio_util::sync::CancellationToken;
+
+let token = CancellationToken::new();
+
+let req = ChatRequest::builder("gpt-5.5")
+    .user("Write a long report.")
+    .cancellation_token(token.clone())
+    .build()?;
+
+token.cancel();
+
+let result = openai::Client::from_env()?.generate(req).await;
+```
+
+Attach the same kind of token to an agent when a whole tool loop should stop.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .cancellation_token(token.clone())
+    .build()?;
+```
+
+Cancellation is checked before HTTP sends, while reading streams, and between agent steps.
+
+## Bound agent loops
+
+Always set a step cap for tool-using agents unless you have a specific reason not to.
+
+```rust
+let agent = client
+    .agent("gpt-5.5")
+    .tool(search_docs())
+    .max_steps(6)
+    .build()?;
+```
+
+If the model keeps requesting tools after the cap, the run fails with `ErrorCode::MaxStepsExceeded`.
+
+## Tool failure policy
+
+By default, a failing tool becomes an error-shaped tool result and the agent can recover.
+
+```rust
+use aquaregia::ToolErrorPolicy;
+
+let agent = client
+    .agent("gpt-5.5")
+    .tool(read_file())
+    .tool_error_policy(ToolErrorPolicy::FailFast)
+    .build()?;
+```
+
+Use `FailFast` when a tool failure means the whole application operation should stop.
+
+## Error code reference
+
+| Code | Meaning |
+| --- | --- |
+| `InvalidRequest` | invalid model, messages, sampling values, schema, or request shape |
+| `AuthFailed` | missing, empty, invalid, or unauthorized credentials |
+| `RateLimited` | provider rate limit |
+| `ProviderServerError` | provider 5xx response |
+| `Transport` | network or transport failure |
+| `Timeout` | request timeout |
+| `StreamProtocol` | malformed or incomplete streaming payload |
+| `UnknownTool` | model requested a tool that was not registered |
+| `InvalidToolArgs` | model produced tool arguments that did not match the schema |
+| `ToolExecutionFailed` | a Rust tool returned an execution error |
+| `MaxStepsExceeded` | agent exceeded its tool-loop step cap |
+| `InvalidResponse` | provider response could not be parsed or normalized |
+| `Cancelled` | caller cancelled with a token |
+| `UnsupportedOperation` | provider adapter does not support the requested operation |

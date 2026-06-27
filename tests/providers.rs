@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient};
+use aquaregia::ChatRequest;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -33,17 +33,14 @@ async fn google_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "gemini-3.5-flash",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("gemini-3.5-flash", "hello"))
         .await
         .expect("request should succeed");
 
@@ -90,17 +87,14 @@ async fn openai_compatible_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-v4-pro",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("deepseek-v4-pro", "hello"))
         .await
         .expect("request should succeed");
 
@@ -141,17 +135,14 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-v4-pro",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("deepseek-v4-pro", "hello"))
         .await
         .expect("request should succeed");
 
@@ -191,17 +182,14 @@ async fn openai_compatible_generate_reasoning_content_field_takes_precedence() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "deepseek-v4-pro",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("deepseek-v4-pro", "hello"))
         .await
         .expect("request should succeed");
 
@@ -243,7 +231,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -251,10 +239,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
         .expect("client should build");
 
     let response = client
-        .generate(GenerateTextRequest::from_user_prompt(
-            "claude-haiku-4-5",
-            "hello",
-        ))
+        .generate(ChatRequest::from_prompt("claude-haiku-4-5", "hello"))
         .await
         .expect("request should succeed");
 

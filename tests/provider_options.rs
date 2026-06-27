@@ -1,15 +1,13 @@
 //! Integration tests for provider_options passthrough.
 
-use aquaregia::{
-    Agent, ContentPart, GenerateTextRequest, LlmClient, Message, MessageRole, TextPart, tool,
-};
+use aquaregia::{ChatRequest, ContentPart, Message, MessageRole, TextPart, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 #[test]
 fn request_serializes_provider_options() {
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
         .message(Message::user_text("test"))
         .provider_options(json!({
             "anthropic": {
@@ -37,7 +35,7 @@ fn request_serializes_provider_options() {
 
 #[test]
 fn request_without_provider_options_omits_field() {
-    let req = GenerateTextRequest::builder("gpt-4")
+    let req = ChatRequest::builder("gpt-4")
         .message(Message::user_text("test"))
         .build()
         .unwrap();
@@ -67,7 +65,7 @@ fn request_deserializes_provider_options() {
         }
     }"#;
 
-    let req: GenerateTextRequest = serde_json::from_str(json_str).unwrap();
+    let req: ChatRequest = serde_json::from_str(json_str).unwrap();
     assert!(req.provider_options().is_some());
     let options = req.provider_options().unwrap();
     assert_eq!(options["anthropic"]["thinking"]["budget_tokens"], 10000);
@@ -129,7 +127,7 @@ async fn agent_run_passes_provider_options_to_every_step() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -140,7 +138,8 @@ async fn agent_run_passes_provider_options_to_every_step() {
         .raw_schema(json!({ "type": "object", "properties": {} }))
         .execute_raw(|_| async move { Ok(json!({ "ok": true })) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([ping])
         .max_steps(3)
         .provider_options(json!({
@@ -182,13 +181,14 @@ async fn agent_without_provider_options_sends_no_marker() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .build()
         .expect("agent should build");
 
@@ -220,7 +220,7 @@ async fn message_level_provider_options_ride_each_message() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -229,7 +229,7 @@ async fn message_level_provider_options_ride_each_message() {
     let message = Message::user_text("hello").with_provider_options(json!({
         "openai-compatible": { "msg_marker_field": "msg-marker-value" }
     }));
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+    let req = ChatRequest::builder("gpt-5.4-mini")
         .message(message)
         .build()
         .unwrap();
@@ -268,7 +268,7 @@ async fn text_block_provider_options_ride_each_text_block() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -277,8 +277,8 @@ async fn text_block_provider_options_ride_each_text_block() {
     let text = TextPart::new("cache me").with_provider_options(json!({
         "openai-compatible": { "block_marker_field": "block-marker-value" }
     }));
-    let message = Message::new(MessageRole::User, vec![ContentPart::Text(text)]).unwrap();
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
+    let message = Message::new(MessageRole::User, vec![ContentPart::Text(text)]);
+    let req = ChatRequest::builder("gpt-5.4-mini")
         .message(message)
         .build()
         .unwrap();
@@ -311,14 +311,14 @@ async fn text_without_provider_options_stays_plain_string() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
-        .user_prompt("hello")
+    let req = ChatRequest::builder("gpt-5.4-mini")
+        .user("hello")
         .build()
         .unwrap();
 

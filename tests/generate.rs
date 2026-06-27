@@ -1,14 +1,14 @@
 use aquaregia::tool::ToolDescriptor;
 use aquaregia::types::StreamObjectEvent;
-use aquaregia::{ErrorCode, GenerateTextRequest, LlmClient, Message, OutputSchema};
+use aquaregia::{ChatRequest, ErrorCode, Message, OutputSchema};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
-fn openai_request() -> GenerateTextRequest {
-    GenerateTextRequest::builder("gpt-5.4-mini")
+fn openai_request() -> ChatRequest {
+    ChatRequest::builder("gpt-5.4-mini")
         .message(Message::user_text("hello"))
         .temperature(0.2)
         .max_output_tokens(64)
@@ -42,7 +42,7 @@ async fn openai_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -67,7 +67,7 @@ async fn openai_401_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -111,14 +111,14 @@ async fn openai_responses_api_request_shape() {
         input_schema: json!({ "type": "object", "properties": {} }),
     };
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::system_text("be helpful"))
         .message(Message::user_text("hello"))
         .tools([tool])
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -185,12 +185,12 @@ async fn openai_responses_api_request_shape_with_output_schema() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -237,12 +237,12 @@ async fn generate_object_deserializes_response() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -280,12 +280,12 @@ async fn generate_object_rejects_invalid_json() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::user_text("test"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -324,7 +324,7 @@ async fn generate_object_via_builder_output_schema() {
 
     let schema = schemars::schema_for!(WeatherResult);
     let json_schema = serde_json::to_value(&schema).expect("serialize schema");
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::user_text("weather in LA"))
         .output_schema(OutputSchema {
             name: "weather".into(),
@@ -334,7 +334,7 @@ async fn generate_object_via_builder_output_schema() {
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -367,12 +367,12 @@ async fn openai_compatible_generate_object_request_shape() {
         .mount(&server)
         .await;
 
-    let req = GenerateTextRequest::builder("deepseek-v4-pro")
+    let req = ChatRequest::builder("deepseek-v4-pro")
         .message(Message::user_text("weather in NYC"))
         .build()
         .expect("request should build");
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -422,13 +422,13 @@ async fn stream_object_emits_progressive_partials_and_final_object() {
         .mount(&server)
         .await;
 
-    let client = LlmClient::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-5.5")
+    let req = ChatRequest::builder("gpt-5.5")
         .message(Message::user_text("weather"))
         .build()
         .expect("request should build");

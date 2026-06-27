@@ -1,18 +1,13 @@
-//! Demonstrates sending an image URL to Claude and asking about its content.
+//! Demonstrates sending an image URL to OpenAI and asking about its content.
 //!
 //! Run with:
-//!   ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image
+//!   OPENAI_API_KEY=<key> cargo run --example multimodal_image
 
-use aquaregia::{
-    ContentPart, FilePart, GenerateTextRequest, LlmClient, MediaData, Message, MessageRole,
-    TextPart,
-};
+use aquaregia::{ChatRequest, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LlmClient::anthropic()
-        .api_key(std::env::var("ANTHROPIC_API_KEY")?)
-        .build()?;
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     let message = Message::new(
         MessageRole::User,
@@ -26,14 +21,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "image/jpeg",
             )),
         ],
-    )?;
+    );
 
     let response = client
-        .generate(
-            GenerateTextRequest::builder("claude-sonnet-4-6")
-                .message(message)
-                .build()?,
-        )
+        .generate(ChatRequest::builder("gpt-5.5").message(message).build()?)
         .await?;
 
     println!("{}", response.output_text);

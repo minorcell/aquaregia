@@ -18,24 +18,25 @@
 //!
 //! ## Creating Adapters
 //!
-//! Adapters are typically created through [`crate::ClientBuilder`] which handles
-//! the configuration and HTTP client setup:
+//! Adapters are created through provider clients which handle configuration and
+//! HTTP client setup:
 //!
 //! ```rust,no_run
-//! use aquaregia::LlmClient;
+//! use aquaregia::providers::{anthropic, google, openai, openai_compatible};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // OpenAI adapter
-//! let openai_client = LlmClient::openai().api_key("api-key").build()?;
+//! let openai_client = openai::Client::builder().api_key("api-key").build()?;
 //!
 //! // Anthropic adapter
-//! let anthropic_client = LlmClient::anthropic().api_key("api-key").build()?;
+//! let anthropic_client = anthropic::Client::builder().api_key("api-key").build()?;
 //!
 //! // Google adapter
-//! let google_client = LlmClient::google().api_key("api-key").build()?;
+//! let google_client = google::Client::builder().api_key("api-key").build()?;
 //!
-//! // OpenAI-compatible adapter (e.g., DeepSeek, local LLMs)
-//! let compatible_client = LlmClient::openai_compatible().base_url("https://api.example.com")
+//! // OpenAI-compatible adapter (e.g., custom gateways, local LLMs)
+//! let compatible_client = openai_compatible::Client::builder()
+//!     .base_url("https://api.example.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //! # Ok(())
@@ -48,7 +49,7 @@ use reqwest::Response;
 
 use crate::embed::{EmbedRequest, EmbedResponse};
 use crate::error::Error;
-use crate::types::{GenerateTextRequest, GenerateTextResponse, TextStream};
+use crate::types::{ChatRequest, ChatResponse, TextStream};
 
 /// Anthropic provider adapter implementation.
 pub mod anthropic;
@@ -59,15 +60,14 @@ pub mod openai;
 /// OpenAI-compatible provider adapter implementation.
 pub mod openai_compatible;
 
-/// Provider adapter contract used by [`crate::BoundClient`].
+/// Provider adapter contract used by provider clients.
 #[async_trait]
 pub trait ModelAdapter: Send + Sync {
     /// Generates text completion for the given request.
-    async fn generate_text(&self, req: &GenerateTextRequest)
-    -> Result<GenerateTextResponse, Error>;
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error>;
 
     /// Streams text completion for the given request.
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error>;
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error>;
 
     /// Generates embeddings for the given text values.
     ///

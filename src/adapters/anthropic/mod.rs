@@ -14,13 +14,13 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{LlmClient, GenerateTextRequest};
+//! use aquaregia::{providers::anthropic, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = LlmClient::anthropic().api_key("api-key").build()?;
+//! let client = anthropic::Client::builder().api_key("api-key").build()?;
 //!
 //! let response = client
-//!     .generate(GenerateTextRequest::from_user_prompt("claude-sonnet-4-6", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("claude-sonnet-4-6", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -45,8 +45,8 @@ use crate::adapters::{
 use crate::error::{Error, ErrorCode};
 use crate::stream::drain_sse_frames;
 use crate::types::{
-    ContentPart, FilePart, FinishReason, GenerateTextRequest, GenerateTextResponse, MediaData,
-    Message, MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
+    ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData, Message,
+    MessageRole, ReasoningPart, StreamEvent, TextStream, ToolCall, Usage,
 };
 
 /// Provider slug used in ids and error metadata.
@@ -105,10 +105,7 @@ impl AnthropicAdapter {
 
 #[async_trait]
 impl ModelAdapter for AnthropicAdapter {
-    async fn generate_text(
-        &self,
-        req: &GenerateTextRequest,
-    ) -> Result<GenerateTextResponse, Error> {
+    async fn generate_text(&self, req: &ChatRequest) -> Result<ChatResponse, Error> {
         let payload = build_anthropic_payload(req, false)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -146,7 +143,7 @@ impl ModelAdapter for AnthropicAdapter {
         Ok(response)
     }
 
-    async fn stream_text(&self, req: &GenerateTextRequest) -> Result<TextStream, Error> {
+    async fn stream_text(&self, req: &ChatRequest) -> Result<TextStream, Error> {
         let payload = build_anthropic_payload(req, true)?;
         let url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let cancel_token = req.cancellation_token.clone();
@@ -176,11 +173,25 @@ impl ModelAdapter for AnthropicAdapter {
             let mut pending_calls: HashMap<u64, PendingToolUse> = HashMap::new();
             let mut reasoning_blocks: HashMap<u64, (String, Option<Value>)> = HashMap::new();
             let mut done = false;
+            let mut finish_reason = FinishReason::Stop;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -345,6 +356,13 @@ impl ModelAdapter for AnthropicAdapter {
                                 if let Some(usage) = value.get("usage").and_then(parse_anthropic_usage) {
                                     yield StreamEvent::Usage { usage };
                                 }
+                                if let Some(reason) = value
+                                    .get("delta")
+                                    .and_then(|delta| delta.get("stop_reason"))
+                                    .and_then(Value::as_str)
+                                {
+                                    finish_reason = map_anthropic_finish_reason(reason);
+                                }
                             }
                             "error" => {
                                 let msg = value
@@ -365,7 +383,9 @@ impl ModelAdapter for AnthropicAdapter {
                                     };
                                 }
                                 done = true;
-                                yield StreamEvent::Done;
+                                yield StreamEvent::Done {
+                                    finish_reason: finish_reason.clone(),
+                                };
                             }
                             _ => {}
                         }
@@ -434,7 +454,7 @@ impl PendingToolUse {
     }
 }
 
-fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Result<Value, Error> {
+fn build_anthropic_payload(req: &ChatRequest, stream: bool) -> Result<Value, Error> {
     let mut payload = Map::new();
     payload.insert("model".to_string(), Value::String(req.model.clone()));
     let messages = req
@@ -489,7 +509,6 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Result<Va
         payload.insert(
             "tools".to_string(),
             Value::Array(vec![json!({
-                "type": "custom",
                 "name": "respond",
                 "description": output_schema
                     .description
@@ -510,7 +529,6 @@ fn build_anthropic_payload(req: &GenerateTextRequest, stream: bool) -> Result<Va
                     .iter()
                     .map(|tool| {
                         json!({
-                            "type": "custom",
                             "name": tool.name,
                             "description": tool.description,
                             "input_schema": tool.input_schema,
@@ -623,10 +641,9 @@ fn to_anthropic_message(message: &Message) -> Result<Value, Error> {
             merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
             Ok(Value::Object(msg))
         }
-        MessageRole::System => Ok(json!({
-            "role": "user",
-            "content": [],
-        })),
+        MessageRole::System => {
+            unreachable!("system messages are extracted before Anthropic message conversion")
+        }
     }
 }
 
@@ -654,7 +671,7 @@ fn anthropic_file_block(file: &FilePart) -> Result<Value, Error> {
     Ok(json!({ "type": block_type, "source": source }))
 }
 
-fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Error> {
+fn normalize_anthropic_response(body: Value) -> Result<ChatResponse, Error> {
     let content = body
         .get("content")
         .and_then(Value::as_array)
@@ -741,7 +758,7 @@ fn normalize_anthropic_response(body: Value) -> Result<GenerateTextResponse, Err
         .and_then(parse_anthropic_usage)
         .unwrap_or_default();
 
-    Ok(GenerateTextResponse {
+    Ok(ChatResponse {
         output_text,
         reasoning_text,
         reasoning_parts,

@@ -1,0 +1,182 @@
+---
+title: Streaming
+description: Stream model output and full agent execution.
+---
+
+Streaming is useful when the user should see progress before the whole run finishes.
+
+Aquaregia has two streaming layers:
+
+| Need | Use |
+| --- | --- |
+| One model request | `client.stream(request)` |
+| Full agent execution with tools | `agent.stream(prompt)` |
+
+## Stream one model call
+
+Use provider-client streaming when you already know the exact request.
+
+```rust
+use aquaregia::{ChatRequest, StreamEvent, providers::openai};
+use futures_util::StreamExt;
+
+let client = openai::Client::from_env()?;
+
+let mut stream = client
+    .stream(ChatRequest::from_prompt(
+        "gpt-5.5",
+        "Write a haiku about Rust.",
+    ))
+    .await?;
+
+while let Some(event) = stream.next().await {
+    match event? {
+        StreamEvent::TextDelta { text } => print!("{text}"),
+        StreamEvent::ReasoningDelta { text, .. } => eprint!("{text}"),
+        StreamEvent::Usage { usage } => {
+            eprintln!("tokens={}", usage.total_tokens);
+        }
+        StreamEvent::Done { finish_reason } => {
+            eprintln!("finish={finish_reason:?}");
+            break;
+        }
+        _ => {}
+    }
+}
+```
+
+`StreamEvent` is provider-agnostic. Providers can emit different subsets of events depending on their wire format and model support.
+
+## Stream an agent run
+
+Use agent streaming when tools may run during the response.
+
+```rust
+use aquaregia::{AgentStreamEvent, StreamEvent};
+use futures_util::StreamExt;
+
+let mut stream = agent
+    .stream("Should I bring an umbrella in Shanghai?")
+    .await?;
+
+while let Some(event) = stream.next().await {
+    match event? {
+        AgentStreamEvent::Model {
+            event: StreamEvent::TextDelta { text },
+            ..
+        } => print!("{text}"),
+        AgentStreamEvent::ToolCallStart { event } => {
+            eprintln!("[tool:start] {}", event.tool_call.tool_name);
+        }
+        AgentStreamEvent::ToolCallFinish { event } => {
+            eprintln!("[tool:done] error={}", event.tool_result.is_error);
+        }
+        AgentStreamEvent::StepFinish { event } => {
+            eprintln!("[step:{}] calls={}", event.step, event.tool_calls.len());
+        }
+        AgentStreamEvent::Done { output } => {
+            eprintln!("[done] steps={}", output.steps);
+            break;
+        }
+        _ => {}
+    }
+}
+```
+
+Agent streaming is the right data path for chat UIs, terminal agents, and debug panels because it shows both model output and tool execution.
+
+## Stream from stored messages
+
+If you already own the conversation history, use `stream_messages(...)`.
+
+```rust
+use aquaregia::Message;
+
+let messages = vec![
+    Message::system_text("You are concise."),
+    Message::user_text("Summarize the previous report."),
+];
+
+let mut stream = agent.stream_messages(messages).await?;
+```
+
+The final `Done` event contains the updated transcript. Persist that transcript for the next turn.
+
+## Map events to a UI
+
+A typical UI needs only a few event types:
+
+| UI need | Event |
+| --- | --- |
+| Append assistant text | `AgentStreamEvent::Model { event: StreamEvent::TextDelta { .. } }` |
+| Show tool is running | `AgentStreamEvent::ToolCallStart` |
+| Show tool result | `AgentStreamEvent::ToolCallFinish` |
+| Update debug timeline | `AgentStreamEvent::StepFinish` |
+| Persist transcript | `AgentStreamEvent::Done { output }` |
+
+The final `AgentOutput` contains the complete transcript. Persist that instead of reconstructing messages from streamed tokens.
+
+## Model stream events
+
+`client.stream(...)` emits provider-agnostic `StreamEvent` values:
+
+| Event | Meaning |
+| --- | --- |
+| `ReasoningStarted { block_id, provider_metadata }` | a reasoning block started |
+| `ReasoningDelta { block_id, text, provider_metadata }` | reasoning text arrived |
+| `ReasoningDone { block_id, provider_metadata }` | a reasoning block finished |
+| `TextDelta { text }` | visible assistant text arrived |
+| `ToolCallReady { call }` | the model produced a complete tool call |
+| `Usage { usage }` | usage counters arrived before the stream ended |
+| `Done { finish_reason }` | the model stream ended cleanly with the provider finish reason |
+
+Reasoning events appear only when the provider and model expose reasoning content. Treat them as optional debug or audit data unless your product explicitly displays reasoning.
+
+## Agent stream events
+
+`agent.stream(...)` wraps model events with the lifecycle of the tool loop:
+
+| Event | Meaning |
+| --- | --- |
+| `Start { event }` | run metadata: model, initial messages, tool count, max steps |
+| `StepStart { event }` | one model/tool-loop step is about to run |
+| `Model { step, event }` | a `StreamEvent` from the provider during that step |
+| `ToolCallStart { event }` | a registered Rust tool is about to execute |
+| `ToolCallFinish { event }` | a registered Rust tool finished and produced a tool result |
+| `StepFinish { event }` | one step completed, including text, tool calls, usage, and finish reason |
+| `Done { output }` | the full agent run completed successfully |
+
+Errors are delivered as `Err(Error)` items from the stream. When that happens, stop reading and handle the error the same way you would handle a failed non-streaming call.
+
+## Send streaming over SSE
+
+Aquaregia does not force a web transport. For a server-sent events endpoint, map events into your application's wire format.
+
+```rust
+match event? {
+    AgentStreamEvent::Model {
+        event: StreamEvent::TextDelta { text },
+        ..
+    } => send_sse("text_delta", text).await?,
+    AgentStreamEvent::ToolCallStart { event } => {
+        send_sse("tool_start", event.tool_call.tool_name).await?;
+    }
+    AgentStreamEvent::Done { output } => {
+        send_sse("done", output.output_text).await?;
+    }
+    _ => {}
+}
+```
+
+Keep the final `Done` payload authoritative. Intermediate text deltas are for display; the final output and transcript are what you should store.
+
+## When not to stream
+
+Use `prompt(...)` or `run(...)` when:
+
+- the caller is a background job
+- you only need a final value
+- the response is small
+- your application already has its own progress model
+
+Streaming adds event handling. Use it when that extra surface improves the user experience.

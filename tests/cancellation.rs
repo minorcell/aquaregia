@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};
-use aquaregia::{Agent, CancellationToken, ErrorCode, GenerateTextRequest, LlmClient, Tool};
+use aquaregia::{ChatRequest, ErrorCode, Tool};
 use async_trait::async_trait;
 use serde_json::{Value, json};
+use tokio_util::sync::CancellationToken;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -17,14 +18,14 @@ async fn cancel_before_request_fires() {
     let token = CancellationToken::new();
     token.cancel(); // pre-cancelled
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let req = GenerateTextRequest::builder("gpt-5.4-mini")
-        .user_prompt("hello")
+    let req = ChatRequest::builder("gpt-5.4-mini")
+        .user("hello")
         .cancellation_token(token)
         .build()
         .expect("request should build");
@@ -47,13 +48,14 @@ async fn cancel_before_agent_step() {
     let token = CancellationToken::new();
     token.cancel();
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .max_steps(3)
         .cancellation_token(token)
         .build()
@@ -120,13 +122,14 @@ async fn cancel_between_agent_steps() {
         executor: Arc::new(CancelOnExecTool(token.clone())),
     };
 
-    let client = LlmClient::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([cancel_tool])
         .max_steps(5)
         .cancellation_token(token)

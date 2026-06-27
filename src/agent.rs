@@ -16,26 +16,27 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Agent, LlmClient, ToolBuilder};
-//! use serde_json::{Value, json};
+//! use aquaregia::{providers::openai, tool};
+//! use serde_json::json;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let get_weather = ToolBuilder::new("get_weather")
+//! let get_weather = tool("get_weather")
 //!     .description("Get weather by city")
 //!     .execute(|city: String| async move {
-//!         Ok(json!({ "city": city, "temp_c": 23, "condition": "sunny" }))
+//!         json!({ "city": city, "temp_c": 23, "condition": "sunny" })
 //!     });
 //!
-//! let client = LlmClient::openai().api_key("api-key").build()?;
-//!
-//! let agent = Agent::builder(client, "gpt-5.5")
+//! let agent = openai::Client::builder()
+//!     .api_key("api-key")
+//!     .build()?
+//!     .agent("gpt-5.5")
 //!     .instructions("You can call tools before answering.")
-//!     .tools([get_weather])
+//!     .tool(get_weather)
 //!     .max_steps(4)
 //!     .build()?;
 //!
-//! let out = agent.run("What is the weather in Shanghai?").await?;
-//! println!("{}", out.output_text);
+//! let out = agent.prompt("What is the weather in Shanghai?").await?;
+//! println!("{out}");
 //! # Ok(())
 //! # }
 //! ```
@@ -46,12 +47,12 @@ use tokio_util::sync::CancellationToken;
 
 use serde_json::Value;
 
-use crate::client::BoundClient;
+use crate::client::Client;
 use crate::tool::IntoTool;
 use crate::types::{
-    AgentFinish, AgentPrepareStep, AgentPreparedStep, AgentResponse, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, Message, RunTools, ToolErrorPolicy,
-    validate_model_ref, validate_sampling,
+    AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
+    AgentStepStart, AgentStream, AgentToolCallFinish, AgentToolCallStart, Message, RunTools,
+    ToolErrorPolicy, validate_model_ref, validate_sampling,
 };
 
 /// Multi-step tool-using agent bound to one provider and one default model.
@@ -70,14 +71,17 @@ use crate::types::{
 /// - **Cancellation**: Bind a `CancellationToken` at builder time to cancel running agents
 /// - **Error policies**: Configurable tool error handling (`ContinueAsToolResult` or `FailFast`)
 pub struct Agent {
-    client: Arc<BoundClient>,
+    client: Arc<Client>,
     instructions: Option<String>,
     template: RunTools,
 }
 
 impl Agent {
-    /// Starts building an [`Agent`] from a provider-bound client and model.
-    pub fn builder(client: impl Into<Arc<BoundClient>>, model: impl Into<String>) -> AgentBuilder {
+    /// Starts building an [`Agent`] from an internal provider-bound client and model.
+    pub(crate) fn builder(
+        client: impl Into<Arc<Client>>,
+        model: impl Into<String>,
+    ) -> AgentBuilder {
         AgentBuilder::new(client.into(), model.into())
     }
 
@@ -102,12 +106,30 @@ impl Agent {
     /// Runs the agent with a single user prompt.
     ///
     /// If `instructions` were configured, they are inserted as an initial system message.
-    pub async fn run(
-        &self,
-        prompt: impl Into<String>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    pub async fn run(&self, prompt: impl Into<String>) -> Result<AgentOutput, crate::error::Error> {
         let messages = vec![Message::user_text(prompt)];
         self.run_messages_inner(self.inject_instructions(messages))
+            .await
+    }
+
+    /// Prompts the agent and returns only the visible output text.
+    ///
+    /// Use [`Agent::run`] when you need run metadata such as steps, transcript,
+    /// tool results, or token usage.
+    pub async fn prompt(&self, prompt: impl Into<String>) -> Result<String, crate::error::Error> {
+        self.run(prompt).await.map(|output| output.output_text)
+    }
+
+    /// Streams the full agent execution for a single user prompt.
+    ///
+    /// The returned stream includes model deltas, tool execution events, step
+    /// snapshots, and the final [`AgentOutput`].
+    pub async fn stream(
+        &self,
+        prompt: impl Into<String>,
+    ) -> Result<AgentStream, crate::error::Error> {
+        let messages = vec![Message::user_text(prompt)];
+        self.stream_messages_inner(self.inject_instructions(messages))
             .await
     }
 
@@ -119,30 +141,52 @@ impl Agent {
     pub async fn run_messages(
         &self,
         messages: Vec<Message>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    ) -> Result<AgentOutput, crate::error::Error> {
         self.run_messages_inner(self.inject_instructions(messages))
+            .await
+    }
+
+    /// Streams the full agent execution for an explicit message list.
+    ///
+    /// If `instructions` were configured and the message list does not already
+    /// contain a system message, the instructions are inserted as a system
+    /// message at the front of the list.
+    pub async fn stream_messages(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<AgentStream, crate::error::Error> {
+        self.stream_messages_inner(self.inject_instructions(messages))
             .await
     }
 
     async fn run_messages_inner(
         &self,
         messages: Vec<Message>,
-    ) -> Result<AgentResponse, crate::error::Error> {
+    ) -> Result<AgentOutput, crate::error::Error> {
         let mut request = self.template.clone();
         request.messages = messages;
         self.client.run_tools(request.build()?).await
+    }
+
+    async fn stream_messages_inner(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<AgentStream, crate::error::Error> {
+        let mut request = self.template.clone();
+        request.messages = messages;
+        Arc::clone(&self.client).stream_tools(request.build()?)
     }
 }
 
 /// Builder for configuring an [`Agent`].
 pub struct AgentBuilder {
-    client: Arc<BoundClient>,
+    client: Arc<Client>,
     instructions: Option<String>,
     template: RunTools,
 }
 
 impl AgentBuilder {
-    fn new(client: Arc<BoundClient>, model: String) -> Self {
+    pub(crate) fn new(client: Arc<Client>, model: String) -> Self {
         Self {
             client,
             instructions: None,
@@ -153,6 +197,15 @@ impl AgentBuilder {
     /// Sets default system instructions prepended for prompt-based runs.
     pub fn instructions(mut self, instructions: impl Into<String>) -> Self {
         self.instructions = Some(instructions.into());
+        self
+    }
+
+    /// Registers one tool available to the model.
+    pub fn tool<T>(mut self, tool: T) -> Self
+    where
+        T: IntoTool,
+    {
+        self.template = self.template.tool(tool);
         self
     }
 
@@ -294,12 +347,12 @@ impl AgentBuilder {
 
     /// Sets provider-specific options passed through on every step.
     ///
-    /// Same shape as [`GenerateTextRequestBuilder::provider_options`]: a JSON
+    /// Same shape as [`ChatRequestBuilder::provider_options`]: a JSON
     /// object keyed by provider slug (e.g. `"anthropic"`, `"openai"`). Each
     /// adapter extracts its own block and merges it into the request payload
     /// for every step in the loop.
     ///
-    /// [`GenerateTextRequestBuilder::provider_options`]: crate::GenerateTextRequest::builder
+    /// [`ChatRequestBuilder::provider_options`]: crate::ChatRequest::builder
     pub fn provider_options(mut self, options: Value) -> Self {
         self.template = self.template.provider_options(options);
         self
@@ -320,19 +373,19 @@ impl AgentBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::Agent;
-    use crate::LlmClient;
+    use crate::providers;
     use serde_json::json;
 
     #[test]
     fn builder_accepts_provider_options() {
-        let client = LlmClient::openai()
+        let client = providers::openai::Client::builder()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
         let options = json!({ "anthropic": { "thinking": { "budget_tokens": 1024 } } });
-        let agent = Agent::builder(client, "claude-sonnet-4-6")
+        let agent = client
+            .agent("claude-sonnet-4-6")
             .provider_options(options.clone())
             .build()
             .expect("agent should build");
@@ -342,12 +395,13 @@ mod tests {
 
     #[test]
     fn builder_accepts_typed_model() {
-        let client = LlmClient::openai()
+        let client = providers::openai::Client::builder()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let agent = Agent::builder(client, "gpt-5.4-mini")
+        let agent = client
+            .agent("gpt-5.4-mini")
             .max_steps(3)
             .build()
             .expect("agent should build");
@@ -357,12 +411,12 @@ mod tests {
 
     #[test]
     fn builder_rejects_invalid_top_p() {
-        let client = LlmClient::openai()
+        let client = providers::openai::Client::builder()
             .api_key("test-key")
             .base_url("https://api.openai.com")
             .build()
             .expect("client should build");
-        let err = match Agent::builder(client, "gpt-5.4-mini").top_p(1.5).build() {
+        let err = match client.agent("gpt-5.4-mini").top_p(1.5).build() {
             Ok(_) => panic!("agent build should fail"),
             Err(err) => err,
         };

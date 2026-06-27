@@ -1,34 +1,25 @@
 //! Basic embedding generation example.
 //!
-//! This example demonstrates how to generate text embeddings using the
-//! OpenAI-compatible embedding API.
+//! This example demonstrates how to generate text embeddings using OpenAI.
 //!
 //! ## Usage
 //!
 //! ```bash
-//! DEEPSEEK_API_KEY=your-key cargo run --example basic_embed
+//! OPENAI_API_KEY=your-key cargo run --example basic_embed
 //! ```
 
-use aquaregia::LlmClient;
 use aquaregia::embed::EmbedRequest;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .expect("DEEPSEEK_API_KEY or OPENAI_API_KEY must be set");
-
-    let client = LlmClient::openai_compatible()
-        .base_url("https://api.deepseek.com")
-        .api_key(api_key)
-        .build()?;
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     println!("Generating embeddings...\n");
 
     // Single text embedding
     let response = client
         .embed(EmbedRequest::new(
-            "deepseek-embedding",
+            "text-embedding-3-small",
             vec!["Hello, world!"],
         ))
         .await?;
@@ -48,7 +39,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let response = client
-        .embed(EmbedRequest::new("deepseek-embedding", texts.clone()))
+        .embed(EmbedRequest::new("text-embedding-3-small", texts.clone()))
         .await?;
 
     println!("Batch embeddings:");

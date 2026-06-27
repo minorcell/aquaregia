@@ -1,4 +1,4 @@
-use aquaregia::{GenerateTextRequest, LlmClient};
+use aquaregia::ChatRequest;
 use serde_json::json;
 
 /// 场景：调用 Anthropic 的 native `web_search` 工具。
@@ -17,10 +17,12 @@ use serde_json::json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("ANTHROPIC_API_KEY")?;
 
-    let client = LlmClient::anthropic().api_key(api_key).build()?;
+    let client = aquaregia::providers::anthropic::Client::builder()
+        .api_key(api_key)
+        .build()?;
 
-    let req = GenerateTextRequest::builder("claude-sonnet-4-6")
-        .user_prompt("What did Rust 1.85 ship? Cite sources.")
+    let req = ChatRequest::builder("claude-sonnet-4-6")
+        .user("What did Rust 1.85 ship? Cite sources.")
         .provider_options(json!({
             "anthropic": {
                 "tools": [{
