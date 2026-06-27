@@ -250,11 +250,25 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
             let mut reasoning_active = false;
             let mut reasoning_block_counter: u32 = 0;
             let mut reasoning_block_id = String::new();
+            let mut finish_reason = FinishReason::Stop;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -273,7 +287,9 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                             reasoning_active = false;
                         }
                         done = true;
-                        yield StreamEvent::Done;
+                        yield StreamEvent::Done {
+                            finish_reason: finish_reason.clone(),
+                        };
                         break;
                     }
 
@@ -384,17 +400,18 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                         yield StreamEvent::Usage { usage };
                     }
 
-                    if let Some(finish_reason) = value
+                    if let Some(raw_finish_reason) = value
                         .get("choices")
                         .and_then(Value::as_array)
                         .and_then(|arr| arr.first())
                         .and_then(|choice| choice.get("finish_reason"))
                         .and_then(Value::as_str)
                     {
+                        let mapped_finish_reason = map_openai_finish_reason(raw_finish_reason);
                         // `function_call` is the deprecated finish reason for the legacy
                         // function-calling API; treat it the same as `tool_calls` so the assembled
                         // calls are not lost when a compatibility endpoint still emits the old name.
-                        if matches!(finish_reason, "tool_calls" | "function_call")
+                        if matches!(raw_finish_reason, "tool_calls" | "function_call")
                             && !tool_partial.is_empty()
                         {
                             for partial in tool_partial.values() {
@@ -404,6 +421,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                             }
                             tool_partial.clear();
                         }
+                        finish_reason = mapped_finish_reason;
                     }
                 }
 
@@ -423,7 +441,7 @@ impl ModelAdapter for OpenAiCompatibleAdapter {
                 if saw_payload_frame {
                     // Some OpenAI-compatible servers close the stream after final chunk
                     // without emitting a terminal `[DONE]` marker.
-                    yield StreamEvent::Done;
+                    yield StreamEvent::Done { finish_reason };
                 } else {
                     Err(Error::new(
                         ErrorCode::StreamProtocol,

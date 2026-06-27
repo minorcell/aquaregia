@@ -435,6 +435,28 @@ pub mod openai_compatible {
             }
         }
 
+        /// Builds an OpenAI-compatible client from environment variables.
+        ///
+        /// Reads `OPENAI_COMPATIBLE_BASE_URL`. If `OPENAI_COMPATIBLE_API_KEY`
+        /// is set, it is sent as a bearer token; otherwise requests are sent
+        /// without an `Authorization` header.
+        pub fn from_env() -> Result<Self, Error> {
+            let base_url = std::env::var("OPENAI_COMPATIBLE_BASE_URL").map_err(|_| {
+                Error::new(
+                    ErrorCode::InvalidRequest,
+                    "OPENAI_COMPATIBLE_BASE_URL environment variable must be set",
+                )
+            })?;
+
+            let mut builder = Self::builder().base_url(base_url);
+            if let Ok(api_key) = std::env::var("OPENAI_COMPATIBLE_API_KEY") {
+                builder = builder.api_key(api_key);
+            } else {
+                builder = builder.no_api_key();
+            }
+            builder.build()
+        }
+
         provider_client_methods!();
     }
 

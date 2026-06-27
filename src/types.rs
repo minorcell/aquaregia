@@ -22,7 +22,7 @@ use crate::tool::{IntoTool, Tool, ToolDescriptor};
 ///
 /// This enum represents the standard roles in a multi-turn conversation,
 /// following the convention used by major LLM providers.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageRole {
     /// System/instruction message providing behavioral guidelines.
     System,
@@ -45,15 +45,13 @@ pub enum MessageRole {
 /// A message consists of:
 /// - A [`MessageRole`] indicating the sender
 /// - A list of [`ContentPart`] items (text, reasoning, tool calls, etc.)
-/// - An optional name for authorship attribution
+/// - Optional provider-specific options
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     /// Message role indicating the sender type.
     pub(crate) role: MessageRole,
     /// Content parts making up the message body.
     pub(crate) parts: Vec<ContentPart>,
-    /// Optional author/tool name for attribution.
-    pub(crate) name: Option<String>,
     /// Provider-specific options merged into this message's serialized form.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub(crate) provider_options: Option<Value>,
@@ -73,7 +71,6 @@ impl Message {
         Self {
             role,
             parts,
-            name: None,
             provider_options: None,
         }
     }
@@ -90,7 +87,6 @@ impl Message {
         Self {
             role: MessageRole::System,
             parts: vec![ContentPart::Text(TextPart::new(text))],
-            name: None,
             provider_options: None,
         }
     }
@@ -106,7 +102,6 @@ impl Message {
         Self {
             role: MessageRole::User,
             parts: vec![ContentPart::Text(TextPart::new(text))],
-            name: None,
             provider_options: None,
         }
     }
@@ -122,7 +117,6 @@ impl Message {
         Self {
             role: MessageRole::Assistant,
             parts: vec![ContentPart::Text(TextPart::new(text))],
-            name: None,
             provider_options: None,
         }
     }
@@ -139,7 +133,6 @@ impl Message {
         Self {
             role: MessageRole::Tool,
             parts: vec![ContentPart::ToolResult(result)],
-            name: None,
             provider_options: None,
         }
     }
@@ -162,7 +155,7 @@ impl Message {
 
     /// Returns the message role.
     pub fn role(&self) -> MessageRole {
-        self.role.clone()
+        self.role
     }
 
     /// Returns message content parts.
@@ -175,7 +168,6 @@ impl Message {
         Self {
             role: MessageRole::Assistant,
             parts,
-            name: None,
             provider_options: None,
         }
     }
@@ -188,7 +180,6 @@ impl Message {
                 MediaData::Url(url.into()),
                 media_type,
             ))],
-            name: None,
             provider_options: None,
         }
     }
@@ -201,7 +192,6 @@ impl Message {
                 MediaData::Bytes(bytes),
                 media_type,
             ))],
-            name: None,
             provider_options: None,
         }
     }
@@ -395,6 +385,41 @@ pub struct ChatRequest {
 }
 
 impl ChatRequest {
+    /// Returns the model identifier.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Returns request messages.
+    pub fn messages(&self) -> &[Message] {
+        &self.messages
+    }
+
+    /// Returns the optional sampling temperature.
+    pub fn temperature(&self) -> Option<f32> {
+        self.temperature
+    }
+
+    /// Returns the optional nucleus sampling value.
+    pub fn top_p(&self) -> Option<f32> {
+        self.top_p
+    }
+
+    /// Returns the optional maximum output token budget.
+    pub fn max_output_tokens(&self) -> Option<u32> {
+        self.max_output_tokens
+    }
+
+    /// Returns stop sequences.
+    pub fn stop_sequences(&self) -> &[String] {
+        &self.stop_sequences
+    }
+
+    /// Returns tool descriptors available to the request.
+    pub fn tools(&self) -> Option<&[ToolDescriptor]> {
+        self.tools.as_deref()
+    }
+
     /// Returns the optional output schema for structured generation.
     pub fn output_schema(&self) -> Option<&OutputSchema> {
         self.output_schema.as_ref()
@@ -452,15 +477,23 @@ impl ChatRequestBuilder {
         self
     }
 
-    /// Replaces messages with a single user prompt.
-    pub fn user(mut self, prompt: impl Into<String>) -> Self {
-        self.request.messages = vec![Message::user_text(prompt)];
+    /// Replaces messages.
+    pub fn messages(mut self, messages: impl IntoIterator<Item = Message>) -> Self {
+        self.request.messages = messages.into_iter().collect();
         self
     }
 
-    /// Replaces messages with a single system instruction.
+    /// Appends one user message.
+    pub fn user(mut self, prompt: impl Into<String>) -> Self {
+        self.request.messages.push(Message::user_text(prompt));
+        self
+    }
+
+    /// Appends one system message.
     pub fn system(mut self, instruction: impl Into<String>) -> Self {
-        self.request.messages = vec![Message::system_text(instruction)];
+        self.request
+            .messages
+            .push(Message::system_text(instruction));
         self
     }
 
@@ -977,26 +1010,8 @@ impl std::ops::Add for Usage {
     type Output = Usage;
 
     fn add(self, rhs: Self) -> Self::Output {
-        let mut usage = Usage {
-            input_tokens: self.input_tokens.saturating_add(rhs.input_tokens),
-            input_no_cache_tokens: self
-                .input_no_cache_tokens
-                .saturating_add(rhs.input_no_cache_tokens),
-            input_cache_read_tokens: self
-                .input_cache_read_tokens
-                .saturating_add(rhs.input_cache_read_tokens),
-            input_cache_write_tokens: self
-                .input_cache_write_tokens
-                .saturating_add(rhs.input_cache_write_tokens),
-            output_tokens: self.output_tokens.saturating_add(rhs.output_tokens),
-            output_text_tokens: self
-                .output_text_tokens
-                .saturating_add(rhs.output_text_tokens),
-            reasoning_tokens: self.reasoning_tokens.saturating_add(rhs.reasoning_tokens),
-            total_tokens: self.total_tokens.saturating_add(rhs.total_tokens),
-            raw_usage: None,
-        };
-        usage.normalize_usage_fields();
+        let mut usage = self;
+        usage += rhs;
         usage
     }
 }
@@ -1164,7 +1179,10 @@ pub enum StreamEvent {
         usage: Usage,
     },
     /// Stream finished cleanly.
-    Done,
+    Done {
+        /// Provider finish reason for the streamed request.
+        finish_reason: FinishReason,
+    },
 }
 
 /// Streaming event emitted by an agent run.
@@ -1275,7 +1293,7 @@ pub(crate) fn validate_messages(messages: &[Message]) -> Result<(), Error> {
     }
 
     for msg in messages {
-        validate_message_parts(msg.role.clone(), &msg.parts)?;
+        validate_message_parts(msg.role, &msg.parts)?;
     }
 
     Ok(())
@@ -1334,7 +1352,6 @@ mod tests {
         let err = validate_messages(&[Message {
             role: MessageRole::User,
             parts: vec![],
-            name: None,
             provider_options: None,
         }])
         .expect_err("message with empty parts should fail");
@@ -1346,7 +1363,6 @@ mod tests {
         let err = validate_messages(&[Message {
             role: MessageRole::Tool,
             parts: vec![ContentPart::Text(TextPart::new("x"))],
-            name: None,
             provider_options: None,
         }])
         .expect_err("tool role without ToolResult should fail");
@@ -1519,7 +1535,16 @@ mod tests {
     }
 
     #[test]
-    fn usage_add_drops_raw_usage() {
+    fn usage_add_preserves_first_raw_usage() {
+        let mut a = Usage::from_totals(10, 5, 0, Some(15));
+        a.raw_usage = Some(serde_json::json!({"first": true}));
+        let b = Usage::from_totals(20, 10, 0, None);
+        let total = a + b;
+        assert_eq!(total.raw_usage, Some(serde_json::json!({"first": true})));
+    }
+
+    #[test]
+    fn usage_add_with_second_raw_usage_drops_to_none() {
         let mut a = Usage::from_totals(1, 1, 0, None);
         a.raw_usage = Some(serde_json::json!({"a": 1}));
         let mut b = Usage::from_totals(1, 1, 0, None);
@@ -1660,10 +1685,17 @@ mod tests {
 
     #[test]
     fn stream_event_done_serialization() {
-        let event = StreamEvent::Done;
+        let event = StreamEvent::Done {
+            finish_reason: FinishReason::Stop,
+        };
         let json = serde_json::to_string(&event).unwrap();
         let back: StreamEvent = serde_json::from_str(&json).unwrap();
-        assert!(matches!(back, StreamEvent::Done));
+        assert!(matches!(
+            back,
+            StreamEvent::Done {
+                finish_reason: FinishReason::Stop
+            }
+        ));
     }
 
     #[test]
@@ -1872,10 +1904,22 @@ mod tests {
     }
 
     #[test]
-    fn request_builder_user_replaces_messages() {
+    fn request_builder_user_and_system_append_messages() {
         let req = ChatRequest::builder("gpt-5.4-mini")
-            .message(Message::user_text("old"))
-            .user("replaced")
+            .system("Be helpful")
+            .user("hello")
+            .build()
+            .expect("request should build");
+        assert_eq!(req.messages.len(), 2);
+        assert_eq!(req.messages[0].role(), MessageRole::System);
+        assert_eq!(req.messages[1].role(), MessageRole::User);
+    }
+
+    #[test]
+    fn request_builder_messages_replaces_messages() {
+        let req = ChatRequest::builder("gpt-5.4-mini")
+            .user("old")
+            .messages([Message::user_text("new")])
             .build()
             .expect("request should build");
         assert_eq!(req.messages.len(), 1);
@@ -1897,6 +1941,27 @@ mod tests {
         assert_eq!(req.max_output_tokens, Some(100));
         assert_eq!(req.stop_sequences.len(), 2);
         assert!(req.cancellation_token.is_some());
+    }
+
+    #[test]
+    fn request_getters_expose_configured_fields() {
+        let req = ChatRequest::builder("gpt-5.4-mini")
+            .system("Be helpful")
+            .user("hello")
+            .temperature(0.4)
+            .top_p(0.8)
+            .max_output_tokens(64)
+            .stop_sequences(["END"])
+            .build()
+            .expect("request should build");
+
+        assert_eq!(req.model(), "gpt-5.4-mini");
+        assert_eq!(req.messages().len(), 2);
+        assert_eq!(req.temperature(), Some(0.4));
+        assert_eq!(req.top_p(), Some(0.8));
+        assert_eq!(req.max_output_tokens(), Some(64));
+        assert_eq!(req.stop_sequences(), &["END".to_string()]);
+        assert!(req.tools().is_none());
     }
 
     #[test]
@@ -1978,7 +2043,6 @@ mod tests {
         let err = validate_messages(&[Message {
             role: MessageRole::User,
             parts: vec![],
-            name: None,
             provider_options: None,
         }])
         .expect_err("message with empty parts should fail");

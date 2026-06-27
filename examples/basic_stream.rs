@@ -28,7 +28,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 full_text.push_str(&text);
                 print!("{text}");
             }
-            StreamEvent::Done => break,
+            StreamEvent::Done { .. } => break,
             _ => {}
         }
     }

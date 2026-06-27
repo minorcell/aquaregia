@@ -39,6 +39,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - run: pnpm build
+        env:
+          NEXT_PUBLIC_BASE_PATH: ${{ vars.DOCS_BASE_PATH || format('/{0}', github.event.repository.name) }}
+          NEXT_PUBLIC_SITE_URL: ${{ vars.DOCS_SITE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
 
       - uses: actions/configure-pages@v5
 

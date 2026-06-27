@@ -1,5 +1,8 @@
 use aquaregia::ErrorCode;
+use std::sync::Mutex;
 use std::time::Duration;
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 // ─── OpenAI client builder ──────────────────────────────────────────────
 
@@ -129,6 +132,38 @@ fn openai_compatible_rejects_empty_base_url() {
     {
         Err(err) => assert_eq!(err.code, ErrorCode::InvalidRequest),
         Ok(_) => panic!("empty base url should fail"),
+    }
+}
+
+#[test]
+fn openai_compatible_from_env_uses_base_url_and_optional_api_key() {
+    let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
+    unsafe {
+        std::env::set_var("OPENAI_COMPATIBLE_BASE_URL", "https://api.example.com");
+        std::env::set_var("OPENAI_COMPATIBLE_API_KEY", "sk-compatible");
+    }
+
+    let client = aquaregia::providers::openai_compatible::Client::from_env()
+        .expect("client should build from env");
+    let _ = client;
+
+    unsafe {
+        std::env::remove_var("OPENAI_COMPATIBLE_BASE_URL");
+        std::env::remove_var("OPENAI_COMPATIBLE_API_KEY");
+    }
+}
+
+#[test]
+fn openai_compatible_from_env_requires_base_url() {
+    let _guard = ENV_LOCK.lock().expect("env lock should not be poisoned");
+    unsafe {
+        std::env::remove_var("OPENAI_COMPATIBLE_BASE_URL");
+        std::env::remove_var("OPENAI_COMPATIBLE_API_KEY");
+    }
+
+    match aquaregia::providers::openai_compatible::Client::from_env() {
+        Err(err) => assert_eq!(err.code, ErrorCode::InvalidRequest),
+        Ok(_) => panic!("missing base url should fail"),
     }
 }
 

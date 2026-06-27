@@ -179,11 +179,26 @@ impl ModelAdapter for GoogleAdapter {
             let mut reasoning_counter = 0u32;
             let mut current_reasoning_id: Option<String> = None;
             let mut current_reasoning_metadata: Option<Value> = None;
+            let mut finish_reason = FinishReason::Stop;
+            let mut saw_tool_call = false;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -269,6 +284,7 @@ impl ModelAdapter for GoogleAdapter {
                                                 args_json,
                                             },
                                         };
+                                        saw_tool_call = true;
                                     }
                                 }
                             }
@@ -276,6 +292,7 @@ impl ModelAdapter for GoogleAdapter {
 
                         if let Some(reason) = candidate.get("finishReason").and_then(Value::as_str) {
                             if reason != "FINISH_REASON_UNSPECIFIED" {
+                                finish_reason = map_google_finish_reason(reason, saw_tool_call);
                                 done = true;
                             }
                         }
@@ -297,7 +314,7 @@ impl ModelAdapter for GoogleAdapter {
                     provider_metadata: current_reasoning_metadata.take(),
                 };
             }
-            yield StreamEvent::Done;
+            yield StreamEvent::Done { finish_reason };
         };
 
         Ok(Box::pin(stream))

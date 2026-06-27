@@ -1,3 +1,4 @@
+use aquaregia::tool::ToolDescriptor;
 use aquaregia::{
     ChatRequest, ContentPart, ErrorCode, FinishReason, Message, MessageRole, StreamEvent,
     ToolResult,
@@ -52,7 +53,7 @@ async fn google_stream_emits_text_usage_done() {
             StreamEvent::Usage { usage } if usage.input_tokens == 3 && usage.total_tokens == 6 => {
                 saw_usage = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -104,7 +105,7 @@ async fn google_stream_with_reasoning() {
         match event {
             StreamEvent::TextDelta { text } => output_text.push_str(&text),
             StreamEvent::ReasoningDelta { text, .. } => reasoning_text.push_str(&text),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -382,7 +383,7 @@ async fn anthropic_stream_with_thinking() {
         match event {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
             StreamEvent::ReasoningDelta { text: r, .. } => reasoning.push_str(&r),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -445,7 +446,7 @@ async fn openai_stream_with_reasoning_delta() {
         match event {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
             StreamEvent::ReasoningDelta { text: r, .. } => reasoning.push_str(&r),
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -506,7 +507,7 @@ async fn openai_stream_with_tool_calls_and_finish() {
             StreamEvent::ToolCallReady { call } if call.tool_name == "weather" => {
                 saw_tool_call = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done { .. } => {
                 saw_done = true;
                 break;
             }
@@ -860,7 +861,7 @@ async fn openai_stream_refusal_surfaces_as_text_delta() {
     while let Some(event) = stream.next().await {
         match event.expect("stream event should parse") {
             StreamEvent::TextDelta { text: t } => text.push_str(&t),
-            StreamEvent::Done => break,
+            StreamEvent::Done { .. } => break,
             _ => {}
         }
     }
@@ -1281,13 +1282,72 @@ async fn anthropic_generate_object_injects_respond_tool() {
     let tools = body["tools"].as_array().expect("tools should be present");
     assert_eq!(tools.len(), 1);
     assert_eq!(tools[0]["name"], "respond");
-    assert_eq!(tools[0]["type"], "custom");
+    assert!(tools[0].get("type").is_none());
     assert!(tools[0]["input_schema"].is_object());
 
     // Verify tool_choice forces "respond".
     let tc = &body["tool_choice"];
     assert_eq!(tc["type"], "tool");
     assert_eq!(tc["name"], "respond");
+}
+
+#[tokio::test]
+async fn anthropic_tool_definition_has_no_type_field() {
+    let server = MockServer::start().await;
+    let body = json!({
+        "id": "msg_001",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude-sonnet-4-6",
+        "content": [{ "type": "text", "text": "ok" }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 4, "output_tokens": 1 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(body))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let tool = ToolDescriptor {
+        name: "lookup".to_string(),
+        description: "Look up a value".to_string(),
+        input_schema: json!({
+            "type": "object",
+            "properties": {
+                "id": { "type": "string" }
+            },
+            "required": ["id"]
+        }),
+    };
+
+    let req = ChatRequest::builder("claude-sonnet-4-6")
+        .message(Message::user_text("lookup abc"))
+        .tools([tool])
+        .build()
+        .expect("request should build");
+
+    let client = aquaregia::providers::anthropic::Client::builder()
+        .api_key("test-key")
+        .base_url(server.uri())
+        .build()
+        .expect("client should build");
+
+    client.generate(req).await.expect("generate should succeed");
+
+    let requests = server
+        .received_requests()
+        .await
+        .expect("wiremock should record requests");
+    let body: serde_json::Value = requests[0]
+        .body_json()
+        .expect("request body should be valid json");
+    let tools = body["tools"].as_array().expect("tools should be present");
+
+    assert_eq!(tools[0]["name"], "lookup");
+    assert!(tools[0].get("type").is_none());
 }
 
 // ─── Structured output — Google function-calling trick ─────────────────────

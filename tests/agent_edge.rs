@@ -425,3 +425,88 @@ async fn agent_prepare_step_changes_tools() {
     assert_eq!(response.output_text, "No tools, direct answer");
     assert_eq!(response.steps, 1);
 }
+
+#[tokio::test]
+async fn agent_prepare_step_replaces_same_name_tool_executor() {
+    let server = MockServer::start().await;
+
+    let step1 = json!({
+        "choices": [{
+            "message": {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "swap_tool",
+                        "arguments": "{}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": { "prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7 }
+    });
+    let step2 = json!({
+        "choices": [{
+            "message": { "content": "done" },
+            "finish_reason": "stop"
+        }],
+        "usage": { "prompt_tokens": 5, "completion_tokens": 2, "total_tokens": 7 }
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(body_string_contains("\"role\":\"tool\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(step2))
+        .expect(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(step1))
+        .expect(1)
+        .with_priority(5)
+        .mount(&server)
+        .await;
+
+    let client = aquaregia::providers::openai_compatible::Client::builder()
+        .base_url(server.uri())
+        .api_key("test-key")
+        .build()
+        .expect("client should build");
+
+    let old_tool = aquaregia::tool("swap_tool")
+        .description("old executor")
+        .execute_raw(|_args| async move { Ok(json!({"source": "old"})) });
+
+    let agent = client
+        .agent("gpt-5.4-mini")
+        .tool(old_tool)
+        .max_steps(3)
+        .prepare_step(|event| {
+            let replacement_tool = aquaregia::tool("swap_tool")
+                .description("new executor")
+                .execute_raw(|_args| async move { Ok(json!({"source": "new"})) });
+
+            AgentPreparedStep {
+                model: event.model.clone(),
+                messages: event.messages.clone(),
+                tools: vec![replacement_tool],
+                temperature: event.temperature,
+                max_output_tokens: event.max_output_tokens,
+                stop_sequences: event.stop_sequences.clone(),
+            }
+        })
+        .build()
+        .expect("agent should build");
+
+    let response = agent.run("call tool").await.expect("agent should succeed");
+
+    assert_eq!(
+        response.step_results[0].tool_results[0].output_json,
+        json!({"source": "new"})
+    );
+}

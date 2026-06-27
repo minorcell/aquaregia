@@ -173,11 +173,25 @@ impl ModelAdapter for AnthropicAdapter {
             let mut pending_calls: HashMap<u64, PendingToolUse> = HashMap::new();
             let mut reasoning_blocks: HashMap<u64, (String, Option<Value>)> = HashMap::new();
             let mut done = false;
+            let mut finish_reason = FinishReason::Stop;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -342,6 +356,13 @@ impl ModelAdapter for AnthropicAdapter {
                                 if let Some(usage) = value.get("usage").and_then(parse_anthropic_usage) {
                                     yield StreamEvent::Usage { usage };
                                 }
+                                if let Some(reason) = value
+                                    .get("delta")
+                                    .and_then(|delta| delta.get("stop_reason"))
+                                    .and_then(Value::as_str)
+                                {
+                                    finish_reason = map_anthropic_finish_reason(reason);
+                                }
                             }
                             "error" => {
                                 let msg = value
@@ -362,7 +383,9 @@ impl ModelAdapter for AnthropicAdapter {
                                     };
                                 }
                                 done = true;
-                                yield StreamEvent::Done;
+                                yield StreamEvent::Done {
+                                    finish_reason: finish_reason.clone(),
+                                };
                             }
                             _ => {}
                         }
@@ -486,7 +509,6 @@ fn build_anthropic_payload(req: &ChatRequest, stream: bool) -> Result<Value, Err
         payload.insert(
             "tools".to_string(),
             Value::Array(vec![json!({
-                "type": "custom",
                 "name": "respond",
                 "description": output_schema
                     .description
@@ -507,7 +529,6 @@ fn build_anthropic_payload(req: &ChatRequest, stream: bool) -> Result<Value, Err
                     .iter()
                     .map(|tool| {
                         json!({
-                            "type": "custom",
                             "name": tool.name,
                             "description": tool.description,
                             "input_schema": tool.input_schema,
@@ -620,10 +641,9 @@ fn to_anthropic_message(message: &Message) -> Result<Value, Error> {
             merge_provider_options(&mut msg, message.provider_options.as_ref(), PROVIDER_SLUG);
             Ok(Value::Object(msg))
         }
-        MessageRole::System => Ok(json!({
-            "role": "user",
-            "content": [],
-        })),
+        MessageRole::System => {
+            unreachable!("system messages are extracted before Anthropic message conversion")
+        }
     }
 }
 

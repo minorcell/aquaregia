@@ -1,4 +1,4 @@
-use aquaregia::{ChatRequest, Message, StreamEvent};
+use aquaregia::{ChatRequest, FinishReason, Message, StreamEvent};
 use futures_util::StreamExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -63,7 +63,9 @@ async fn anthropic_stream_emits_text_usage_done() {
             {
                 saw_usage = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done {
+                finish_reason: FinishReason::Stop,
+            } => {
                 saw_done = true;
                 break;
             }
@@ -133,7 +135,9 @@ async fn openai_stream_emits_text_usage_done() {
             {
                 saw_usage = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done {
+                finish_reason: FinishReason::Stop,
+            } => {
                 saw_done = true;
                 break;
             }
@@ -203,7 +207,9 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
             {
                 saw_usage = true;
             }
-            StreamEvent::Done => {
+            StreamEvent::Done {
+                finish_reason: FinishReason::Stop,
+            } => {
                 saw_done = true;
                 break;
             }

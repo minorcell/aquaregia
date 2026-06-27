@@ -112,6 +112,21 @@ All hosted provider builders also support:
 
 Use `openai_compatible` when your upstream speaks the OpenAI Chat Completions wire format.
 
+For the common environment-based setup:
+
+```bash
+export OPENAI_COMPATIBLE_BASE_URL=https://api.example.com
+export OPENAI_COMPATIBLE_API_KEY=...
+```
+
+```rust
+use aquaregia::providers::openai_compatible;
+
+let client = openai_compatible::Client::from_env()?;
+```
+
+`OPENAI_COMPATIBLE_API_KEY` is optional; if it is not set, requests are sent without an `Authorization` header.
+
 ```rust
 use aquaregia::providers::openai_compatible;
 

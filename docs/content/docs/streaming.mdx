@@ -36,7 +36,10 @@ while let Some(event) = stream.next().await {
         StreamEvent::Usage { usage } => {
             eprintln!("tokens={}", usage.total_tokens);
         }
-        StreamEvent::Done => break,
+        StreamEvent::Done { finish_reason } => {
+            eprintln!("finish={finish_reason:?}");
+            break;
+        }
         _ => {}
     }
 }
@@ -125,7 +128,7 @@ The final `AgentOutput` contains the complete transcript. Persist that instead o
 | `TextDelta { text }` | visible assistant text arrived |
 | `ToolCallReady { call }` | the model produced a complete tool call |
 | `Usage { usage }` | usage counters arrived before the stream ended |
-| `Done` | the model stream ended cleanly |
+| `Done { finish_reason }` | the model stream ended cleanly with the provider finish reason |
 
 Reasoning events appear only when the provider and model expose reasoning content. Treat them as optional debug or audit data unless your product explicitly displays reasoning.
 

@@ -1,10 +1,15 @@
 import { Inter } from 'next/font/google';
+import type { Metadata } from 'next';
 import { Provider } from '@/components/provider';
 import './global.css';
 
 const inter = Inter({
   subsets: ['latin'],
 });
+
+export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000'),
+};
 
 export default function Layout({ children }: LayoutProps<'/'>) {
   return (

@@ -95,8 +95,8 @@ let mut stream = client
 while let Some(event) = stream.next().await {
     match event? {
         StreamEvent::TextDelta { text } => print!("{text}"),
-        StreamEvent::Done               => break,
-        _                                => {}
+        StreamEvent::Done { .. }        => break,
+        _                               => {}
     }
 }
 ```
@@ -132,7 +132,7 @@ Switching providers is just a different module — every method you'll see below
 | OpenAI            | `openai::Client::from_env()` or `openai::Client::builder().api_key(api_key)` |
 | Anthropic         | `anthropic::Client::from_env()` or `anthropic::Client::builder().api_key(api_key)` |
 | Google            | `google::Client::from_env()` or `google::Client::builder().api_key(api_key)` |
-| OpenAI-compatible | `openai_compatible::Client::builder().base_url(url).api_key(token)` |
+| OpenAI-compatible | `openai_compatible::Client::from_env()` or `openai_compatible::Client::builder().base_url(url).api_key(token)` |
 
 #### Going deeper: OpenAI-compatible endpoints
 
@@ -218,7 +218,7 @@ while let Some(event) = stream.next().await {
             "\nin={} out={} total={}",
             usage.input_tokens, usage.output_tokens, usage.total_tokens,
         ),
-        StreamEvent::Done                        => break,
+        StreamEvent::Done { .. }                 => break,
         _ => {}
     }
 }
@@ -234,9 +234,9 @@ The event stream is the union of everything a model might emit. You'll typically
 | `TextDelta`          | `text`                                  | Each token of the visible answer               |
 | `ToolCallReady`      | `call: ToolCall`                        | Model finished assembling a tool call          |
 | `Usage`              | `usage: Usage`                          | Provider reports token counts                  |
-| `Done`               | —                                       | Final event of every stream                    |
+| `Done`               | `finish_reason: FinishReason`          | Final event of every stream                    |
 
-Once `Done` fires the stream is finished — don't poll after.
+Once `Done` fires the stream is finished — don't poll after. Use `finish_reason` to distinguish natural stops from token limits, tool calls, or provider-specific endings.
 
 ---
 
@@ -845,7 +845,9 @@ fn to_axum_sse(stream: TextStream) -> impl IntoResponse {
             Ok(StreamEvent::TextDelta { text })            => Event::default().event("token").data(text),
             Ok(StreamEvent::ToolCallReady { .. })          => Event::default().event("tool_call").data("{}"),
             Ok(StreamEvent::Usage { .. })                  => Event::default().event("usage").data("{}"),
-            Ok(StreamEvent::Done)                          => Event::default().event("done").data("{}"),
+            Ok(StreamEvent::Done { finish_reason })        => Event::default()
+                .event("done")
+                .data(format!("{finish_reason:?}")),
             Err(err)                                       => Event::default().event("error").data(err.message),
         };
         Ok::<Event, Infallible>(event)

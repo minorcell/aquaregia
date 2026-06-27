@@ -522,7 +522,7 @@ impl Client {
                             last_emitted_len = buffer.len();
                         }
                     }
-                    StreamEvent::Done => {
+                    StreamEvent::Done { .. } => {
                         yield StreamObjectEvent::Object {
                             object: Self::parse_final_buffer::<T>(&buffer)?,
                         };
@@ -579,7 +579,6 @@ impl Client {
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
         let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
-        let mut cached_tools: Vec<crate::tool::Tool> = tools.clone();
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
@@ -629,17 +628,7 @@ impl Client {
                     stop_sequences: stop_sequences.clone(),
                     previous_steps: step_results.clone(),
                 });
-                // Rebuild registry only when prepare_step changed the tool list.
-                if prepared_step.tools.len() != cached_tools.len()
-                    || prepared_step
-                        .tools
-                        .iter()
-                        .zip(cached_tools.iter())
-                        .any(|(a, b)| a.descriptor.name != b.descriptor.name)
-                {
-                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
-                    cached_tools = prepared_step.tools.clone();
-                }
+                tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
             }
 
             validate_messages(&prepared_step.messages)?;
@@ -793,7 +782,6 @@ impl Client {
             let mut messages = messages;
             let mut usage_total = Usage::default();
             let mut step_results = Vec::new();
-            let mut cached_tools: Vec<crate::tool::Tool> = tools.clone();
 
             let start_event = AgentStart {
                 model_id: model.clone(),
@@ -845,16 +833,7 @@ impl Client {
                         stop_sequences: stop_sequences.clone(),
                         previous_steps: step_results.clone(),
                     });
-                    if prepared_step.tools.len() != cached_tools.len()
-                        || prepared_step
-                            .tools
-                            .iter()
-                            .zip(cached_tools.iter())
-                            .any(|(a, b)| a.descriptor.name != b.descriptor.name)
-                    {
-                        tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
-                        cached_tools = prepared_step.tools.clone();
-                    }
+                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
                 }
 
                 validate_messages(&prepared_step.messages)?;
@@ -898,9 +877,13 @@ impl Client {
                 let mut reasoning_parts = Vec::new();
                 let mut usage = Usage::default();
                 let mut tool_calls = Vec::new();
+                let mut finish_reason = FinishReason::Stop;
 
                 while let Some(event) = model_stream.next().await {
                     let event = event?;
+                    if let StreamEvent::Done { finish_reason: reason } = &event {
+                        finish_reason = reason.clone();
+                    }
                     collect_stream_event(
                         &event,
                         &mut output_text,
@@ -919,11 +902,7 @@ impl Client {
                         .into_iter()
                         .map(|(_, part)| part)
                         .collect(),
-                    finish_reason: if tool_calls.is_empty() {
-                        FinishReason::Stop
-                    } else {
-                        FinishReason::ToolCalls
-                    },
+                    finish_reason,
                     usage,
                     tool_calls,
                     raw_provider_response: None,
@@ -1150,7 +1129,7 @@ fn collect_stream_event(
         } => {
             *usage = stream_usage.clone();
         }
-        StreamEvent::Done => {}
+        StreamEvent::Done { .. } => {}
     }
 }
 
@@ -1244,13 +1223,19 @@ async fn execute_tool_calls_for_stream(
         indexed_results[index] = Some(tool_result);
     }
 
-    Ok(StreamToolCalls {
-        results: indexed_results
-            .into_iter()
-            .map(|result| result.expect("every tool task should finish"))
-            .collect(),
-        events,
-    })
+    let results = indexed_results
+        .into_iter()
+        .map(|result| {
+            result.ok_or_else(|| {
+                Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    "tool task did not produce a result",
+                )
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
+    Ok(StreamToolCalls { results, events })
 }
 
 fn tool_result_from_execution(

@@ -143,11 +143,25 @@ impl ModelAdapter for OpenAiAdapter {
             // Reasoning blocks keyed by output_index. Multiple `reasoning` items can
             // appear in one response; the canonical id is `rs_*` from the SDK.
             let mut reasoning_blocks: BTreeMap<u64, String> = BTreeMap::new();
+            let mut saw_tool_call = false;
 
-            while let Some(chunk) = byte_stream.next().await {
-                if cancel_token_stream.as_ref().map(|t| t.is_cancelled()).unwrap_or(false) {
-                    Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
-                }
+            loop {
+                let mut cancelled = false;
+                let Some(chunk) = (match &cancel_token_stream {
+                    Some(token) => tokio::select! {
+                        chunk = byte_stream.next() => chunk,
+                        _ = token.cancelled() => {
+                            cancelled = true;
+                            None
+                        },
+                    },
+                    None => byte_stream.next().await,
+                }) else {
+                    if cancelled {
+                        Err(Error::new(ErrorCode::Cancelled, "stream cancelled"))?;
+                    }
+                    break;
+                };
                 let chunk = chunk.map_err(|e| Error::new(ErrorCode::Transport, e.to_string()))?;
                 let text = std::str::from_utf8(&chunk)
                     .map_err(|e| Error::new(ErrorCode::StreamProtocol, e.to_string()))?;
@@ -166,7 +180,13 @@ impl ModelAdapter for OpenAiAdapter {
                                 };
                             }
                             done = true;
-                            yield StreamEvent::Done;
+                            yield StreamEvent::Done {
+                                finish_reason: if saw_tool_call {
+                                    FinishReason::ToolCalls
+                                } else {
+                                    FinishReason::Stop
+                                },
+                            };
                         }
                         break;
                     }
@@ -312,10 +332,18 @@ impl ModelAdapter for OpenAiAdapter {
                                         args_json,
                                     },
                                 };
+                                saw_tool_call = true;
                             }
                         }
 
                         "response.completed" | "response.incomplete" => {
+                            let finish_reason = if event_type == "response.incomplete" {
+                                FinishReason::Length
+                            } else if saw_tool_call {
+                                FinishReason::ToolCalls
+                            } else {
+                                FinishReason::Stop
+                            };
                             if let Some(resp) = value.get("response") {
                                 if let Some(usage) = resp.get("usage").and_then(parse_usage) {
                                     yield StreamEvent::Usage { usage };
@@ -330,7 +358,7 @@ impl ModelAdapter for OpenAiAdapter {
                                 };
                             }
                             done = true;
-                            yield StreamEvent::Done;
+                            yield StreamEvent::Done { finish_reason };
                             break;
                         }
 

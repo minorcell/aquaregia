@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use aquaregia::types::AgentPreparedStep;
-use aquaregia::{AgentStreamEvent, Message, StreamEvent, tool};
+use aquaregia::{AgentStreamEvent, FinishReason, Message, StreamEvent, tool};
 use futures_util::StreamExt;
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
@@ -258,6 +258,11 @@ async fn agent_stream_emits_model_tool_and_done_events() {
     assert_eq!(output.output_text, "Shanghai is about 23C.");
     assert_eq!(output.steps, 2);
     assert_eq!(output.usage_total.total_tokens, 27);
+    assert_eq!(
+        output.step_results[0].finish_reason,
+        FinishReason::ToolCalls
+    );
+    assert_eq!(output.step_results[1].finish_reason, FinishReason::Stop);
 }
 
 #[tokio::test]
