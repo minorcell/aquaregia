@@ -17,6 +17,7 @@ exclude = [
     "CODE_OF_CONDUCT.md",
     "SECURITY.md",
     "README_CN.md",
+    "docs/**",
     "tests/**",
     "examples/**",
     "**/AGENTS.md",
