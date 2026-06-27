@@ -231,10 +231,10 @@ export default function HomePage() {
           </div>
           <div className="mt-6">
             <Link
-              href="/docs/quickstart"
+              href="/docs"
               className="inline-flex items-center rounded-lg bg-fd-primary px-5 py-2.5 text-sm font-semibold text-fd-primary-foreground shadow-sm transition hover:bg-fd-primary/90"
             >
-              Read the Docs
+              Read Overview
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="ml-1.5 size-4">
                 <path d="M5 12h14"/>
                 <path d="m12 5 7 7-7 7"/>

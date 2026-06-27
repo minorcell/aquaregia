@@ -171,10 +171,10 @@ Avoid names that describe implementation details rather than capability.
 | --- | --- |
 | `tool(name)` | start a tool definition |
 | `description(text)` | tell the model when and why to call the tool |
-| `execute(|Args| async move { ... })` | typed, infallible tool; return any serializable value |
-| `try_execute(|Args| async move { ... })` | typed, fallible tool; return `Result<Out, ToolExecError>` |
+| `execute(typed closure)` | typed, infallible tool; return any serializable value |
+| `try_execute(typed closure)` | typed, fallible tool; return `Result<Out, ToolExecError>` |
 | `raw_schema(json!(...))` | replace the derived argument schema |
-| `execute_raw(|Value| async move { ... })` | raw JSON tool with manual argument handling |
+| `execute_raw(raw JSON closure)` | raw JSON tool with manual argument handling |
 
 `execute(...)` and `try_execute(...)` derive the input JSON Schema from the `Args` type. Use raw tools only when deriving the schema from Rust would make the contract less clear.
 

@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./docs/public/brand/aquaregia-logo.svg" alt="Aquaregia logo" width="96" height="96">
+<img src="https://raw.githubusercontent.com/minorcell/aquaregia/dev/docs/public/brand/aquaregia-logo.svg" alt="Aquaregia logo" width="96" height="96">
 
 # Aquaregia
 
