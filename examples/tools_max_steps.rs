@@ -1,25 +1,16 @@
-use aquaregia::{Agent, Client, tool};
+use aquaregia::tool;
 use serde_json::json;
 
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 
 /// 场景：工具循环 + 最大步数保护。
 ///
 /// 运行：
-/// DEEPSEEK_API_KEY=... cargo run --example tools_max_steps
+/// OPENAI_API_KEY=... cargo run --example tools_max_steps
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model =
-        std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
-
-    let client = Client::openai_compatible()
-        .base_url(base_url)
-        .api_key(api_key)
-        .build()?;
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     // 工具 1：天气查询（mock 数据）
     let weather_tool = tool("get_weather")
@@ -57,7 +48,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(json!({ "pair": pair, "rate": 7.18 }))
         });
 
-    let agent = Agent::builder(client, model)
+    let agent = client
+        .agent(model)
         .instructions(
             "You can call tools. If a tool is useful, call it first, then answer concisely.",
         )

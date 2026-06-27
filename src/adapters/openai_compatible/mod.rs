@@ -1,7 +1,7 @@
 //! OpenAI-compatible API adapter for Aquaregia.
 //!
 //! This module provides the `OpenAiCompatibleAdapter` implementation for communicating
-//! with OpenAI-compatible endpoints such as DeepSeek, local LLM servers (vLLM, Ollama),
+//! with OpenAI-compatible endpoints such as custom gateways, local LLM servers (vLLM, Ollama),
 //! and other compatible APIs.
 //!
 //! ## Features
@@ -15,7 +15,7 @@
 //!
 //! ## Supported Providers
 //!
-//! - DeepSeek API
+//! - Custom OpenAI-compatible gateways
 //! - vLLM server
 //! - Ollama
 //! - LocalAI
@@ -24,16 +24,16 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Client, ChatRequest};
+//! use aquaregia::{providers::openai_compatible, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::openai_compatible()
-//!     .base_url("https://api.deepseek.com")
+//! let client = openai_compatible::Client::builder()
+//!     .base_url("https://api.example.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //!
 //! let response = client
-//!     .generate(ChatRequest::from_prompt("deepseek-v4-pro", "Hello!"))
+//!     .generate(ChatRequest::from_prompt("gpt-5.5", "Hello!"))
 //!     .await?;
 //!
 //! println!("{}", response.output_text);
@@ -87,36 +87,6 @@ impl OpenAiCompatibleAdapterSettings {
             query_params: HashMap::new(),
             chat_completions_path: DEFAULT_PATH.to_string(),
         }
-    }
-
-    /// Sets a bearer token.
-    pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
-        self.api_key = Some(api_key.into());
-        self
-    }
-
-    /// Clears the bearer token so requests are sent unauthenticated.
-    pub fn no_api_key(mut self) -> Self {
-        self.api_key = None;
-        self
-    }
-
-    /// Adds or replaces a custom HTTP header.
-    pub fn header(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.headers.insert(name.into(), value.into());
-        self
-    }
-
-    /// Adds or replaces a query parameter.
-    pub fn query_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
-        self.query_params.insert(name.into(), value.into());
-        self
-    }
-
-    /// Overrides chat completions path.
-    pub fn chat_completions_path(mut self, path: impl Into<String>) -> Self {
-        self.chat_completions_path = path.into();
-        self
     }
 }
 

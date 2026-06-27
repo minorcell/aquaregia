@@ -1,4 +1,4 @@
-use aquaregia::{ChatRequest, Client};
+use aquaregia::ChatRequest;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -33,7 +33,7 @@ async fn google_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -87,7 +87,7 @@ async fn openai_compatible_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
@@ -135,7 +135,7 @@ async fn openai_compatible_generate_keeps_think_tags_by_default() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
@@ -182,7 +182,7 @@ async fn openai_compatible_generate_reasoning_content_field_takes_precedence() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()
@@ -231,7 +231,7 @@ async fn anthropic_generate_text_usage_parses_cache_and_iterations() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")

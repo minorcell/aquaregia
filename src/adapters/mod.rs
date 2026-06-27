@@ -18,24 +18,25 @@
 //!
 //! ## Creating Adapters
 //!
-//! Adapters are typically created through [`crate::ClientBuilder`] which handles
-//! the configuration and HTTP client setup:
+//! Adapters are created through provider clients which handle configuration and
+//! HTTP client setup:
 //!
 //! ```rust,no_run
-//! use aquaregia::Client;
+//! use aquaregia::providers::{anthropic, google, openai, openai_compatible};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // OpenAI adapter
-//! let openai_client = Client::openai().api_key("api-key").build()?;
+//! let openai_client = openai::Client::builder().api_key("api-key").build()?;
 //!
 //! // Anthropic adapter
-//! let anthropic_client = Client::anthropic().api_key("api-key").build()?;
+//! let anthropic_client = anthropic::Client::builder().api_key("api-key").build()?;
 //!
 //! // Google adapter
-//! let google_client = Client::google().api_key("api-key").build()?;
+//! let google_client = google::Client::builder().api_key("api-key").build()?;
 //!
-//! // OpenAI-compatible adapter (e.g., DeepSeek, local LLMs)
-//! let compatible_client = Client::openai_compatible().base_url("https://api.example.com")
+//! // OpenAI-compatible adapter (e.g., custom gateways, local LLMs)
+//! let compatible_client = openai_compatible::Client::builder()
+//!     .base_url("https://api.example.com")
 //!     .api_key("api-key")
 //!     .build()?;
 //! # Ok(())
@@ -59,7 +60,7 @@ pub mod openai;
 /// OpenAI-compatible provider adapter implementation.
 pub mod openai_compatible;
 
-/// Provider adapter contract used by [`crate::Client`].
+/// Provider adapter contract used by provider clients.
 #[async_trait]
 pub trait ModelAdapter: Send + Sync {
     /// Generates text completion for the given request.

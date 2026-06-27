@@ -1,5 +1,5 @@
 use aquaregia::{
-    ChatRequest, Client, ContentPart, ErrorCode, FinishReason, Message, MessageRole, StreamEvent,
+    ChatRequest, ContentPart, ErrorCode, FinishReason, Message, MessageRole, StreamEvent,
     ToolResult,
 };
 use futures_util::StreamExt;
@@ -28,7 +28,7 @@ async fn google_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -82,7 +82,7 @@ async fn google_stream_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -150,7 +150,7 @@ async fn google_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -202,7 +202,7 @@ async fn google_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -251,7 +251,7 @@ async fn google_generate_with_thought_signature() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -284,7 +284,7 @@ async fn google_503_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -312,7 +312,7 @@ async fn google_invalid_response_missing_candidates() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -354,7 +354,7 @@ async fn anthropic_stream_with_thinking() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -418,7 +418,7 @@ async fn openai_stream_with_reasoning_delta() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -479,7 +479,7 @@ async fn openai_stream_with_tool_calls_and_finish() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -546,7 +546,7 @@ async fn openai_generate_with_reasoning() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -591,7 +591,7 @@ async fn openai_generate_with_tool_calls() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -644,7 +644,7 @@ async fn anthropic_generate_with_thinking_and_tool_use() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -693,7 +693,7 @@ async fn anthropic_generate_with_redacted_thinking() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -723,7 +723,7 @@ async fn anthropic_invalid_response_missing_content() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -749,7 +749,7 @@ async fn anthropic_500_maps_to_provider_server_error() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -777,7 +777,7 @@ async fn openai_403_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -806,7 +806,7 @@ async fn openai_invalid_response_missing_output() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -845,7 +845,7 @@ async fn openai_stream_refusal_surfaces_as_text_delta() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -900,7 +900,7 @@ async fn openai_generate_extracts_reasoning_summary_from_output_array() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -938,7 +938,7 @@ async fn openai_stream_error_event_propagates_as_invalid_response() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -990,7 +990,7 @@ async fn openai_compatible_response_refusal_surfaces_as_output_text() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("k")
         .build()
@@ -1039,7 +1039,7 @@ async fn openai_compatible_tool_result_string_value_is_not_double_encoded() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("k")
         .build()
@@ -1114,7 +1114,7 @@ async fn google_response_block_reason_surfaces_in_error() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .max_retries(0)
@@ -1159,7 +1159,7 @@ async fn google_uses_upstream_function_call_id_when_present() {
         .mount(&server)
         .await;
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-google-key")
         .base_url(server.uri())
         .build()
@@ -1213,7 +1213,7 @@ async fn anthropic_generate_object_extracts_tool_call_args() {
         .build()
         .expect("request should build");
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1258,7 +1258,7 @@ async fn anthropic_generate_object_injects_respond_tool() {
         .build()
         .expect("request should build");
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1327,7 +1327,7 @@ async fn google_generate_object_extracts_function_call_args() {
         .build()
         .expect("request should build");
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()
@@ -1376,7 +1376,7 @@ async fn google_generate_object_injects_respond_function() {
         .build()
         .expect("request should build");
 
-    let client = Client::google()
+    let client = aquaregia::providers::google::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()

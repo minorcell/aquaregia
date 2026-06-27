@@ -5,10 +5,10 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Client, ChatRequest};
+//! use aquaregia::{providers::openai, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::openai().api_key("api-key").build()?;
+//! let client = openai::Client::builder().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(ChatRequest::from_prompt("gpt-5.5", "Hello!"))

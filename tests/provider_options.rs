@@ -1,6 +1,6 @@
 //! Integration tests for provider_options passthrough.
 
-use aquaregia::{Agent, ChatRequest, Client, ContentPart, Message, MessageRole, TextPart, tool};
+use aquaregia::{ChatRequest, ContentPart, Message, MessageRole, TextPart, tool};
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -127,7 +127,7 @@ async fn agent_run_passes_provider_options_to_every_step() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -138,7 +138,8 @@ async fn agent_run_passes_provider_options_to_every_step() {
         .raw_schema(json!({ "type": "object", "properties": {} }))
         .execute_raw(|_| async move { Ok(json!({ "ok": true })) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([ping])
         .max_steps(3)
         .provider_options(json!({
@@ -180,13 +181,14 @@ async fn agent_without_provider_options_sends_no_marker() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .build()
         .expect("agent should build");
 
@@ -218,7 +220,7 @@ async fn message_level_provider_options_ride_each_message() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -266,7 +268,7 @@ async fn text_block_provider_options_ride_each_text_block() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -309,7 +311,7 @@ async fn text_without_provider_options_stays_plain_string() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()

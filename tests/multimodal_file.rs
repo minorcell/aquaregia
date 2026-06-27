@@ -1,8 +1,7 @@
 //! Integration tests for FilePart media_type dispatch across adapters.
 
 use aquaregia::{
-    ChatRequest, Client, ContentPart, ErrorCode, FilePart, MediaData, Message, MessageRole,
-    TextPart,
+    ChatRequest, ContentPart, ErrorCode, FilePart, MediaData, Message, MessageRole, TextPart,
 };
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
@@ -42,7 +41,7 @@ async fn anthropic_pdf_uses_document_block() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test")
         .base_url(server.uri())
         .build()
@@ -76,7 +75,7 @@ async fn anthropic_image_still_uses_image_block() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test")
         .base_url(server.uri())
         .build()
@@ -121,7 +120,7 @@ async fn openai_pdf_uses_input_file_block_with_filename() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test")
         .base_url(server.uri())
         .build()
@@ -149,7 +148,7 @@ async fn openai_compatible_pdf_is_rejected_locally() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test")
         .build()

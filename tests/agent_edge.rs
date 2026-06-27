@@ -1,5 +1,5 @@
 use aquaregia::types::AgentPreparedStep;
-use aquaregia::{Agent, Client, ErrorCode, Message, ToolErrorPolicy};
+use aquaregia::{ErrorCode, Message, ToolErrorPolicy};
 use serde::Deserialize;
 use serde_json::json;
 use wiremock::matchers::{body_string_contains, method, path};
@@ -41,7 +41,7 @@ async fn agent_max_steps_exceeded() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -51,7 +51,8 @@ async fn agent_max_steps_exceeded() {
         .description("dummy")
         .execute_raw(|_args| async move { Ok(json!({"ok": true})) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([dummy])
         .max_steps(3)
         .build()
@@ -86,13 +87,14 @@ async fn agent_stop_when_predicate_stops_early() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .max_steps(5)
         .stop_when(|step| step.output_text.contains("First"))
         .build()
@@ -138,7 +140,7 @@ async fn agent_fail_fast_on_invalid_tool_args() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -151,9 +153,10 @@ async fn agent_fail_fast_on_invalid_tool_args() {
 
     let weather = aquaregia::tool("weather")
         .description("Get weather by city")
-        .execute(|args: WeatherArgs| async move { Ok(json!({"city": args.city, "temp": 22})) });
+        .execute(|args: WeatherArgs| async move { json!({"city": args.city, "temp": 22}) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([weather])
         .max_steps(3)
         .tool_error_policy(ToolErrorPolicy::FailFast)
@@ -217,7 +220,7 @@ async fn agent_continue_on_invalid_tool_args() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -232,7 +235,8 @@ async fn agent_continue_on_invalid_tool_args() {
         }))
         .execute_raw(|args| async move { Ok(json!({"city": args["city"], "temp": 22})) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([weather])
         .max_steps(3)
         .tool_error_policy(ToolErrorPolicy::ContinueAsToolResult)
@@ -266,13 +270,14 @@ async fn agent_without_tools_returns_first_response() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .max_steps(5)
         .build()
         .expect("agent should build");
@@ -305,13 +310,14 @@ async fn agent_run_messages_uses_explicit_message_list() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
         .expect("client should build");
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .build()
         .expect("agent should build");
 
@@ -345,7 +351,7 @@ async fn agent_respects_existing_system_message() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -353,7 +359,8 @@ async fn agent_respects_existing_system_message() {
 
     // With agent instructions set AND an explicit system message,
     // the explicit system message should take precedence over agent instructions.
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .instructions("agent-level-instruction")
         .build()
         .expect("agent should build");
@@ -388,7 +395,7 @@ async fn agent_prepare_step_changes_tools() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-key")
         .build()
@@ -398,7 +405,8 @@ async fn agent_prepare_step_changes_tools() {
         .description("dummy")
         .execute_raw(|_args| async move { Ok(json!({"ok": true})) });
 
-    let agent = Agent::builder(client, "gpt-5.4-mini")
+    let agent = client
+        .agent("gpt-5.4-mini")
         .tools([dummy])
         .max_steps(5)
         .prepare_step(|event| AgentPreparedStep {

@@ -6,11 +6,11 @@
 
 按示例设置对应环境变量（只需配置你要运行的那个示例）：
 
-- `DEEPSEEK_API_KEY`（大多数示例必需）
-- `ANTHROPIC_API_KEY`（`multimodal_image` / `multimodal_pdf` / `anthropic_*` 示例必需）
+- `OPENAI_API_KEY`（大多数示例必需）
+- `OPENAI_MODEL`（可选，默认 `gpt-5.5`）
+- `ANTHROPIC_API_KEY`（`anthropic_*` 示例必需）
 - `PDF_PATH`（`multimodal_pdf` 示例必需，本地 PDF 文件路径）
-- `DEEPSEEK_BASE_URL`（可选，默认 `https://api.deepseek.com`）
-- `DEEPSEEK_MODEL`（可选，默认 `deepseek-v4-pro`）
+- `OPENAI_COMPATIBLE_API_KEY` / `OPENAI_COMPATIBLE_BASE_URL` / `OPENAI_COMPATIBLE_MODEL`（仅 `openai_compatible_custom` 示例需要）
 
 ## 示例清单
 
@@ -32,7 +32,7 @@
 4. `agent_minimal.rs`
 
 - 场景：最小 Agent + 单工具。
-- 重点：`Agent::builder(client, model)`、`tool()` builder、`tools([...])` 批量注册、`max_steps(...)`。
+- 重点：`client.agent(model)`、`tool()` builder、`tool(...)` 单工具注册、`max_steps(...)`。
 
 5. `tools_max_steps.rs`
 
@@ -47,7 +47,7 @@
 7. `mini_claude_code.rs`
 
 - 场景：最小终端 Code Agent（TUI + 系统提示词 + 工具循环）。
-- 重点：`Agent::builder`、`tool()` builder、`on_step_finish`、`bash/read/write/edit` 工具组合。
+- 重点：`client.agent(model)`、`tool()` builder、`on_step_finish`、`bash/read/write/edit` 工具组合。
 
 8. `prepare_hooks.rs`
 
@@ -58,13 +58,13 @@
 
 - 场景：向视觉模型发送图像（URL / base64 / 原始字节）。
 - 重点：`Message::new` 组合文字 + 图像 part、`Message::user_file_bytes` / `user_file_url`、`FilePart`、`MediaData`、IANA `media_type` 必传。
-- 运行：`ANTHROPIC_API_KEY=<key> cargo run --example multimodal_image`
+- 运行：`OPENAI_API_KEY=<key> cargo run --example multimodal_image`
 
 10. `multimodal_pdf.rs`
 
-- 场景：把一个本地 PDF 发给 Claude 做摘要。`FilePart` + `application/pdf` 自动派发到 Anthropic `document` block，无需新增类型。
+- 场景：把一个本地 PDF 发给 OpenAI 做摘要。`FilePart` + `application/pdf` 自动派发到 provider 的文件输入 block，无需新增类型。
 - 重点：`FilePart::new(MediaData::Bytes(...), "application/pdf").with_filename(...)`。
-- 运行：`ANTHROPIC_API_KEY=<key> PDF_PATH=<path> cargo run --example multimodal_pdf`
+- 运行：`OPENAI_API_KEY=<key> PDF_PATH=<path> cargo run --example multimodal_pdf`
 
 11. `anthropic_prompt_caching.rs`
 

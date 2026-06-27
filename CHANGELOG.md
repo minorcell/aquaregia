@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 While the crate is `0.y.z`, minor version bumps may introduce breaking changes.
 
+## [Unreleased]
+
+### Added
+
+- **Provider clients**: `aquaregia::providers::{openai, anthropic, google, openai_compatible}` with `from_env()` for hosted providers and `api_key_from_env(...)` on builders.
+- **Agent construction**: `client.agent(model)` creates model-bound agents from provider clients.
+- **Prompt shortcut**: `Agent::prompt(...) -> Result<String, Error>` for the common string-in/string-out path.
+- **Agent execution streaming**: `Agent::stream(...)` and `Agent::stream_messages(...)` return `AgentStreamEvent` values for model deltas, tool execution, step snapshots, and final output.
+- **Single-tool registration**: `AgentBuilder::tool(...)` registers one tool without array wrapping.
+
+### Changed (breaking)
+
+- **Public construction surface**: provider clients are the supported entry point; `client` and `adapters` are internal modules.
+- **Agent builder entry point**: public agent construction goes through `client.agent(model)`.
+- **Typed tool execution**: `.execute(...)` returns serializable values directly; fallible typed tools use `.try_execute(...)`.
+
+### Docs
+
+- README and examples describe the current provider-client and agent APIs with OpenAI `gpt-5.5` examples.
+
 ## [0.3.2] — 2026-06-01
 
 ### Changed (breaking)

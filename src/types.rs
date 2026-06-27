@@ -68,7 +68,7 @@ impl Message {
     ///
     /// Validation is deferred to request build time; callers receive a
     /// [`crate::ErrorCode::InvalidRequest`] error from
-    /// [`crate::Client::generate`] if the parts are invalid for the role.
+    /// a provider client's `generate` method if the parts are invalid for the role.
     pub fn new(role: MessageRole, parts: Vec<ContentPart>) -> Self {
         Self {
             role,
@@ -504,7 +504,7 @@ impl ChatRequestBuilder {
     /// the given schema. Prefer [`Client::generate_object`] for
     /// automatic schema derivation from Rust types.
     ///
-    /// [`Client::generate_object`]: crate::Client::generate_object
+    /// [`generate_object`]: crate::providers::openai::Client::generate_object
     pub fn output_schema(mut self, output_schema: OutputSchema) -> Self {
         self.request.output_schema = Some(output_schema);
         self
@@ -522,14 +522,11 @@ impl ChatRequestBuilder {
     /// use aquaregia::ChatRequest;
     /// use serde_json::json;
     ///
-    /// let req = ChatRequest::builder("claude-sonnet-4-6")
+    /// let req = ChatRequest::builder("gpt-5.5")
     ///     .user("Explain Rust ownership")
     ///     .provider_options(json!({
-    ///         "anthropic": {
-    ///             "thinking": {
-    ///                 "type": "enabled",
-    ///                 "budget_tokens": 10000
-    ///             }
+    ///         "openai": {
+    ///             "reasoning": { "effort": "medium" }
     ///         }
     ///     }))
     ///     .build()
@@ -620,6 +617,14 @@ impl RunTools {
     {
         self.tools
             .extend(tools.into_iter().map(IntoTool::into_tool));
+        self
+    }
+
+    pub(crate) fn tool<T>(mut self, tool: T) -> Self
+    where
+        T: IntoTool,
+    {
+        self.tools.push(tool.into_tool());
         self
     }
 
@@ -889,7 +894,7 @@ pub struct ChatResponse {
 
 /// Structured output returned by [`Client::generate_object`].
 ///
-/// [`Client::generate_object`]: crate::Client::generate_object
+/// [`generate_object`]: crate::providers::openai::Client::generate_object
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectResponse<T> {
     /// Deserialized structured output.
@@ -1162,6 +1167,48 @@ pub enum StreamEvent {
     Done,
 }
 
+/// Streaming event emitted by an agent run.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AgentStreamEvent {
+    /// The agent run is starting.
+    Start {
+        /// Run metadata.
+        event: AgentStart,
+    },
+    /// A model/tool-loop step is starting.
+    StepStart {
+        /// Step metadata.
+        event: AgentStepStart,
+    },
+    /// A provider streaming event emitted by the model for one agent step.
+    Model {
+        /// 1-based step index.
+        step: u32,
+        /// Underlying provider-agnostic model stream event.
+        event: StreamEvent,
+    },
+    /// A tool call is about to execute.
+    ToolCallStart {
+        /// Tool call metadata.
+        event: AgentToolCallStart,
+    },
+    /// A tool call finished executing.
+    ToolCallFinish {
+        /// Tool result metadata.
+        event: AgentToolCallFinish,
+    },
+    /// A model/tool-loop step finished.
+    StepFinish {
+        /// Step result snapshot.
+        event: AgentStep,
+    },
+    /// The agent run finished successfully.
+    Done {
+        /// Final agent output.
+        output: AgentOutput,
+    },
+}
+
 /// Streaming event emitted by [`ObjectStream`].
 ///
 /// [`ObjectStream`]: type.ObjectStream.html
@@ -1176,6 +1223,9 @@ pub enum StreamObjectEvent<T> {
 
 /// Provider-agnostic stream of partially-populated structured output.
 pub type ObjectStream<T> = Pin<Box<dyn Stream<Item = Result<StreamObjectEvent<T>, Error>> + Send>>;
+
+/// Provider-agnostic stream of agent execution events.
+pub type AgentStream = Pin<Box<dyn Stream<Item = Result<AgentStreamEvent, Error>> + Send>>;
 
 /// Provider-agnostic stream of structured generation events.
 pub type TextStream = Pin<Box<dyn Stream<Item = Result<StreamEvent, Error>> + Send>>;

@@ -7,19 +7,19 @@
 //!
 //! ## Architecture
 //!
-//! 1. [`Client`] provider constructors (e.g. [`Client::openai`]) return a [`ClientBuilder`]
-//! 2. [`ClientBuilder`] configures settings and HTTP behavior
-//! 3. [`ClientBuilder::build()`] produces a [`Client`]
-//! 4. [`Client`] is used for all subsequent operations
+//! 1. Public provider modules create provider-specific clients.
+//! 2. Provider builders configure settings and HTTP behavior.
+//! 3. Internally, provider builders produce a [`Client`].
+//! 4. [`Client`] is used for all subsequent operations.
 //!
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::Client;
+//! use aquaregia::providers::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! // Create and build client
-//! let client = Client::openai()
+//! let client = openai::Client::builder()
 //!     .api_key("api-key")
 //!     .timeout(std::time::Duration::from_secs(60))
 //!     .max_retries(3)
@@ -39,6 +39,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use futures_util::future::join_all;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::time::sleep;
 
 use crate::adapters::ModelAdapter;
@@ -54,10 +55,11 @@ use crate::partial_json::repair_json;
 use crate::tool::{ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
-    AgentStepStart, AgentToolCallFinish, AgentToolCallStart, ChatRequest, ChatResponse,
-    ContentPart, Message, ObjectResponse, ObjectStream, OutputSchema, RunTools, StreamEvent,
-    StreamObjectEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
-    validate_messages, validate_model_ref, validate_sampling,
+    AgentStepStart, AgentStream, AgentStreamEvent, AgentToolCallFinish, AgentToolCallStart,
+    ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ObjectResponse, ObjectStream,
+    OutputSchema, ReasoningPart, RunTools, StreamEvent, StreamObjectEvent, TextPart, TextStream,
+    ToolCall, ToolErrorPolicy, ToolResult, Usage, validate_messages, validate_model_ref,
+    validate_sampling,
 };
 
 mod sealed {
@@ -295,13 +297,13 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 ///
 /// ## Constructing a Client
 ///
-/// Use the provider-specific constructors followed by `.build()`:
+/// Provider-specific public builders produce this internal client:
 ///
 /// ```rust,no_run
-/// use aquaregia::Client;
+/// use aquaregia::providers::openai;
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::openai()
+/// let client = openai::Client::builder()
 ///     .api_key("api-key")
 ///     .build()?;
 /// # Ok(())
@@ -383,10 +385,10 @@ impl Client {
     ///
     /// ```rust,no_run
     /// use aquaregia::embed::EmbedRequest;
-    /// use aquaregia::Client;
+    /// use aquaregia::providers::openai;
     ///
     /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let client = Client::openai()
+    /// let client = openai::Client::builder()
     ///     .api_key(std::env::var("OPENAI_API_KEY")?)
     ///     .build()?;
     ///
@@ -760,6 +762,282 @@ impl Client {
         }
     }
 
+    pub(crate) fn stream_tools(self: Arc<Self>, req: RunTools) -> Result<AgentStream, Error> {
+        let RunTools {
+            model,
+            messages,
+            tools,
+            max_steps,
+            temperature,
+            top_p,
+            max_output_tokens,
+            stop_sequences,
+            prepare_step,
+            on_start,
+            on_step_start,
+            on_tool_call_start,
+            on_tool_call_finish,
+            on_step_finish,
+            on_finish,
+            stop_when,
+            tool_error_policy,
+            provider_options,
+            cancellation_token,
+        } = req;
+
+        let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
+        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
+        let client = self;
+
+        let stream = async_stream::try_stream! {
+            let mut messages = messages;
+            let mut usage_total = Usage::default();
+            let mut step_results = Vec::new();
+            let mut cached_tools: Vec<crate::tool::Tool> = tools.clone();
+
+            let start_event = AgentStart {
+                model_id: model.clone(),
+                messages: messages.clone(),
+                tool_count: tools.len(),
+                max_steps: resolved_max_steps,
+            };
+            if let Some(callback) = &on_start {
+                callback(&start_event);
+            }
+            yield AgentStreamEvent::Start { event: start_event };
+
+            let mut step: u32 = 0;
+            loop {
+                step += 1;
+                if resolved_max_steps != 0 && step > resolved_max_steps {
+                    Err(Error::new(
+                        ErrorCode::MaxStepsExceeded,
+                        format!(
+                            "agent reached max_steps ({}) without final answer",
+                            resolved_max_steps
+                        ),
+                    ))?;
+                }
+                if cancellation_token
+                    .as_ref()
+                    .map(|t| t.is_cancelled())
+                    .unwrap_or(false)
+                {
+                    Err(Error::new(ErrorCode::Cancelled, "agent cancelled"))?;
+                }
+
+                let mut prepared_step = AgentPreparedStep {
+                    model: model.clone(),
+                    messages: messages.clone(),
+                    tools: tools.clone(),
+                    temperature,
+                    max_output_tokens,
+                    stop_sequences: stop_sequences.clone(),
+                };
+                if let Some(callback) = &prepare_step {
+                    prepared_step = callback(&AgentPrepareStep {
+                        step,
+                        model: model.clone(),
+                        messages: messages.clone(),
+                        tools: tools.clone(),
+                        temperature,
+                        max_output_tokens,
+                        stop_sequences: stop_sequences.clone(),
+                        previous_steps: step_results.clone(),
+                    });
+                    if prepared_step.tools.len() != cached_tools.len()
+                        || prepared_step
+                            .tools
+                            .iter()
+                            .zip(cached_tools.iter())
+                            .any(|(a, b)| a.descriptor.name != b.descriptor.name)
+                    {
+                        tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
+                        cached_tools = prepared_step.tools.clone();
+                    }
+                }
+
+                validate_messages(&prepared_step.messages)?;
+
+                let step_start = AgentStepStart {
+                    step,
+                    messages: prepared_step.messages.clone(),
+                };
+                if let Some(callback) = &on_step_start {
+                    callback(&step_start);
+                }
+                yield AgentStreamEvent::StepStart { event: step_start };
+
+                let mut model_stream = client
+                    .stream(ChatRequest {
+                        model: prepared_step.model.clone(),
+                        messages: prepared_step.messages.clone(),
+                        temperature: prepared_step.temperature,
+                        top_p,
+                        max_output_tokens: prepared_step.max_output_tokens,
+                        stop_sequences: prepared_step.stop_sequences.clone(),
+                        tools: if prepared_step.tools.is_empty() {
+                            None
+                        } else {
+                            Some(
+                                prepared_step
+                                    .tools
+                                    .iter()
+                                    .map(|tool| tool.descriptor.clone())
+                                    .collect(),
+                            )
+                        },
+                        output_schema: None,
+                        provider_options: provider_options.clone(),
+                        cancellation_token: cancellation_token.clone(),
+                    })
+                    .await?;
+
+                let mut output_text = String::new();
+                let mut reasoning_text = String::new();
+                let mut reasoning_parts = Vec::new();
+                let mut usage = Usage::default();
+                let mut tool_calls = Vec::new();
+
+                while let Some(event) = model_stream.next().await {
+                    let event = event?;
+                    collect_stream_event(
+                        &event,
+                        &mut output_text,
+                        &mut reasoning_text,
+                        &mut reasoning_parts,
+                        &mut usage,
+                        &mut tool_calls,
+                    );
+                    yield AgentStreamEvent::Model { step, event };
+                }
+
+                let response = ChatResponse {
+                    output_text,
+                    reasoning_text,
+                    reasoning_parts: reasoning_parts
+                        .into_iter()
+                        .map(|(_, part)| part)
+                        .collect(),
+                    finish_reason: if tool_calls.is_empty() {
+                        FinishReason::Stop
+                    } else {
+                        FinishReason::ToolCalls
+                    },
+                    usage,
+                    tool_calls,
+                    raw_provider_response: None,
+                };
+
+                usage_total += response.usage.clone();
+                let mut next_messages = prepared_step.messages.clone();
+                next_messages.push(assistant_message_from_response(&response));
+
+                if response.tool_calls.is_empty() {
+                    let step_state = AgentStep {
+                        step,
+                        output_text: response.output_text.clone(),
+                        reasoning_text: response.reasoning_text.clone(),
+                        reasoning_parts: response.reasoning_parts.clone(),
+                        finish_reason: response.finish_reason.clone(),
+                        usage: response.usage.clone(),
+                        tool_calls: Vec::new(),
+                        tool_results: Vec::new(),
+                    };
+                    step_results.push(step_state.clone());
+                    if let Some(callback) = &on_step_finish {
+                        callback(&step_state);
+                    }
+                    yield AgentStreamEvent::StepFinish {
+                        event: step_state.clone(),
+                    };
+
+                    let final_response = AgentOutput {
+                        output_text: response.output_text,
+                        steps: step,
+                        transcript: next_messages,
+                        usage_total,
+                        step_results: step_results.clone(),
+                    };
+                    emit_on_finish(
+                        on_finish.as_ref(),
+                        &final_response,
+                        &step_state.finish_reason,
+                        &step_results,
+                    );
+                    yield AgentStreamEvent::Done {
+                        output: final_response,
+                    };
+                    break;
+                }
+
+                let executed_tool_calls = execute_tool_calls_for_stream(
+                    &tool_registry,
+                    &response.tool_calls,
+                    step,
+                    tool_error_policy,
+                    on_tool_call_start.as_ref(),
+                    on_tool_call_finish.as_ref(),
+                )
+                .await?;
+                for event in executed_tool_calls.events {
+                    yield event;
+                }
+
+                let mut tool_messages = executed_tool_calls
+                    .results
+                    .iter()
+                    .map(|r| Message::tool_result(r.clone()))
+                    .collect::<Vec<_>>();
+                let step_state = AgentStep {
+                    step,
+                    output_text: response.output_text.clone(),
+                    reasoning_text: response.reasoning_text.clone(),
+                    reasoning_parts: response.reasoning_parts.clone(),
+                    finish_reason: response.finish_reason.clone(),
+                    usage: response.usage.clone(),
+                    tool_calls: response.tool_calls.clone(),
+                    tool_results: executed_tool_calls.results.clone(),
+                };
+                step_results.push(step_state.clone());
+                next_messages.append(&mut tool_messages);
+                if let Some(callback) = &on_step_finish {
+                    callback(&step_state);
+                }
+                yield AgentStreamEvent::StepFinish {
+                    event: step_state.clone(),
+                };
+
+                if stop_when
+                    .as_ref()
+                    .is_some_and(|predicate| predicate(&step_state))
+                {
+                    let final_response = AgentOutput {
+                        output_text: response.output_text,
+                        steps: step,
+                        transcript: next_messages,
+                        usage_total,
+                        step_results: step_results.clone(),
+                    };
+                    emit_on_finish(
+                        on_finish.as_ref(),
+                        &final_response,
+                        &step_state.finish_reason,
+                        &step_results,
+                    );
+                    yield AgentStreamEvent::Done {
+                        output: final_response,
+                    };
+                    break;
+                }
+
+                messages = next_messages;
+            }
+        };
+
+        Ok(Box::pin(stream))
+    }
+
     async fn call_with_retry<T, F, Fut>(&self, mut op: F) -> Result<T, Error>
     where
         F: FnMut() -> Fut,
@@ -832,6 +1110,189 @@ fn emit_on_finish(
     });
 }
 
+fn collect_stream_event(
+    event: &StreamEvent,
+    output_text: &mut String,
+    reasoning_text: &mut String,
+    reasoning_parts: &mut Vec<(String, ReasoningPart)>,
+    usage: &mut Usage,
+    tool_calls: &mut Vec<ToolCall>,
+) {
+    match event {
+        StreamEvent::ReasoningStarted {
+            block_id,
+            provider_metadata,
+        } => {
+            upsert_reasoning_part(reasoning_parts, block_id, "", provider_metadata.clone());
+        }
+        StreamEvent::ReasoningDelta {
+            block_id,
+            text,
+            provider_metadata,
+        } => {
+            reasoning_text.push_str(text);
+            upsert_reasoning_part(reasoning_parts, block_id, text, provider_metadata.clone());
+        }
+        StreamEvent::ReasoningDone {
+            block_id,
+            provider_metadata,
+        } => {
+            upsert_reasoning_part(reasoning_parts, block_id, "", provider_metadata.clone());
+        }
+        StreamEvent::TextDelta { text } => {
+            output_text.push_str(text);
+        }
+        StreamEvent::ToolCallReady { call } => {
+            tool_calls.push(call.clone());
+        }
+        StreamEvent::Usage {
+            usage: stream_usage,
+        } => {
+            *usage = stream_usage.clone();
+        }
+        StreamEvent::Done => {}
+    }
+}
+
+fn upsert_reasoning_part(
+    parts: &mut Vec<(String, ReasoningPart)>,
+    block_id: &str,
+    text_delta: &str,
+    provider_metadata: Option<serde_json::Value>,
+) {
+    if let Some((_, part)) = parts.iter_mut().find(|(id, _)| id == block_id) {
+        part.text.push_str(text_delta);
+        if provider_metadata.is_some() {
+            part.provider_metadata = provider_metadata;
+        }
+        return;
+    }
+
+    parts.push((
+        block_id.to_string(),
+        ReasoningPart {
+            text: text_delta.to_string(),
+            provider_metadata,
+        },
+    ));
+}
+
+struct StreamToolCalls {
+    results: Vec<ToolResult>,
+    events: Vec<AgentStreamEvent>,
+}
+
+async fn execute_tool_calls_for_stream(
+    registry: &ToolRegistry,
+    calls: &[ToolCall],
+    step: u32,
+    policy: ToolErrorPolicy,
+    on_tool_call_start: Option<&crate::types::Hook<AgentToolCallStart>>,
+    on_tool_call_finish: Option<&crate::types::Hook<AgentToolCallFinish>>,
+) -> Result<StreamToolCalls, Error> {
+    for call in calls {
+        if registry.resolve(&call.tool_name).is_none() {
+            return Err(Error::new(
+                ErrorCode::UnknownTool,
+                format!("unknown tool `{}`", call.tool_name),
+            ));
+        }
+    }
+
+    let mut events = Vec::with_capacity(calls.len() * 2);
+    let mut tasks = FuturesUnordered::new();
+    for (index, call) in calls.iter().cloned().enumerate() {
+        let registered = registry
+            .resolve(&call.tool_name)
+            .expect("tool existence was checked above");
+
+        let start_event = AgentToolCallStart {
+            step,
+            tool_call: call.clone(),
+        };
+        if let Some(callback) = on_tool_call_start {
+            callback(&start_event);
+        }
+        events.push(AgentStreamEvent::ToolCallStart { event: start_event });
+
+        let executor = Arc::clone(&registered.executor);
+        let args_json = call.args_json.clone();
+        tasks.push(async move {
+            let started_at = Instant::now();
+            let result = executor.execute(args_json).await;
+            let duration_ms = started_at.elapsed().as_millis().min(u64::MAX as u128) as u64;
+            (index, call, result, duration_ms)
+        });
+    }
+
+    let mut indexed_results = vec![None; calls.len()];
+    while let Some((index, call, result, duration_ms)) = tasks.next().await {
+        let tool_result = tool_result_from_execution(&call, result, policy)?;
+
+        let finish_event = AgentToolCallFinish {
+            step,
+            tool_call: call,
+            tool_result: tool_result.clone(),
+            duration_ms,
+        };
+        if let Some(callback) = on_tool_call_finish {
+            callback(&finish_event);
+        }
+        events.push(AgentStreamEvent::ToolCallFinish {
+            event: finish_event,
+        });
+        indexed_results[index] = Some(tool_result);
+    }
+
+    Ok(StreamToolCalls {
+        results: indexed_results
+            .into_iter()
+            .map(|result| result.expect("every tool task should finish"))
+            .collect(),
+        events,
+    })
+}
+
+fn tool_result_from_execution(
+    call: &ToolCall,
+    result: Result<serde_json::Value, ToolExecError>,
+    policy: ToolErrorPolicy,
+) -> Result<ToolResult, Error> {
+    let (output_json, is_error) = match result {
+        Ok(output_json) => (output_json, false),
+        Err(ToolExecError::Execution(message)) => {
+            if policy == ToolErrorPolicy::FailFast {
+                return Err(Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    format!(
+                        "tool `{}` execution failed for call `{}`: {}",
+                        call.tool_name, call.call_id, message
+                    ),
+                ));
+            }
+            (serde_json::json!({ "error": message }), true)
+        }
+        Err(ToolExecError::Timeout) => {
+            if policy == ToolErrorPolicy::FailFast {
+                return Err(Error::new(
+                    ErrorCode::ToolExecutionFailed,
+                    format!(
+                        "tool `{}` timed out for call `{}`",
+                        call.tool_name, call.call_id
+                    ),
+                ));
+            }
+            (serde_json::json!({ "error": "timeout" }), true)
+        }
+    };
+
+    Ok(ToolResult {
+        call_id: call.call_id.clone(),
+        output_json,
+        is_error,
+    })
+}
+
 async fn execute_tool_calls(
     registry: &ToolRegistry,
     calls: &[ToolCall],
@@ -870,39 +1331,7 @@ async fn execute_tool_calls(
 
     let results = join_all(tasks).await;
     for (call, result, duration_ms) in results {
-        let (output_json, is_error) = match result {
-            Ok(output_json) => (output_json, false),
-            Err(ToolExecError::Execution(message)) => {
-                if policy == ToolErrorPolicy::FailFast {
-                    return Err(Error::new(
-                        ErrorCode::ToolExecutionFailed,
-                        format!(
-                            "tool `{}` execution failed for call `{}`: {}",
-                            call.tool_name, call.call_id, message
-                        ),
-                    ));
-                }
-                (serde_json::json!({ "error": message }), true)
-            }
-            Err(ToolExecError::Timeout) => {
-                if policy == ToolErrorPolicy::FailFast {
-                    return Err(Error::new(
-                        ErrorCode::ToolExecutionFailed,
-                        format!(
-                            "tool `{}` timed out for call `{}`",
-                            call.tool_name, call.call_id
-                        ),
-                    ));
-                }
-                (serde_json::json!({ "error": "timeout" }), true)
-            }
-        };
-
-        let tool_result = ToolResult {
-            call_id: call.call_id.clone(),
-            output_json,
-            is_error,
-        };
+        let tool_result = tool_result_from_execution(&call, result, policy)?;
 
         if let Some(callback) = on_tool_call_finish {
             callback(&AgentToolCallFinish {

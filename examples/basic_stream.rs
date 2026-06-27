@@ -1,25 +1,16 @@
-use aquaregia::{ChatRequest, Client, StreamEvent};
+use aquaregia::{ChatRequest, StreamEvent};
 use futures_util::StreamExt;
 
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
-const DEFAULT_DEEPSEEK_MODEL: &str = "deepseek-v4-pro";
+const DEFAULT_OPENAI_MODEL: &str = "gpt-5.5";
 
 /// 场景：流式输出，适合 CLI/Chat UI 一边生成一边展示。
 ///
 /// 运行：
-/// DEEPSEEK_API_KEY=... cargo run --example basic_stream
+/// OPENAI_API_KEY=... cargo run --example basic_stream
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY")?;
-    let base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model =
-        std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_DEEPSEEK_MODEL.to_string());
-
-    let client = Client::openai_compatible()
-        .base_url(base_url)
-        .api_key(api_key)
-        .build()?;
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_OPENAI_MODEL.to_string());
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     let mut stream = client
         .stream(ChatRequest::from_prompt(

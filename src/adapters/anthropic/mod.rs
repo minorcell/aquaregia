@@ -14,10 +14,10 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Client, ChatRequest};
+//! use aquaregia::{providers::anthropic, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::anthropic().api_key("api-key").build()?;
+//! let client = anthropic::Client::builder().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(ChatRequest::from_prompt("claude-sonnet-4-6", "Hello!"))

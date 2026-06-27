@@ -1,18 +1,15 @@
-//! Demonstrates sending a PDF to Claude via the unified `FilePart` interface.
+//! Demonstrates sending a PDF to OpenAI via the unified `FilePart` interface.
 //!
 //! Aquaregia dispatches on the IANA media_type: `application/pdf` becomes an
-//! Anthropic `document` block (or an OpenAI `input_file` block, depending on
-//! the provider), without any extra type needed on the caller side.
+//! the provider-specific file block without any extra type needed on the caller side.
 //!
 //! Run with:
-//!   ANTHROPIC_API_KEY=<key> PDF_PATH=<path-to-pdf> cargo run --example multimodal_pdf
+//!   OPENAI_API_KEY=<key> PDF_PATH=<path-to-pdf> cargo run --example multimodal_pdf
 
 use std::fs;
 use std::path::PathBuf;
 
-use aquaregia::{
-    ChatRequest, Client, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart,
-};
+use aquaregia::{ChatRequest, ContentPart, FilePart, MediaData, Message, MessageRole, TextPart};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,13 +33,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ],
     );
 
-    let client = Client::anthropic()
-        .api_key(std::env::var("ANTHROPIC_API_KEY")?)
-        .build()?;
+    let client = aquaregia::providers::openai::Client::from_env()?;
 
     let response = client
         .generate(
-            ChatRequest::builder("claude-sonnet-4-6")
+            ChatRequest::builder("gpt-5.5")
                 .message(message)
                 .max_output_tokens(1024)
                 .build()?,

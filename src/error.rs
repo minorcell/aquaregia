@@ -6,10 +6,10 @@
 //! ## Error Handling Pattern
 //!
 //! ```rust,no_run
-//! use aquaregia::{ErrorCode, ChatRequest, Client};
+//! use aquaregia::{ChatRequest, ErrorCode};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::openai().api_key("key").build()?;
+//! let client = aquaregia::providers::openai::Client::builder().api_key("key").build()?;
 //!
 //! match client.generate(ChatRequest::from_prompt("gpt-5.5", "hello")).await {
 //!     Ok(out) => println!("{}", out.output_text),

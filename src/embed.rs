@@ -11,10 +11,9 @@
 //!
 //! ```rust,no_run
 //! use aquaregia::embed::EmbedRequest;
-//! use aquaregia::Client;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::openai()
+//! let client = aquaregia::providers::openai::Client::builder()
 //!     .api_key(std::env::var("OPENAI_API_KEY")?)
 //!     .build()?;
 //!

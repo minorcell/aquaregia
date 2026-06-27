@@ -19,44 +19,38 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use aquaregia::Client;
+//! use aquaregia::providers::openai;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = Client::openai_compatible().base_url("https://api.deepseek.com")
-//!         .api_key(std::env::var("DEEPSEEK_API_KEY")?)
+//!     let agent = openai::Client::from_env()?
+//!         .agent("gpt-5.5")
 //!         .build()?;
 //!
-//!     let out = client
-//!         .generate(aquaregia::ChatRequest::from_prompt(
-//!             "deepseek-v4-pro",
-//!             "Explain Rust ownership in 3 bullet points.",
-//!         ))
-//!         .await?;
+//!     let out = agent.prompt("Explain Rust ownership in 3 bullet points.").await?;
 //!
-//!     println!("{}", out.output_text);
+//!     println!("{out}");
 //!     Ok(())
 //! }
 //! ```
 //!
 //! ## Architecture
 //!
-//! - [`Client`]: Provider-bound client for `generate`, `stream`, and agent loops.
+//! - [`providers`]: Provider-specific client entry points.
 //! - [`Agent`]: Multi-step tool-using agent with configurable hooks.
-//! - [`ModelAdapter`](adapters::ModelAdapter): Trait for provider-specific request/response handling.
 //! - [`Tool`]: Executable tool definitions with JSON Schema validation.
 
-/// Provider adapter traits and concrete provider implementations.
-pub mod adapters;
+pub(crate) mod adapters;
 /// Agent runtime and builder APIs.
 pub mod agent;
-/// Provider-bound client types and retry behavior.
-pub mod client;
+pub(crate) mod client;
 /// Embedding generation types and APIs.
 pub mod embed;
 /// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
 pub(crate) mod partial_json;
+/// Provider-specific client entry points.
+pub mod providers;
 pub(crate) mod stream;
 /// Tool definition, execution, and registry types.
 pub mod tool;
@@ -64,12 +58,11 @@ pub mod tool;
 pub mod types;
 
 pub use agent::Agent;
-pub use client::Client;
 pub use error::{Error, ErrorCode};
 
 pub use tool::{Tool, tool};
 pub use types::{
-    AgentOutput, ChatRequest, ChatResponse, ContentPart, FilePart, FinishReason, MediaData,
-    Message, MessageRole, ObjectResponse, OutputSchema, ReasoningPart, StreamEvent, TextPart,
-    TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
+    AgentOutput, AgentStream, AgentStreamEvent, ChatRequest, ChatResponse, ContentPart, FilePart,
+    FinishReason, MediaData, Message, MessageRole, ObjectResponse, OutputSchema, ReasoningPart,
+    StreamEvent, TextPart, TextStream, ToolCall, ToolErrorPolicy, ToolResult, Usage,
 };

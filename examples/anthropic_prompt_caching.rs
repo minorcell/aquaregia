@@ -1,4 +1,4 @@
-use aquaregia::{ChatRequest, Client, ContentPart, Message, MessageRole, TextPart};
+use aquaregia::{ChatRequest, ContentPart, Message, MessageRole, TextPart};
 use serde_json::json;
 
 /// 场景：用 Anthropic prompt caching 把一段长 system 上下文设为缓存断点。
@@ -15,7 +15,9 @@ use serde_json::json;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = std::env::var("ANTHROPIC_API_KEY")?;
 
-    let client = Client::anthropic().api_key(api_key).build()?;
+    let client = aquaregia::providers::anthropic::Client::builder()
+        .api_key(api_key)
+        .build()?;
 
     // 假装这是一份长 system 上下文（实测要 ≥ 1024 tokens 才会真正进 cache）。
     let long_context = "You are reviewing the following codebase.\n\n".to_string()

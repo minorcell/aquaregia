@@ -14,10 +14,10 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use aquaregia::{Client, ChatRequest};
+//! use aquaregia::{providers::google, ChatRequest};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = Client::google().api_key("api-key").build()?;
+//! let client = google::Client::builder().api_key("api-key").build()?;
 //!
 //! let response = client
 //!     .generate(ChatRequest::from_prompt("gemini-3.5-flash", "Hello!"))

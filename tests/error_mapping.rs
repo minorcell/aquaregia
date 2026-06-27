@@ -1,4 +1,4 @@
-use aquaregia::{ChatRequest, Client, ErrorCode, Message};
+use aquaregia::{ChatRequest, ErrorCode, Message};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -21,7 +21,7 @@ async fn anthropic_429_maps_to_rate_limited() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")

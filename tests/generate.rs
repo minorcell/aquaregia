@@ -1,6 +1,6 @@
 use aquaregia::tool::ToolDescriptor;
 use aquaregia::types::StreamObjectEvent;
-use aquaregia::{ChatRequest, Client, ErrorCode, Message, OutputSchema};
+use aquaregia::{ChatRequest, ErrorCode, Message, OutputSchema};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::json;
@@ -42,7 +42,7 @@ async fn openai_generate_text_success() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -67,7 +67,7 @@ async fn openai_401_maps_to_auth_failed() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -118,7 +118,7 @@ async fn openai_responses_api_request_shape() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -190,7 +190,7 @@ async fn openai_responses_api_request_shape_with_output_schema() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -242,7 +242,7 @@ async fn generate_object_deserializes_response() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -285,7 +285,7 @@ async fn generate_object_rejects_invalid_json() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -334,7 +334,7 @@ async fn generate_object_via_builder_output_schema() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -372,7 +372,7 @@ async fn openai_compatible_generate_object_request_shape() {
         .build()
         .expect("request should build");
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .build()
         .expect("client should build");
@@ -422,7 +422,7 @@ async fn stream_object_emits_progressive_partials_and_final_object() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-key")
         .base_url(server.uri())
         .build()

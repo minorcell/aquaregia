@@ -1,4 +1,4 @@
-use aquaregia::{ChatRequest, Client, Message, StreamEvent};
+use aquaregia::{ChatRequest, Message, StreamEvent};
 use futures_util::StreamExt;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -23,7 +23,7 @@ async fn anthropic_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = Client::anthropic()
+    let client = aquaregia::providers::anthropic::Client::builder()
         .api_key("test-anthropic-key")
         .base_url(server.uri())
         .api_version("2023-06-01")
@@ -95,7 +95,7 @@ async fn openai_stream_emits_text_usage_done() {
         .mount(&server)
         .await;
 
-    let client = Client::openai()
+    let client = aquaregia::providers::openai::Client::builder()
         .api_key("test-openai-key")
         .base_url(server.uri())
         .build()
@@ -165,7 +165,7 @@ async fn openai_compatible_stream_accepts_eof_without_done_or_finish_reason() {
         .mount(&server)
         .await;
 
-    let client = Client::openai_compatible()
+    let client = aquaregia::providers::openai_compatible::Client::builder()
         .base_url(server.uri())
         .api_key("test-compatible-key")
         .build()

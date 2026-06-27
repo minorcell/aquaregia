@@ -1,5 +1,5 @@
 use aquaregia::types::AgentStep;
-use aquaregia::{Agent, Client, Message, Tool, tool};
+use aquaregia::{Message, Tool, tool};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -8,13 +8,12 @@ use std::io::{self, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
-const DEFAULT_MODEL: &str = "deepseek-v4-pro";
-const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com";
+const DEFAULT_MODEL: &str = "gpt-5.5";
 const MAX_STEPS: u32 = 12;
 const MAX_TOOL_OUTPUT_CHARS: usize = 12_000;
 const MAX_READ_LIMIT: u64 = 1_000;
 const SYSTEM_PROMPT: &str = r#"
-你是 mini-claude-code，一个运行在用户本地终端中的代码助手。
+你是 mini-code-agent，一个运行在用户本地终端中的代码助手。
 你可以使用 4 个工具：bash、read、write、edit。
 
 工作原则：
@@ -28,26 +27,22 @@ const SYSTEM_PROMPT: &str = r#"
 /// 场景：最小可运行的终端 Code Agent（TUI + 工具 + 系统提示词）。
 ///
 /// 运行：
-/// DEEPSEEK_API_KEY=... cargo run --example mini_claude_code
+/// OPENAI_API_KEY=... cargo run --example mini_claude_code
 /// 可选：
-/// DEEPSEEK_BASE_URL=https://api.deepseek.com DEEPSEEK_MODEL=deepseek-v4-pro cargo run --example mini_claude_code
+/// OPENAI_MODEL=gpt-5.5 cargo run --example mini_claude_code
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api_key = std::env::var("DEEPSEEK_API_KEY").map_err(|_| {
+    std::env::var("OPENAI_API_KEY").map_err(|_| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "missing DEEPSEEK_API_KEY; set it before running this example",
+            "missing OPENAI_API_KEY; set it before running this example",
         )
     })?;
-    let base_url = std::env::var("DEEPSEEK_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_DEEPSEEK_BASE_URL.to_string());
-    let model = std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+    let model = std::env::var("OPENAI_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
 
-    let client = Client::openai_compatible()
-        .base_url(base_url.clone())
-        .api_key(api_key)
-        .build()?;
-    let agent = Agent::builder(client, model.clone())
+    let client = aquaregia::providers::openai::Client::from_env()?;
+    let agent = client
+        .agent(model.clone())
         .tools([bash()])
         .tools([read()])
         .tools([write()])
@@ -58,9 +53,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .on_step_finish(print_step_debug)
         .build()?;
 
-    println!("mini_claude_code (aquaregia example)");
-    println!("model: openai-compatible/{}", model);
-    println!("base_url: {}", base_url);
+    println!("mini-code-agent (aquaregia example)");
+    println!("model: openai/{}", model);
     println!("cwd: {}", std::env::current_dir()?.display());
     println!("exit: Ctrl+C or Ctrl+D");
 
@@ -113,7 +107,7 @@ struct BashArgs {
 fn bash() -> Tool {
     tool("bash")
         .description("Execute a shell command in current workspace")
-        .execute(|args: BashArgs| async move {
+        .try_execute(|args: BashArgs| async move {
             if is_dangerous_command(&args.command) {
                 return Err(aquaregia::tool::ToolExecError::Execution(format!(
                     "blocked dangerous command: {}",
@@ -162,7 +156,7 @@ struct ReadArgs {
 fn read() -> Tool {
     tool("read")
         .description("Read a file with optional line window")
-        .execute(|args: ReadArgs| async move {
+        .try_execute(|args: ReadArgs| async move {
             let offset = args.offset.unwrap_or(0) as usize;
             let limit = args.limit.unwrap_or(200);
             if limit == 0 || limit > MAX_READ_LIMIT {
@@ -210,7 +204,7 @@ struct WriteArgs {
 fn write() -> Tool {
     tool("write")
         .description("Write full file content (create parent dirs automatically)")
-        .execute(|args: WriteArgs| async move {
+        .try_execute(|args: WriteArgs| async move {
             let safe_path =
                 resolve_safe_path(&args.path).map_err(aquaregia::tool::ToolExecError::Execution)?;
 
@@ -247,7 +241,7 @@ struct EditArgs {
 fn edit() -> Tool {
     tool("edit")
         .description("Edit file by replacing one unique old_string with new_string")
-        .execute(|args: EditArgs| async move {
+        .try_execute(|args: EditArgs| async move {
             let safe_path =
                 resolve_safe_path(&args.path).map_err(aquaregia::tool::ToolExecError::Execution)?;
 
