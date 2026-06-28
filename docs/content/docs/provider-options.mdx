@@ -89,9 +89,9 @@ let system = Message::new(
 
 `Message::with_provider_options(...)` merges into the provider message object. `TextPart::with_provider_options(...)` and `FilePart::with_provider_options(...)` merge into the individual content block.
 
-## Provider-native tools
+## Provider-native capabilities
 
-Some providers run native tools server-side. Aquaregia does not execute those tools; the provider handles them within the model call.
+Some providers expose server-side capabilities such as web search or file search. Pass those fields through `provider_options` when the provider, not Aquaregia, runs the capability.
 
 ```rust
 use aquaregia::{ChatRequest, providers::openai};
@@ -111,7 +111,7 @@ let req = ChatRequest::builder("gpt-5.5")
 let response = openai::Client::from_env()?.generate(req).await?;
 ```
 
-Top-level provider option keys overwrite the payload keys Aquaregia already computed. This matters for `tools`: if you pass `provider_options.<slug>.tools`, it replaces Aquaregia's generated `tools` array for that provider request. Prefer normal Aquaregia tools for Rust executors, and use provider-native `tools` only when the provider runs them itself.
+Top-level provider option keys overwrite the payload keys Aquaregia already computed. If a provider uses a field named `tools` for server-side capabilities, put the complete provider-native array in `provider_options.<slug>.tools`.
 
 ## Embedding options
 

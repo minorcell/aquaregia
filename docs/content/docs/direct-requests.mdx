@@ -11,7 +11,6 @@ Good fits:
 - application-managed chat history
 - structured extraction
 - multimodal prompts
-- one-shot tool-call inspection
 
 Use an agent instead when Aquaregia should execute tools and keep looping until the task is done.
 
@@ -67,7 +66,7 @@ println!("{}", response.output_text);
 | `reasoning_parts` | structured reasoning blocks with provider metadata |
 | `finish_reason` | normalized finish reason such as `Stop`, `Length`, or `ToolCalls` |
 | `usage` | token counters, including cache and reasoning counters when available |
-| `tool_calls` | model-requested tool calls for callers that execute tools themselves |
+| `tool_calls` | model-requested tool calls returned by the provider |
 | `raw_provider_response` | best-effort raw provider payload for debugging |
 
 ## Control generation
@@ -85,43 +84,6 @@ The request builder supports the common generation controls:
 
 Use lower temperature for extraction and classification. Use higher temperature for creative drafting.
 
-## Inspect one-shot tool calls
-
-Agents execute tools for you. Direct requests only expose the model's requested calls.
-
-```rust
-use aquaregia::{ChatRequest, providers::openai};
-use aquaregia::tool::ToolDescriptor;
-use serde_json::json;
-
-let tool = ToolDescriptor {
-    name: "lookup_order".to_string(),
-    description: "Look up an order by id".to_string(),
-    input_schema: json!({
-        "type": "object",
-        "properties": {
-            "order_id": { "type": "string" }
-        },
-        "required": ["order_id"]
-    }),
-};
-
-let response = openai::Client::from_env()?
-    .generate(
-        ChatRequest::builder("gpt-5.5")
-            .user("Where is order A123?")
-            .tools([tool])
-            .build()?,
-    )
-    .await?;
-
-for call in response.tool_calls {
-    println!("{} {}", call.tool_name, call.args_json);
-}
-```
-
-If you want Aquaregia to validate arguments, run your Rust function, send the result back, and ask the model for a final answer, use [Agents](./agents).
-
 ## Builder reference
 
 | Method | Effect |
@@ -134,7 +96,6 @@ If you want Aquaregia to validate arguments, run your Rust function, send the re
 | `messages(messages)` | replace messages explicitly |
 | `temperature(...)`, `top_p(...)` | set sampling |
 | `max_output_tokens(...)`, `stop_sequences(...)` | set output limits |
-| `tools(...)` | expose tool descriptors for this single model call |
 | `output_schema(...)` | request JSON matching a manual schema |
 | `provider_options(...)` | pass provider-specific fields |
 | `cancellation_token(...)` | attach cancellation |
