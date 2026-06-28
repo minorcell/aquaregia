@@ -1,0 +1,505 @@
+:root {
+  color-scheme: light;
+  --bg: #f7f8fa;
+  --panel: #ffffff;
+  --sidebar: #f1f3f5;
+  --sidebar-strong: #e6e9ee;
+  --line: #dde1e7;
+  --line-strong: #c8ced8;
+  --text: #20211d;
+  --muted: #66707a;
+  --soft: #f3f5f7;
+  --accent: #16856f;
+  --accent-strong: #0f6f5d;
+  --danger: #a73535;
+  --shadow: 0 18px 50px rgb(32 33 29 / 12%);
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+}
+
+button,
+textarea {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 284px minmax(0, 1fr);
+  height: 100vh;
+  min-height: 0;
+}
+
+.sidebar {
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+  min-height: 0;
+  padding: 14px;
+  border-right: 1px solid var(--line);
+  background: var(--sidebar);
+}
+
+.sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 4px 4px 14px;
+}
+
+.brand-mark,
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+  flex: 0 0 auto;
+}
+
+.brand-mark {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.brand-name {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.brand-meta,
+.thread-meta,
+.chat-title p,
+.sidebar-footer {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.new-chat,
+.thread,
+.ghost-button,
+.icon-button,
+.secondary-button,
+.send-button,
+.suggestion,
+.copy-button {
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.new-chat {
+  width: 100%;
+  height: 40px;
+  margin-bottom: 12px;
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  background: var(--panel);
+}
+
+.threads {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.thread {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  padding: 10px;
+  color: var(--text);
+  text-align: left;
+  background: transparent;
+}
+
+.thread:hover,
+.thread[data-active="true"] {
+  background: var(--sidebar-strong);
+}
+
+.thread-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.sidebar-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 12px;
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  background: var(--panel);
+}
+
+.chat-header {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--line);
+  background: rgb(255 255 255 / 92%);
+  backdrop-filter: blur(12px);
+}
+
+.chat-title h1 {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chat-title p {
+  margin: 3px 0 0;
+}
+
+.icon-button {
+  display: none;
+}
+
+.ghost-button,
+.icon-button,
+.copy-button {
+  height: 34px;
+  padding: 0 12px;
+  color: var(--muted);
+  background: transparent;
+}
+
+.ghost-button:hover,
+.icon-button:hover,
+.copy-button:hover {
+  color: var(--text);
+  background: var(--soft);
+}
+
+.messages {
+  min-height: 0;
+  padding: 28px 20px 36px;
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.empty-state {
+  display: grid;
+  align-content: center;
+  gap: 16px;
+  width: min(760px, 100%);
+  min-height: 100%;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.empty-state h2 {
+  margin: 0;
+  font-size: clamp(30px, 5vw, 44px);
+  line-height: 1.05;
+  letter-spacing: 0;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.suggestion {
+  min-height: 54px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  color: var(--text);
+  text-align: left;
+  background: var(--panel);
+}
+
+.suggestion:hover {
+  border-color: var(--line-strong);
+  background: var(--soft);
+}
+
+.message {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 14px;
+  width: min(820px, 100%);
+  margin: 0 auto 26px;
+}
+
+.avatar {
+  margin-top: 2px;
+  color: var(--text);
+  background: var(--soft);
+}
+
+.message.user .avatar {
+  color: #ffffff;
+  background: #2f3130;
+}
+
+.message-body {
+  min-width: 0;
+}
+
+.message-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 26px;
+  gap: 10px;
+}
+
+.message-role {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.copy-button {
+  height: 28px;
+  padding: 0 9px;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.message:hover .copy-button,
+.copy-button:focus-visible {
+  opacity: 1;
+}
+
+.message-content {
+  width: fit-content;
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.62;
+  font-size: 15px;
+}
+
+.message.user .message-content {
+  padding: 10px 14px;
+  border-radius: 18px;
+  background: var(--soft);
+}
+
+.message.assistant .message-content {
+  color: #1d302d;
+}
+
+.message-content.error {
+  color: var(--danger);
+}
+
+.message-content.muted {
+  color: var(--muted);
+}
+
+.composer-area {
+  padding: 14px 20px 24px;
+  background: linear-gradient(180deg, rgb(255 255 255 / 0), var(--panel) 28%);
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+  width: min(820px, 100%);
+  margin: 0 auto;
+  padding: 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+}
+
+textarea {
+  min-height: 36px;
+  max-height: 180px;
+  resize: none;
+  border: 0;
+  outline: none;
+  padding: 8px 10px;
+  color: inherit;
+  background: transparent;
+  line-height: 1.45;
+}
+
+textarea:disabled {
+  color: var(--muted);
+}
+
+.composer-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.secondary-button,
+.send-button {
+  min-width: 68px;
+  height: 36px;
+  padding: 0 14px;
+}
+
+.secondary-button {
+  color: var(--text);
+  background: var(--soft);
+}
+
+.send-button {
+  color: #ffffff;
+  background: var(--accent);
+}
+
+.send-button:hover {
+  background: var(--accent-strong);
+}
+
+.send-button:disabled {
+  cursor: wait;
+  opacity: 0.56;
+}
+
+.typing {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  height: 22px;
+}
+
+.typing span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: pulse 1s infinite ease-in-out;
+}
+
+.typing span:nth-child(2) {
+  animation-delay: 120ms;
+}
+
+.typing span:nth-child(3) {
+  animation-delay: 240ms;
+}
+
+@keyframes pulse {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
+button:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid rgb(22 133 111 / 40%);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    scroll-behavior: auto !important;
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 auto 0 0;
+    z-index: 20;
+    width: min(320px, 86vw);
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+    box-shadow: var(--shadow);
+  }
+
+  .sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .icon-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .chat-header {
+    padding-inline: 12px;
+  }
+
+  .messages {
+    padding-inline: 14px;
+  }
+
+  .composer-area {
+    padding-inline: 12px;
+  }
+
+  .message {
+    grid-template-columns: 30px minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .avatar {
+    width: 30px;
+    height: 30px;
+  }
+
+  .suggestions {
+    grid-template-columns: 1fr;
+  }
+}

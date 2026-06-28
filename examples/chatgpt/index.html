@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aquaregia Chat</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside id="sidebar" class="sidebar" aria-label="Conversations">
+        <div class="sidebar-brand">
+          <div class="brand-mark">Aq</div>
+          <div>
+            <div class="brand-name">Aquaregia</div>
+            <div class="brand-meta">DeepSeek</div>
+          </div>
+        </div>
+
+        <button id="new-chat" class="new-chat" type="button">New chat</button>
+
+        <nav id="threads" class="threads" aria-label="Saved chats"></nav>
+
+        <div class="sidebar-footer">
+          <span id="storage-state">Local session</span>
+          <button id="clear-all" class="ghost-button" type="button">Clear all</button>
+        </div>
+      </aside>
+
+      <main class="chat-panel">
+        <header class="chat-header">
+          <button
+            id="sidebar-toggle"
+            class="icon-button"
+            type="button"
+            aria-label="Toggle conversations"
+          >
+            Menu
+          </button>
+          <div class="chat-title">
+            <h1 id="chat-name">New chat</h1>
+            <p id="turn-status">Ready</p>
+          </div>
+          <button id="clear-current" class="ghost-button" type="button">Clear</button>
+        </header>
+
+        <section id="messages" class="messages" aria-live="polite"></section>
+
+        <footer class="composer-area">
+          <form id="composer" class="composer">
+            <textarea
+              id="prompt"
+              name="prompt"
+              rows="1"
+              placeholder="Message Aquaregia"
+              autocomplete="off"
+            ></textarea>
+            <div class="composer-controls">
+              <button id="stop" class="secondary-button" type="button" hidden>Stop</button>
+              <button id="send" class="send-button" type="submit" aria-label="Send message">
+                Send
+              </button>
+            </div>
+          </form>
+        </footer>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

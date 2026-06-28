@@ -13,7 +13,8 @@ Thanks for your interest in contributing.
 ```bash
 cargo fmt
 cargo test
-cargo check --examples
+cargo check --manifest-path examples/chatgpt/Cargo.toml
+cargo check --manifest-path examples/claude_code/Cargo.toml
 cargo check --no-default-features
 cargo check --no-default-features --features openai
 cargo check --no-default-features --features anthropic

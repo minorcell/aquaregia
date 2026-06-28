@@ -328,7 +328,7 @@ while let Some(event) = stream.next().await {
 }
 ```
 
-Under the hood is a stack-based JSON repairer that handles truncated strings, unclosed arrays and objects, and escape sequences mid-token. A chunk that splits a field name or value still produces a valid partial — you never have to handle invalid JSON in your code. See `examples/structured_streaming.rs` for a runnable version.
+Under the hood is a stack-based JSON repairer that handles truncated strings, unclosed arrays and objects, and escape sequences mid-token. A chunk that splits a field name or value still produces a valid partial — you never have to handle invalid JSON in your code.
 
 ---
 
@@ -508,7 +508,7 @@ loop {
 }
 ```
 
-See `examples/mini_claude_code.rs` for a working terminal agent that uses this pattern with `bash` / `read` / `write` / `edit` tools.
+See [`examples/claude_code`](./examples/claude_code) for a working terminal agent that uses this pattern with `bash` / `read` / `write` / `edit` tools.
 
 ---
 
@@ -630,8 +630,6 @@ let response = client.embed(
 ).await?;
 ```
 
-See `examples/basic_embed.rs` and `examples/openai_embed.rs` for complete examples including similarity calculations.
-
 ---
 
 The core request type sticks to the lowest common denominator — model, messages, sampling, output limits, and cancellation. But every provider ships knobs that don't generalise: Anthropic's thinking budget, Google's safety thresholds, parameters that land on one provider and nowhere else. Rather than bloat the core type with fields that mean nothing to three out of four providers, Aquaregia gives you an escape hatch: `provider_options`.
@@ -728,7 +726,7 @@ let req = ChatRequest::builder("gpt-5.5")
     .build()?;
 ```
 
-One thing to know about the merge: top-level keys **overwrite** what the adapter computed for that key. If a provider uses a field named `tools` for server-side capabilities, put the complete provider-native array in `provider_options.<slug>.tools`. See `examples/anthropic_web_search.rs` for a runnable provider-native call.
+One thing to know about the merge: top-level keys **overwrite** what the adapter computed for that key. If a provider uses a field named `tools` for server-side capabilities, put the complete provider-native array in `provider_options.<slug>.tools`.
 
 ---
 
@@ -909,25 +907,15 @@ pub struct Usage {
 ### Examples
 
 ```bash
-OPENAI_API_KEY=... cargo run --example basic_generate
+DEEPSEEK_API_KEY=... cargo run --manifest-path examples/chatgpt/Cargo.toml
 ```
 
-| Example                       | Focus                                                       |
-| ----------------------------- | ----------------------------------------------------------- |
-| `basic_generate`              | One-shot `generate` + usage reading                         |
-| `basic_stream`                | `stream` + `StreamEvent` handling                           |
-| `basic_embed`                 | Text embeddings with batch processing and similarity        |
-| `openai_embed`                | OpenAI embeddings with dimension reduction                  |
-| `structured_streaming`        | `stream_object::<T>()` + progressive `Partial` events       |
-| `agent_minimal`               | `client.agent(model)` with one typed tool                    |
-| `tools_max_steps`             | Multi-tool loop with `max_steps` and sampling caps          |
-| `prepare_hooks`               | `prepare_step`, `on_step_finish`                            |
-| `openai_compatible_custom`    | Custom headers / query params / chat path                   |
-| `mini_claude_code`            | TUI code agent — `bash` / `read` / `write` / `edit` tools   |
-| `multimodal_image`            | `Message::new` with mixed text + image parts + OpenAI vision    |
-| `multimodal_pdf`              | Send a local PDF to OpenAI (`FilePart` + `application/pdf`)      |
+| Example | Focus |
+| --- | --- |
+| [`chatgpt`](./examples/chatgpt) | ChatGPT-style web app with a plain HTML frontend and Rust streaming backend |
+| [`claude_code`](./examples/claude_code) | Terminal code-agent app with `ratatui` and local file/shell tools |
 
-Set `OPENAI_API_KEY` for most examples; `ANTHROPIC_API_KEY` for `anthropic_*` examples. The PDF demo also needs `PDF_PATH`. See [`examples/README.md`](./examples/README.md) for full descriptions.
+Examples are independent Cargo packages so app-only dependencies stay out of the root crate manifest. See [`examples/README.md`](./examples/README.md) for the directory rules.
 
 ### API reference
 
@@ -940,7 +928,8 @@ Full type signatures, every public item, every variant — on [docs.rs/aquaregia
 ```bash
 cargo fmt
 cargo test
-cargo check --examples
+cargo check --manifest-path examples/chatgpt/Cargo.toml
+cargo check --manifest-path examples/claude_code/Cargo.toml
 cargo clippy -- -D warnings
 ```
 
