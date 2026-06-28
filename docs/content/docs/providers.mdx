@@ -37,7 +37,7 @@ use std::time::Duration;
 
 let client = openai::Client::builder()
     .api_key_from_env("OPENAI_API_KEY")
-    .base_url("https://api.openai.com/v1")
+    .base_url("https://api.openai.com")
     .timeout(Duration::from_secs(60))
     .max_retries(3)
     .default_max_steps(8)
@@ -60,7 +60,7 @@ let anthropic_client = anthropic::Client::builder()
 
 let google_client = google::Client::builder()
     .api_key_from_env("GOOGLE_API_KEY")
-    .base_url("https://generativelanguage.googleapis.com")
+    .base_url("https://generativelanguage.googleapis.com/v1beta")
     .build()?;
 ```
 

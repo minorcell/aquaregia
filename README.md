@@ -182,7 +182,7 @@ println!("{}", response.output_text);
 println!("finish: {:?}", response.finish_reason);
 ```
 
-`from_prompt(model, prompt)` is the one-line form. When you need more — system prompts, sampling controls, tools — reach for the builder:
+`from_prompt(model, prompt)` is the one-line form. When you need more — system prompts, sampling controls, output limits, cancellation, or provider-specific options — reach for the builder:
 
 ```rust
 use aquaregia::{ChatRequest, Message};
@@ -392,7 +392,7 @@ let client = openai::Client::from_env()?;
 let agent = client
     .agent("gpt-5.5")
     .instructions("You can call tools before answering.")
-    .tool(get_weather)
+    .tool(get_weather())
     .max_steps(4)
     .build()?;
 
@@ -436,7 +436,7 @@ Every interesting boundary in the loop emits an event. All hooks are `Fn + Send 
 
 ```rust
 let agent = client.agent("gpt-5.5")
-    .tool(get_weather)
+    .tool(get_weather())
     .on_start(|e|            println!("[start] tools={} max_steps={}", e.tool_count, e.max_steps))
     .on_step_start(|e|       println!("[step:{}] msgs={}", e.step, e.messages.len()))
     .on_tool_call_start(|e|  println!("[tool:{}] {}", e.step, e.tool_call.tool_name))
@@ -454,7 +454,7 @@ When you need to mutate the next step before it runs — narrow the tool list, s
 use aquaregia::Message;
 
 let agent = client.agent("gpt-5.5")
-    .tools([get_weather, get_fx_rate])
+    .tools([get_weather(), get_fx_rate()])
     .prepare_step(|event| {
         let mut next = event.to_prepared();
         next.messages.push(Message::system_text(format!(
@@ -634,7 +634,7 @@ See `examples/basic_embed.rs` and `examples/openai_embed.rs` for complete exampl
 
 ---
 
-The core request type sticks to the lowest common denominator — model, messages, sampling, tools. But every provider ships knobs that don't generalise: Anthropic's thinking budget, Google's safety thresholds, parameters that land on one provider and nowhere else. Rather than bloat the core type with fields that mean nothing to three out of four providers, Aquaregia gives you an escape hatch: `provider_options`.
+The core request type sticks to the lowest common denominator — model, messages, sampling, output limits, and cancellation. But every provider ships knobs that don't generalise: Anthropic's thinking budget, Google's safety thresholds, parameters that land on one provider and nowhere else. Rather than bloat the core type with fields that mean nothing to three out of four providers, Aquaregia gives you an escape hatch: `provider_options`.
 
 You pass a JSON object keyed by provider slug. The core never parses it — each adapter picks out its own key and merges those fields into the request body it sends. Anything the provider's API accepts, you can set:
 
