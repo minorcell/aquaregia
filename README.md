@@ -4,7 +4,7 @@
 
 # Aquaregia
 
-**A lightweight Rust library for building tool-using LLM agents.**
+**A lightweight Rust library for building LLM agents.**
 
 [![Crates.io](https://img.shields.io/crates/v/aquaregia.svg)](https://crates.io/crates/aquaregia)
 [![Docs.rs](https://docs.rs/aquaregia/badge.svg)](https://docs.rs/aquaregia)
