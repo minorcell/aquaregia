@@ -1,6 +1,6 @@
 //! # Aquaregia
 //!
-//! A lightweight Rust library for building tool-using LLM agents.
+//! A lightweight Rust library for building LLM agents.
 //!
 //! ## Features
 //!

@@ -18,7 +18,7 @@ let client = openai::Client::from_env()?;
 let response = client
     .embed(EmbedRequest::new(
         "text-embedding-3-small",
-        vec!["Aquaregia builds tool-using Rust agents."],
+        vec!["Aquaregia builds Rust agents."],
     ))
     .await?;
 
