@@ -121,7 +121,7 @@ macro_rules! runtime_setters {
             self
         }
 
-        /// Overrides the default SDK `User-Agent` header value.
+        /// Overrides the default Aquaregia `User-Agent` header value.
         pub fn user_agent(mut self, user_agent: impl Into<String>) -> Self {
             self.runtime.user_agent = Some(user_agent.into());
             self

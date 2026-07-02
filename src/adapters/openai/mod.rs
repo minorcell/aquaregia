@@ -141,7 +141,7 @@ impl ModelAdapter for OpenAiAdapter {
             // Indexed by output_index from the streaming events.
             let mut fn_partials: BTreeMap<u64, PartialFnCall> = BTreeMap::new();
             // Reasoning blocks keyed by output_index. Multiple `reasoning` items can
-            // appear in one response; the canonical id is `rs_*` from the SDK.
+            // appear in one response; the canonical id is `rs_*` from the API.
             let mut reasoning_blocks: BTreeMap<u64, String> = BTreeMap::new();
             let mut saw_tool_call = false;
 

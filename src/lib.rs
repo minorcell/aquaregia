@@ -1,6 +1,6 @@
 //! # Aquaregia
 //!
-//! A lightweight agent SDK for Rust: build tool-using LLM agents that run on any provider.
+//! A lightweight Rust library for building tool-using LLM agents.
 //!
 //! ## Features
 //!

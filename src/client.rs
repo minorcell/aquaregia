@@ -156,7 +156,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
             timeout: Duration::from_secs(30),
             max_retries: 3,
             default_max_steps: 0,
-            user_agent: format!("aquaregia-ai-sdk/{}", env!("CARGO_PKG_VERSION")),
+            user_agent: format!("aquaregia/{}", env!("CARGO_PKG_VERSION")),
             settings,
         }
     }
@@ -182,7 +182,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
         self
     }
 
-    /// Overrides the default SDK `User-Agent` header value.
+    /// Overrides the default Aquaregia `User-Agent` header value.
     pub fn user_agent(mut self, ua: impl Into<String>) -> Self {
         self.user_agent = ua.into();
         self

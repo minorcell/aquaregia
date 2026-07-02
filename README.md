@@ -4,7 +4,7 @@
 
 # Aquaregia
 
-**A lightweight agent SDK for Rust.**
+**A lightweight Rust library for building tool-using LLM agents.**
 
 [![Crates.io](https://img.shields.io/crates/v/aquaregia.svg)](https://crates.io/crates/aquaregia)
 [![Docs.rs](https://docs.rs/aquaregia/badge.svg)](https://docs.rs/aquaregia)
@@ -145,7 +145,7 @@ let client = openai_compatible::Client::builder()
     .base_url("https://api.example.com")
     .api_key_from_env("OPENAI_COMPATIBLE_API_KEY")
     .header("x-trace-source", "aquaregia")
-    .query_param("source", "sdk")
+    .query_param("source", "library")
     .chat_completions_path("/v1/chat/completions")
     .build()?;
 ```

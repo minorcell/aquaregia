@@ -106,7 +106,7 @@ All hosted provider builders also support:
 | `timeout(Duration)` | a request should fail after a bounded time |
 | `max_retries(u8)` | retryable provider, transport, and timeout failures should be retried by the client |
 | `default_max_steps(u32)` | agents built from the client should inherit a tool-loop cap |
-| `user_agent(...)` | your application needs a custom SDK `User-Agent` suffix/value |
+| `user_agent(...)` | your application needs a custom Aquaregia `User-Agent` suffix/value |
 
 ## Use an OpenAI-compatible gateway
 
@@ -148,7 +148,7 @@ let client = openai_compatible::Client::builder()
     .base_url("https://api.example.com")
     .api_key_from_env("OPENAI_COMPATIBLE_API_KEY")
     .header("x-trace-source", "aquaregia")
-    .query_param("source", "sdk")
+    .query_param("source", "library")
     .build()?;
 ```
 

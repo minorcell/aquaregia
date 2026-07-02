@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Stable error categories exposed by the SDK.
+/// Stable error categories exposed by Aquaregia.
 ///
 /// This enum provides a unified classification of errors that can occur
 /// during LLM operations, normalizing provider-specific error conditions
@@ -121,7 +121,7 @@ pub enum ErrorCode {
     UnsupportedOperation,
 }
 
-/// Rich error payload returned by all fallible SDK operations.
+/// Rich error payload returned by all fallible Aquaregia operations.
 ///
 /// This struct provides detailed error information including:
 /// - Stable error category ([`ErrorCode`])
@@ -225,10 +225,10 @@ impl Error {
     }
 }
 
-/// Maps HTTP status codes to stable SDK [`ErrorCode`] values.
+/// Maps HTTP status codes to stable Aquaregia [`ErrorCode`] values.
 ///
 /// This function provides a consistent mapping from HTTP status codes
-/// to SDK error categories, normalizing provider-specific HTTP responses.
+/// to Aquaregia error categories, normalizing provider-specific HTTP responses.
 ///
 /// # Arguments
 ///
