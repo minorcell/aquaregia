@@ -1,6 +1,6 @@
 //! Shared request/response types and streaming events for Aquaregia.
 //!
-//! This module defines the core data structures used throughout the Aquaregia SDK:
+//! This module defines the core data structures used throughout Aquaregia:
 //!
 //! - **Messages**: Provider-agnostic chat message types with support for text, images, reasoning, and tool content
 //! - **Requests/Responses**: Structured generation request and response types
