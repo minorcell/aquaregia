@@ -5,7 +5,7 @@
 //!
 //! ## Error Handling Pattern
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::{ChatRequest, ErrorCode};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {

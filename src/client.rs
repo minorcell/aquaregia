@@ -14,7 +14,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,9 +43,13 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::time::sleep;
 
 use crate::adapters::ModelAdapter;
+#[cfg(feature = "anthropic")]
 use crate::adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
+#[cfg(feature = "google")]
 use crate::adapters::google::{GoogleAdapter, GoogleAdapterSettings};
+#[cfg(feature = "openai")]
 use crate::adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
+#[cfg(feature = "openai-compatible")]
 use crate::adapters::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
 };
@@ -64,15 +68,19 @@ use crate::types::{
 
 mod sealed {
     pub trait Sealed {}
+    #[cfg(feature = "openai")]
     impl Sealed for super::OpenAiAdapterSettings {}
+    #[cfg(feature = "anthropic")]
     impl Sealed for super::AnthropicAdapterSettings {}
+    #[cfg(feature = "google")]
     impl Sealed for super::GoogleAdapterSettings {}
+    #[cfg(feature = "openai-compatible")]
     impl Sealed for super::OpenAiCompatibleAdapterSettings {}
 }
 
 /// Provider-settings contract consumed by [`ClientBuilder`].
 ///
-/// This trait is sealed: it is implemented exactly for the four built-in
+/// This trait is sealed: it is implemented for enabled built-in
 /// `*AdapterSettings` types and cannot be implemented downstream. External
 /// providers should add an adapter to the `adapters` module rather
 /// than implementing this trait.
@@ -81,6 +89,7 @@ pub trait BuildProvider: sealed::Sealed {
     fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
 
+#[cfg(feature = "openai")]
 impl BuildProvider for OpenAiAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -96,6 +105,7 @@ impl BuildProvider for OpenAiAdapterSettings {
     }
 }
 
+#[cfg(feature = "anthropic")]
 impl BuildProvider for AnthropicAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -111,6 +121,7 @@ impl BuildProvider for AnthropicAdapterSettings {
     }
 }
 
+#[cfg(feature = "google")]
 impl BuildProvider for GoogleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -126,6 +137,7 @@ impl BuildProvider for GoogleAdapterSettings {
     }
 }
 
+#[cfg(feature = "openai-compatible")]
 impl BuildProvider for OpenAiCompatibleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.base_url.trim().is_empty() {
@@ -207,6 +219,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
     }
 }
 
+#[cfg(feature = "openai")]
 impl ClientBuilder<OpenAiAdapterSettings> {
     /// Sets the OpenAI API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -221,6 +234,7 @@ impl ClientBuilder<OpenAiAdapterSettings> {
     }
 }
 
+#[cfg(feature = "anthropic")]
 impl ClientBuilder<AnthropicAdapterSettings> {
     /// Sets the Anthropic API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -241,6 +255,7 @@ impl ClientBuilder<AnthropicAdapterSettings> {
     }
 }
 
+#[cfg(feature = "google")]
 impl ClientBuilder<GoogleAdapterSettings> {
     /// Sets the Google API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -255,6 +270,7 @@ impl ClientBuilder<GoogleAdapterSettings> {
     }
 }
 
+#[cfg(feature = "openai-compatible")]
 impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
     /// Sets the OpenAI-compatible endpoint base URL (required).
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
@@ -299,7 +315,7 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 ///
 /// Provider-specific public builders produce this internal client:
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use aquaregia::providers::openai;
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -320,6 +336,7 @@ impl Client {
     ///
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url`.
+    #[cfg(feature = "openai")]
     pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
         ClientBuilder::new(OpenAiAdapterSettings::new())
     }
@@ -329,6 +346,7 @@ impl Client {
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url` or the version
     /// header with `ClientBuilder::api_version`.
+    #[cfg(feature = "anthropic")]
     pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
         ClientBuilder::new(AnthropicAdapterSettings::new())
     }
@@ -337,6 +355,7 @@ impl Client {
     ///
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url`.
+    #[cfg(feature = "google")]
     pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
         ClientBuilder::new(GoogleAdapterSettings::new())
     }
@@ -346,6 +365,7 @@ impl Client {
     /// Set the base URL with `ClientBuilder::base_url` (required). The bearer
     /// token is optional and configured with `ClientBuilder::api_key` (or
     /// disabled with `ClientBuilder::no_api_key`, which is the default).
+    #[cfg(feature = "openai-compatible")]
     pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
     }
@@ -383,7 +403,7 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use aquaregia::embed::EmbedRequest;
     /// use aquaregia::providers::openai;
     ///
@@ -1368,6 +1388,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "openai")]
     #[test]
     fn openai_builder_builds() {
         let client = Client::openai()
@@ -1377,6 +1398,7 @@ mod tests {
         let _ = client;
     }
 
+    #[cfg(feature = "anthropic")]
     #[test]
     fn anthropic_builder_builds() {
         let client = Client::anthropic()

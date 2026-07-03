@@ -1,3 +1,5 @@
+#![cfg(feature = "openai-compatible")]
+
 use aquaregia::types::AgentPreparedStep;
 use aquaregia::{ErrorCode, Message, ToolErrorPolicy};
 use serde::Deserialize;

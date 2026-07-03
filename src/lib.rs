@@ -18,7 +18,7 @@
 //!
 //! ## Quick Start
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers::openai;
 //!
 //! #[tokio::main]

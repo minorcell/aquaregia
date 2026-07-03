@@ -1,3 +1,5 @@
+#![cfg(feature = "openai-compatible")]
+
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 

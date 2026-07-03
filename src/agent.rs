@@ -15,7 +15,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::{providers::openai, tool};
 //! use serde_json::json;
 //!
@@ -416,7 +416,7 @@ impl AgentBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openai"))]
 mod tests {
     use crate::providers;
     use serde_json::json;

@@ -1,3 +1,5 @@
+#![cfg(feature = "openai-compatible")]
+
 use std::sync::Arc;
 
 use aquaregia::tool::{ToolDescriptor, ToolExecError, ToolExecutor};

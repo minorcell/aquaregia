@@ -2,7 +2,7 @@
 //!
 //! Provider modules are the public entry point for building clients:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -16,15 +16,63 @@
 //! # }
 //! ```
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use std::sync::Arc;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use std::time::Duration;
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use crate::agent::AgentBuilder;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use crate::client as core;
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use crate::embed::{EmbedRequest, EmbedResponse};
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use crate::error::{Error, ErrorCode};
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 use crate::types::{ChatRequest, ChatResponse, ObjectResponse, ObjectStream, TextStream};
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 #[derive(Clone)]
 enum ApiKeySource {
     Missing,
@@ -32,7 +80,14 @@ enum ApiKeySource {
     Env(String),
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 impl ApiKeySource {
+    #[cfg(any(feature = "openai", feature = "anthropic", feature = "google"))]
     fn resolve_required(&self) -> Result<String, Error> {
         match self {
             Self::Missing => Err(Error::new(
@@ -52,6 +107,7 @@ impl ApiKeySource {
         }
     }
 
+    #[cfg(feature = "openai-compatible")]
     fn resolve_optional(&self) -> Result<Option<String>, Error> {
         match self {
             Self::Missing => Ok(None),
@@ -69,6 +125,12 @@ impl ApiKeySource {
     }
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 fn validate_api_key(label: &str, value: impl Into<String>) -> Result<String, Error> {
     let value = value.into();
     if value.trim().is_empty() {
@@ -80,6 +142,12 @@ fn validate_api_key(label: &str, value: impl Into<String>) -> Result<String, Err
     Ok(value)
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 #[derive(Clone)]
 struct RuntimeConfig {
     timeout: Duration,
@@ -88,6 +156,12 @@ struct RuntimeConfig {
     user_agent: Option<String>,
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 impl Default for RuntimeConfig {
     fn default() -> Self {
         Self {
@@ -99,6 +173,12 @@ impl Default for RuntimeConfig {
     }
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 macro_rules! runtime_setters {
     () => {
         /// Sets request timeout for all requests sent by this client.
@@ -129,6 +209,12 @@ macro_rules! runtime_setters {
     };
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 macro_rules! provider_client_methods {
     () => {
         /// Starts building a model-bound agent.
@@ -171,6 +257,12 @@ macro_rules! provider_client_methods {
     };
 }
 
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
 fn apply_runtime<S: core::BuildProvider>(
     mut builder: core::ClientBuilder<S>,
     runtime: RuntimeConfig,
@@ -186,6 +278,7 @@ fn apply_runtime<S: core::BuildProvider>(
 }
 
 /// OpenAI provider client.
+#[cfg(feature = "openai")]
 pub mod openai {
     use super::*;
 
@@ -258,6 +351,7 @@ pub mod openai {
 }
 
 /// Anthropic provider client.
+#[cfg(feature = "anthropic")]
 pub mod anthropic {
     use super::*;
 
@@ -341,6 +435,7 @@ pub mod anthropic {
 }
 
 /// Google provider client.
+#[cfg(feature = "google")]
 pub mod google {
     use super::*;
 
@@ -413,6 +508,7 @@ pub mod google {
 }
 
 /// OpenAI-compatible provider client.
+#[cfg(feature = "openai-compatible")]
 pub mod openai_compatible {
     use super::*;
 

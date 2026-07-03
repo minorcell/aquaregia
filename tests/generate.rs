@@ -1,3 +1,5 @@
+#![cfg(all(feature = "openai", feature = "openai-compatible"))]
+
 use aquaregia::tool::ToolDescriptor;
 use aquaregia::types::StreamObjectEvent;
 use aquaregia::{ChatRequest, ErrorCode, Message, OutputSchema};

@@ -1,3 +1,10 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
+
 use aquaregia::ErrorCode;
 use std::sync::Mutex;
 use std::time::Duration;

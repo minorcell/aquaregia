@@ -8,7 +8,7 @@
 //! module only maps `rmcp` tools to aquaregia tools and flattens MCP tool
 //! results.
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers;
 //! use tokio::process::Command;
 //!

@@ -1,3 +1,5 @@
+#![cfg(feature = "anthropic")]
+
 use aquaregia::{ChatRequest, ErrorCode, Message};
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};

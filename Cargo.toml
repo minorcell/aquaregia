@@ -32,6 +32,11 @@ name = "aquaregia"
 path = "src/lib.rs"
 
 [features]
+default = ["openai", "anthropic", "google", "openai-compatible"]
+openai = []
+anthropic = []
+google = []
+openai-compatible = []
 # MCP (Model Context Protocol) client support. Off by default; pulls in `rmcp`.
 mcp = ["dep:rmcp"]
 

@@ -1,3 +1,9 @@
+#![cfg(all(
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
+
 use aquaregia::ChatRequest;
 use serde_json::json;
 use wiremock::matchers::{header, method, path};

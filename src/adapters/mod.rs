@@ -21,7 +21,7 @@
 //! Adapters are created through provider clients which handle configuration and
 //! HTTP client setup:
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers::{anthropic, google, openai, openai_compatible};
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -52,12 +52,16 @@ use crate::error::Error;
 use crate::types::{ChatRequest, ChatResponse, TextStream};
 
 /// Anthropic provider adapter implementation.
+#[cfg(feature = "anthropic")]
 pub mod anthropic;
 /// Google provider adapter implementation.
+#[cfg(feature = "google")]
 pub mod google;
 /// OpenAI provider adapter implementation.
+#[cfg(feature = "openai")]
 pub mod openai;
 /// OpenAI-compatible provider adapter implementation.
+#[cfg(feature = "openai-compatible")]
 pub mod openai_compatible;
 
 /// Provider adapter contract used by provider clients.
@@ -146,6 +150,11 @@ pub(crate) fn merge_provider_options(
 /// API at request time; this helper is only for top-level categories the
 /// adapter has no representation for (e.g. PDFs in a chat-completions-only
 /// path, or arbitrary types in an image-only path).
+#[cfg(any(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "openai-compatible"
+))]
 pub(crate) fn unsupported_media_type(slug: &str, media_type: &str) -> crate::error::Error {
     crate::error::Error::new(
         crate::error::ErrorCode::InvalidRequest,

@@ -9,7 +9,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::embed::EmbedRequest;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
