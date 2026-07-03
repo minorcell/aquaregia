@@ -52,14 +52,14 @@ use crate::adapters::openai_compatible::{
 use crate::embed::{EmbedRequest, EmbedResponse, validate_embed_request};
 use crate::error::{Error, ErrorCode};
 use crate::partial_json::repair_json;
-use crate::tool::{ToolExecError, ToolRegistry};
+use crate::tool::{Tool, ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
     AgentStepStart, AgentStream, AgentStreamEvent, AgentToolCallFinish, AgentToolCallStart,
     ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ObjectResponse, ObjectStream,
     OutputSchema, ReasoningPart, RunTools, StreamEvent, StreamObjectEvent, TextPart, TextStream,
-    ToolCall, ToolErrorPolicy, ToolResult, Usage, validate_messages, validate_model_ref,
-    validate_sampling,
+    ToolCall, ToolErrorPolicy, ToolResult, ToolSourceRef, Usage, validate_messages,
+    validate_model_ref, validate_sampling,
 };
 
 mod sealed {
@@ -548,11 +548,23 @@ impl Client {
         Ok(Box::pin(object_stream))
     }
 
+    async fn resolve_tools(
+        tools: &[Tool],
+        tool_sources: &[ToolSourceRef],
+    ) -> Result<Vec<Tool>, Error> {
+        let mut resolved = tools.to_vec();
+        for source in tool_sources {
+            resolved.extend(source.tools().await?);
+        }
+        Ok(resolved)
+    }
+
     pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentOutput, Error> {
         let RunTools {
             model,
             messages,
             tools,
+            tool_sources,
             max_steps,
             temperature,
             top_p,
@@ -578,13 +590,13 @@ impl Client {
         let mut messages = messages;
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
-        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
+        let start_tools = Self::resolve_tools(&tools, &tool_sources).await?;
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
                 model_id: model.clone(),
                 messages: messages.clone(),
-                tool_count: tools.len(),
+                tool_count: start_tools.len(),
                 max_steps: resolved_max_steps,
             });
         }
@@ -612,7 +624,7 @@ impl Client {
             let mut prepared_step = AgentPreparedStep {
                 model: model.clone(),
                 messages: messages.clone(),
-                tools: tools.clone(),
+                tools: Self::resolve_tools(&tools, &tool_sources).await?,
                 temperature,
                 max_output_tokens,
                 stop_sequences: stop_sequences.clone(),
@@ -622,14 +634,14 @@ impl Client {
                     step,
                     model: model.clone(),
                     messages: messages.clone(),
-                    tools: tools.clone(),
+                    tools: prepared_step.tools.clone(),
                     temperature,
                     max_output_tokens,
                     stop_sequences: stop_sequences.clone(),
                     previous_steps: step_results.clone(),
                 });
-                tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
             }
+            let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
 
             validate_messages(&prepared_step.messages)?;
 
@@ -756,6 +768,7 @@ impl Client {
             model,
             messages,
             tools,
+            tool_sources,
             max_steps,
             temperature,
             top_p,
@@ -775,18 +788,18 @@ impl Client {
         } = req;
 
         let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
-        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
         let client = self;
 
         let stream = async_stream::try_stream! {
             let mut messages = messages;
             let mut usage_total = Usage::default();
             let mut step_results = Vec::new();
+            let start_tools = Self::resolve_tools(&tools, &tool_sources).await?;
 
             let start_event = AgentStart {
                 model_id: model.clone(),
                 messages: messages.clone(),
-                tool_count: tools.len(),
+                tool_count: start_tools.len(),
                 max_steps: resolved_max_steps,
             };
             if let Some(callback) = &on_start {
@@ -817,7 +830,7 @@ impl Client {
                 let mut prepared_step = AgentPreparedStep {
                     model: model.clone(),
                     messages: messages.clone(),
-                    tools: tools.clone(),
+                    tools: Self::resolve_tools(&tools, &tool_sources).await?,
                     temperature,
                     max_output_tokens,
                     stop_sequences: stop_sequences.clone(),
@@ -827,14 +840,14 @@ impl Client {
                         step,
                         model: model.clone(),
                         messages: messages.clone(),
-                        tools: tools.clone(),
+                        tools: prepared_step.tools.clone(),
                         temperature,
                         max_output_tokens,
                         stop_sequences: stop_sequences.clone(),
                         previous_steps: step_results.clone(),
                     });
-                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
                 }
+                let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
 
                 validate_messages(&prepared_step.messages)?;
 
@@ -1335,7 +1348,25 @@ async fn execute_tool_calls(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+
+    use crate::error::Error;
+    use crate::tool::Tool;
+    use crate::types::{ToolSource, ToolSourceRef};
+
     use super::Client;
+
+    struct StaticToolSource(Vec<Tool>);
+
+    #[async_trait]
+    impl ToolSource for StaticToolSource {
+        async fn tools(&self) -> Result<Vec<Tool>, Error> {
+            Ok(self.0.clone())
+        }
+    }
 
     #[test]
     fn openai_builder_builds() {
@@ -1353,5 +1384,26 @@ mod tests {
             .build()
             .expect("client should build");
         let _ = client;
+    }
+
+    #[tokio::test]
+    async fn resolve_tools_merges_static_tools_and_sources() {
+        let static_tool = crate::tool("static_tool")
+            .description("static")
+            .execute_raw(|_| async { Ok(json!({"ok": true})) });
+        let dynamic_tool = crate::tool("dynamic_tool")
+            .description("dynamic")
+            .execute_raw(|_| async { Ok(json!({"ok": true})) });
+        let source: ToolSourceRef = Arc::new(StaticToolSource(vec![dynamic_tool]));
+
+        let tools = Client::resolve_tools(&[static_tool], &[source])
+            .await
+            .expect("tools should resolve");
+
+        let names = tools
+            .into_iter()
+            .map(|tool| tool.descriptor.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["static_tool", "dynamic_tool"]);
     }
 }

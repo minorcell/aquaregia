@@ -48,6 +48,9 @@ pub(crate) mod client;
 pub mod embed;
 /// Unified error types and HTTP-to-error mapping helpers.
 pub mod error;
+/// MCP (Model Context Protocol) client integration (requires the `mcp` feature).
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub(crate) mod partial_json;
 /// Provider-specific client entry points.
 pub mod providers;
