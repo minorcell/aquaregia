@@ -25,7 +25,7 @@ docker run -e SANDBOX_MCP_TOKEN=dev-token -p 8931:8931 remote-agent-sandbox
 ```bash
 SANDBOX_MCP_URL=http://127.0.0.1:8931/mcp \
 SANDBOX_MCP_TOKEN=dev-token \
-cargo run --manifest-path examples/remote_agent/Cargo.toml
+cargo run --manifest-path examples/remote_agent/Cargo.toml --bin aquaregia-example-remote-agent
 ```
 
 默认 Gateway 地址是 `http://127.0.0.1:3000`，打开后即可使用 Web App。

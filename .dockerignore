@@ -1,0 +1,11 @@
+.git
+.scratch
+target
+examples/*/target
+examples/*/Cargo.lock
+examples/remote_agent/remote_agent.sqlite*
+docs/.next
+docs/node_modules
+docs/out
+reference
+references
