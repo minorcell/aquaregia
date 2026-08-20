@@ -11,12 +11,20 @@
 use std::pin::Pin;
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use futures_core::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{Error, ErrorCode};
 use crate::tool::{IntoTool, Tool, ToolDescriptor};
+
+#[async_trait]
+pub(crate) trait ToolSource: Send + Sync {
+    async fn tools(&self) -> Result<Vec<Tool>, Error>;
+}
+
+pub(crate) type ToolSourceRef = Arc<dyn ToolSource>;
 
 /// Chat message role used across providers.
 ///
@@ -600,6 +608,7 @@ pub(crate) struct RunTools {
     pub(crate) model: String,
     pub(crate) messages: Vec<Message>,
     pub(crate) tools: Vec<Tool>,
+    pub(crate) tool_sources: Vec<ToolSourceRef>,
     pub(crate) max_steps: Option<u32>,
     pub(crate) temperature: Option<f32>,
     pub(crate) top_p: Option<f32>,
@@ -624,6 +633,7 @@ impl RunTools {
             model: model.into(),
             messages: Vec::new(),
             tools: Vec::new(),
+            tool_sources: Vec::new(),
             max_steps: None,
             temperature: None,
             top_p: None,
@@ -658,6 +668,12 @@ impl RunTools {
         T: IntoTool,
     {
         self.tools.push(tool.into_tool());
+        self
+    }
+
+    #[cfg(feature = "mcp")]
+    pub(crate) fn tool_source(mut self, source: ToolSourceRef) -> Self {
+        self.tool_sources.push(source);
         self
     }
 

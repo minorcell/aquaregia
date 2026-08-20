@@ -1,3 +1,10 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "google",
+    feature = "openai-compatible"
+))]
+
 use aquaregia::tool::ToolDescriptor;
 use aquaregia::{
     ChatRequest, ContentPart, ErrorCode, FinishReason, Message, MessageRole, StreamEvent,

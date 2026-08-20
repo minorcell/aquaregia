@@ -15,7 +15,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::{providers::openai, tool};
 //! use serde_json::json;
 //!
@@ -54,6 +54,50 @@ use crate::types::{
     AgentStepStart, AgentStream, AgentToolCallFinish, AgentToolCallStart, Message, RunTools,
     ToolErrorPolicy, validate_model_ref, validate_sampling,
 };
+
+mod sealed {
+    pub trait Sealed {}
+
+    impl<I, T> Sealed for I
+    where
+        I: IntoIterator<Item = T>,
+        T: crate::tool::IntoTool,
+    {
+    }
+
+    #[cfg(feature = "mcp")]
+    impl Sealed for crate::mcp::McpConnection {}
+}
+
+/// Values that can be registered through [`AgentBuilder::tools`].
+///
+/// Normal tool collections are registered as static tools. With the `mcp`
+/// feature enabled, `McpConnection` is registered as a live MCP tool source
+/// that updates when the server sends
+/// `notifications/tools/list_changed`.
+pub trait IntoAgentTools: sealed::Sealed {
+    #[doc(hidden)]
+    fn __apply_to_agent_builder(self, builder: AgentBuilder) -> AgentBuilder;
+}
+
+impl<I, T> IntoAgentTools for I
+where
+    I: IntoIterator<Item = T>,
+    T: IntoTool,
+{
+    fn __apply_to_agent_builder(self, mut builder: AgentBuilder) -> AgentBuilder {
+        builder.template = builder.template.tools(self);
+        builder
+    }
+}
+
+#[cfg(feature = "mcp")]
+impl IntoAgentTools for crate::mcp::McpConnection {
+    fn __apply_to_agent_builder(self, mut builder: AgentBuilder) -> AgentBuilder {
+        builder.template = builder.template.tool_source(Arc::new(self));
+        builder
+    }
+}
 
 /// Multi-step tool-using agent bound to one provider and one default model.
 ///
@@ -210,13 +254,14 @@ impl AgentBuilder {
     }
 
     /// Registers tools available to the model.
-    pub fn tools<I, T>(mut self, tools: I) -> Self
+    ///
+    /// Pass a collection of local tools for a static snapshot, or an MCP
+    /// connection for a live tool set when the `mcp` feature is enabled.
+    pub fn tools<T>(self, tools: T) -> Self
     where
-        I: IntoIterator<Item = T>,
-        T: IntoTool,
+        T: IntoAgentTools,
     {
-        self.template = self.template.tools(tools);
-        self
+        tools.__apply_to_agent_builder(self)
     }
 
     /// Sets the max number of agent loop steps.
@@ -371,7 +416,7 @@ impl AgentBuilder {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "openai"))]
 mod tests {
     use crate::providers;
     use serde_json::json;

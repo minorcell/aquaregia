@@ -1,3 +1,9 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "openai-compatible"
+))]
+
 use aquaregia::{ChatRequest, FinishReason, Message, StreamEvent};
 use futures_util::StreamExt;
 use wiremock::matchers::{method, path};

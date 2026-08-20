@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aquaregia Remote Agent</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="window-controls" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Remote Agent</h1>
+            <p>Aquaregia Gateway</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="status-line" id="healthStatus">
+            <span class="status-dot status-muted"></span>
+            <span>healthz</span>
+          </div>
+          <button class="icon-button" id="refreshAllButton" type="button" aria-label="刷新">↻</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <section class="thread" aria-label="Agent thread">
+          <div class="thread-head">
+            <div class="thread-title">
+              <h2 id="selectedSessionTitle">准备 session</h2>
+              <span id="selectedSessionMeta">正在连接 Gateway</span>
+            </div>
+            <div class="thread-actions">
+              <span class="run-state" id="activeRunLabel">idle</span>
+              <button class="button quiet small" id="newSessionButton" type="button">新会话</button>
+              <button class="button quiet small" id="refreshSessionButton" type="button">刷新</button>
+              <button class="button danger small" id="archiveSessionButton" type="button">归档</button>
+            </div>
+          </div>
+
+          <div class="thread-scroll" id="threadScroll">
+            <section class="message-stack" id="messagesList"></section>
+          </div>
+
+          <form class="composer" id="runForm">
+            <textarea id="runInput" rows="3" placeholder="向 remote agent 发送任务"></textarea>
+            <div class="composer-actions">
+              <label class="toggle">
+                <input id="streamToggle" type="checkbox" checked />
+                <span>stream</span>
+              </label>
+              <button class="send-button" id="startRunButton" type="submit" aria-label="启动 run">↑</button>
+            </div>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>

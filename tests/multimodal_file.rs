@@ -1,3 +1,9 @@
+#![cfg(all(
+    feature = "openai",
+    feature = "anthropic",
+    feature = "openai-compatible"
+))]
+
 //! Integration tests for FilePart media_type dispatch across adapters.
 
 use aquaregia::{

@@ -14,7 +14,7 @@
 //!
 //! ## Example
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use aquaregia::providers::openai;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -43,36 +43,44 @@ use futures_util::stream::{FuturesUnordered, StreamExt};
 use tokio::time::sleep;
 
 use crate::adapters::ModelAdapter;
+#[cfg(feature = "anthropic")]
 use crate::adapters::anthropic::{AnthropicAdapter, AnthropicAdapterSettings};
+#[cfg(feature = "google")]
 use crate::adapters::google::{GoogleAdapter, GoogleAdapterSettings};
+#[cfg(feature = "openai")]
 use crate::adapters::openai::{OpenAiAdapter, OpenAiAdapterSettings};
+#[cfg(feature = "openai-compatible")]
 use crate::adapters::openai_compatible::{
     OpenAiCompatibleAdapter, OpenAiCompatibleAdapterSettings,
 };
 use crate::embed::{EmbedRequest, EmbedResponse, validate_embed_request};
 use crate::error::{Error, ErrorCode};
 use crate::partial_json::repair_json;
-use crate::tool::{ToolExecError, ToolRegistry};
+use crate::tool::{Tool, ToolExecError, ToolRegistry};
 use crate::types::{
     AgentFinish, AgentOutput, AgentPrepareStep, AgentPreparedStep, AgentStart, AgentStep,
     AgentStepStart, AgentStream, AgentStreamEvent, AgentToolCallFinish, AgentToolCallStart,
     ChatRequest, ChatResponse, ContentPart, FinishReason, Message, ObjectResponse, ObjectStream,
     OutputSchema, ReasoningPart, RunTools, StreamEvent, StreamObjectEvent, TextPart, TextStream,
-    ToolCall, ToolErrorPolicy, ToolResult, Usage, validate_messages, validate_model_ref,
-    validate_sampling,
+    ToolCall, ToolErrorPolicy, ToolResult, ToolSourceRef, Usage, validate_messages,
+    validate_model_ref, validate_sampling,
 };
 
 mod sealed {
     pub trait Sealed {}
+    #[cfg(feature = "openai")]
     impl Sealed for super::OpenAiAdapterSettings {}
+    #[cfg(feature = "anthropic")]
     impl Sealed for super::AnthropicAdapterSettings {}
+    #[cfg(feature = "google")]
     impl Sealed for super::GoogleAdapterSettings {}
+    #[cfg(feature = "openai-compatible")]
     impl Sealed for super::OpenAiCompatibleAdapterSettings {}
 }
 
 /// Provider-settings contract consumed by [`ClientBuilder`].
 ///
-/// This trait is sealed: it is implemented exactly for the four built-in
+/// This trait is sealed: it is implemented for enabled built-in
 /// `*AdapterSettings` types and cannot be implemented downstream. External
 /// providers should add an adapter to the `adapters` module rather
 /// than implementing this trait.
@@ -81,6 +89,7 @@ pub trait BuildProvider: sealed::Sealed {
     fn into_adapter(self, http: Arc<reqwest::Client>) -> Arc<dyn ModelAdapter>;
 }
 
+#[cfg(feature = "openai")]
 impl BuildProvider for OpenAiAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -96,6 +105,7 @@ impl BuildProvider for OpenAiAdapterSettings {
     }
 }
 
+#[cfg(feature = "anthropic")]
 impl BuildProvider for AnthropicAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -111,6 +121,7 @@ impl BuildProvider for AnthropicAdapterSettings {
     }
 }
 
+#[cfg(feature = "google")]
 impl BuildProvider for GoogleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.api_key.trim().is_empty() {
@@ -126,6 +137,7 @@ impl BuildProvider for GoogleAdapterSettings {
     }
 }
 
+#[cfg(feature = "openai-compatible")]
 impl BuildProvider for OpenAiCompatibleAdapterSettings {
     fn validate(&self) -> Result<(), Error> {
         if self.base_url.trim().is_empty() {
@@ -207,6 +219,7 @@ impl<S: BuildProvider> ClientBuilder<S> {
     }
 }
 
+#[cfg(feature = "openai")]
 impl ClientBuilder<OpenAiAdapterSettings> {
     /// Sets the OpenAI API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -221,6 +234,7 @@ impl ClientBuilder<OpenAiAdapterSettings> {
     }
 }
 
+#[cfg(feature = "anthropic")]
 impl ClientBuilder<AnthropicAdapterSettings> {
     /// Sets the Anthropic API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -241,6 +255,7 @@ impl ClientBuilder<AnthropicAdapterSettings> {
     }
 }
 
+#[cfg(feature = "google")]
 impl ClientBuilder<GoogleAdapterSettings> {
     /// Sets the Google API key (required).
     pub fn api_key(mut self, api_key: impl Into<String>) -> Self {
@@ -255,6 +270,7 @@ impl ClientBuilder<GoogleAdapterSettings> {
     }
 }
 
+#[cfg(feature = "openai-compatible")]
 impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
     /// Sets the OpenAI-compatible endpoint base URL (required).
     pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
@@ -299,7 +315,7 @@ impl ClientBuilder<OpenAiCompatibleAdapterSettings> {
 ///
 /// Provider-specific public builders produce this internal client:
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use aquaregia::providers::openai;
 ///
 /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
@@ -320,6 +336,7 @@ impl Client {
     ///
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url`.
+    #[cfg(feature = "openai")]
     pub fn openai() -> ClientBuilder<OpenAiAdapterSettings> {
         ClientBuilder::new(OpenAiAdapterSettings::new())
     }
@@ -329,6 +346,7 @@ impl Client {
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url` or the version
     /// header with `ClientBuilder::api_version`.
+    #[cfg(feature = "anthropic")]
     pub fn anthropic() -> ClientBuilder<AnthropicAdapterSettings> {
         ClientBuilder::new(AnthropicAdapterSettings::new())
     }
@@ -337,6 +355,7 @@ impl Client {
     ///
     /// Set the API key with `ClientBuilder::api_key` (required) and optionally
     /// override the endpoint with `ClientBuilder::base_url`.
+    #[cfg(feature = "google")]
     pub fn google() -> ClientBuilder<GoogleAdapterSettings> {
         ClientBuilder::new(GoogleAdapterSettings::new())
     }
@@ -346,6 +365,7 @@ impl Client {
     /// Set the base URL with `ClientBuilder::base_url` (required). The bearer
     /// token is optional and configured with `ClientBuilder::api_key` (or
     /// disabled with `ClientBuilder::no_api_key`, which is the default).
+    #[cfg(feature = "openai-compatible")]
     pub fn openai_compatible() -> ClientBuilder<OpenAiCompatibleAdapterSettings> {
         ClientBuilder::new(OpenAiCompatibleAdapterSettings::new())
     }
@@ -383,7 +403,7 @@ impl Client {
     ///
     /// # Example
     ///
-    /// ```rust,no_run
+    /// ```rust,ignore
     /// use aquaregia::embed::EmbedRequest;
     /// use aquaregia::providers::openai;
     ///
@@ -548,11 +568,23 @@ impl Client {
         Ok(Box::pin(object_stream))
     }
 
+    async fn resolve_tools(
+        tools: &[Tool],
+        tool_sources: &[ToolSourceRef],
+    ) -> Result<Vec<Tool>, Error> {
+        let mut resolved = tools.to_vec();
+        for source in tool_sources {
+            resolved.extend(source.tools().await?);
+        }
+        Ok(resolved)
+    }
+
     pub(crate) async fn run_tools(&self, req: RunTools) -> Result<AgentOutput, Error> {
         let RunTools {
             model,
             messages,
             tools,
+            tool_sources,
             max_steps,
             temperature,
             top_p,
@@ -578,13 +610,13 @@ impl Client {
         let mut messages = messages;
         let mut usage_total = Usage::default();
         let mut step_results = Vec::new();
-        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
+        let start_tools = Self::resolve_tools(&tools, &tool_sources).await?;
 
         if let Some(callback) = &on_start {
             callback(&AgentStart {
                 model_id: model.clone(),
                 messages: messages.clone(),
-                tool_count: tools.len(),
+                tool_count: start_tools.len(),
                 max_steps: resolved_max_steps,
             });
         }
@@ -612,7 +644,7 @@ impl Client {
             let mut prepared_step = AgentPreparedStep {
                 model: model.clone(),
                 messages: messages.clone(),
-                tools: tools.clone(),
+                tools: Self::resolve_tools(&tools, &tool_sources).await?,
                 temperature,
                 max_output_tokens,
                 stop_sequences: stop_sequences.clone(),
@@ -622,14 +654,14 @@ impl Client {
                     step,
                     model: model.clone(),
                     messages: messages.clone(),
-                    tools: tools.clone(),
+                    tools: prepared_step.tools.clone(),
                     temperature,
                     max_output_tokens,
                     stop_sequences: stop_sequences.clone(),
                     previous_steps: step_results.clone(),
                 });
-                tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
             }
+            let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
 
             validate_messages(&prepared_step.messages)?;
 
@@ -756,6 +788,7 @@ impl Client {
             model,
             messages,
             tools,
+            tool_sources,
             max_steps,
             temperature,
             top_p,
@@ -775,18 +808,18 @@ impl Client {
         } = req;
 
         let resolved_max_steps = max_steps.unwrap_or(self.default_max_steps);
-        let mut tool_registry = ToolRegistry::from_tools(tools.clone())?;
         let client = self;
 
         let stream = async_stream::try_stream! {
             let mut messages = messages;
             let mut usage_total = Usage::default();
             let mut step_results = Vec::new();
+            let start_tools = Self::resolve_tools(&tools, &tool_sources).await?;
 
             let start_event = AgentStart {
                 model_id: model.clone(),
                 messages: messages.clone(),
-                tool_count: tools.len(),
+                tool_count: start_tools.len(),
                 max_steps: resolved_max_steps,
             };
             if let Some(callback) = &on_start {
@@ -817,7 +850,7 @@ impl Client {
                 let mut prepared_step = AgentPreparedStep {
                     model: model.clone(),
                     messages: messages.clone(),
-                    tools: tools.clone(),
+                    tools: Self::resolve_tools(&tools, &tool_sources).await?,
                     temperature,
                     max_output_tokens,
                     stop_sequences: stop_sequences.clone(),
@@ -827,14 +860,14 @@ impl Client {
                         step,
                         model: model.clone(),
                         messages: messages.clone(),
-                        tools: tools.clone(),
+                        tools: prepared_step.tools.clone(),
                         temperature,
                         max_output_tokens,
                         stop_sequences: stop_sequences.clone(),
                         previous_steps: step_results.clone(),
                     });
-                    tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
                 }
+                let tool_registry = ToolRegistry::from_tools(prepared_step.tools.clone())?;
 
                 validate_messages(&prepared_step.messages)?;
 
@@ -1335,8 +1368,27 @@ async fn execute_tool_calls(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use serde_json::json;
+
+    use crate::error::Error;
+    use crate::tool::Tool;
+    use crate::types::{ToolSource, ToolSourceRef};
+
     use super::Client;
 
+    struct StaticToolSource(Vec<Tool>);
+
+    #[async_trait]
+    impl ToolSource for StaticToolSource {
+        async fn tools(&self) -> Result<Vec<Tool>, Error> {
+            Ok(self.0.clone())
+        }
+    }
+
+    #[cfg(feature = "openai")]
     #[test]
     fn openai_builder_builds() {
         let client = Client::openai()
@@ -1346,6 +1398,7 @@ mod tests {
         let _ = client;
     }
 
+    #[cfg(feature = "anthropic")]
     #[test]
     fn anthropic_builder_builds() {
         let client = Client::anthropic()
@@ -1353,5 +1406,26 @@ mod tests {
             .build()
             .expect("client should build");
         let _ = client;
+    }
+
+    #[tokio::test]
+    async fn resolve_tools_merges_static_tools_and_sources() {
+        let static_tool = crate::tool("static_tool")
+            .description("static")
+            .execute_raw(|_| async { Ok(json!({"ok": true})) });
+        let dynamic_tool = crate::tool("dynamic_tool")
+            .description("dynamic")
+            .execute_raw(|_| async { Ok(json!({"ok": true})) });
+        let source: ToolSourceRef = Arc::new(StaticToolSource(vec![dynamic_tool]));
+
+        let tools = Client::resolve_tools(&[static_tool], &[source])
+            .await
+            .expect("tools should resolve");
+
+        let names = tools
+            .into_iter()
+            .map(|tool| tool.descriptor.name)
+            .collect::<Vec<_>>();
+        assert_eq!(names, ["static_tool", "dynamic_tool"]);
     }
 }

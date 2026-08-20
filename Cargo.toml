@@ -31,6 +31,15 @@ exclude = [
 name = "aquaregia"
 path = "src/lib.rs"
 
+[features]
+default = ["openai", "anthropic", "google", "openai-compatible"]
+openai = []
+anthropic = []
+google = []
+openai-compatible = []
+# MCP (Model Context Protocol) client support. Off by default; pulls in `rmcp`.
+mcp = ["dep:rmcp"]
+
 [dependencies]
 
 async-stream = "0.3"
@@ -45,6 +54,11 @@ serde_json = "1.0"
 thiserror = "2.0"
 tokio = { version = "1.44", features = ["macros", "rt-multi-thread", "time"] }
 tokio-util = { version = "0.7" }
+rmcp = { version = "2", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+], optional = true }
 
 [dev-dependencies]
 http = "1"

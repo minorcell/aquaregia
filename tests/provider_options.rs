@@ -1,3 +1,5 @@
+#![cfg(feature = "openai-compatible")]
+
 //! Integration tests for provider_options passthrough.
 
 use aquaregia::{ChatRequest, ContentPart, Message, MessageRole, TextPart, tool};
